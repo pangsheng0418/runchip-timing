@@ -113,14 +113,27 @@
     await reloadState();
     switchView(state.view);
 
+    // 進入系統後若網路正常且已設定雲端網址，立即自動同步雲端所有最新資料，避免各裝置資料不一致！
+    if (navigator.onLine && Sync.hasUrl()) {
+      await autoSyncCloud({ reason: 'boot', showNotice: true });
+    }
+
+    // 網路恢復時自動雙向同步（先上傳離線感應，再拉取雲端最新）
     window.addEventListener('online', async () => {
       updateNetworkIndicators();
-      const pending = await DB.getPendingSyncCounts();
-      if (Sync.isOnlineEnabled() && pending.total > 0) {
-        showToast(`網路已恢復！自動上傳 ${pending.total} 筆離線紀錄中...`, 'info');
-        await handleUploadPendingSync(false);
-      } else if (pending.total > 0 && Sync.hasUrl()) {
-        showToast(`網路已恢復！您有 ${pending.total} 筆離線紀錄可點擊「統一上傳同步」`, 'info');
+      if (Sync.hasUrl()) {
+        showToast('網路已恢復，正在自動雙向同步雲端最新資料...', 'info');
+        await autoSyncCloud({ reason: 'reconnect', showNotice: true });
+      }
+    });
+
+    // 手機喚醒或切回瀏覽器分頁時，自動背景檢查最新活動與鳴槍時間（節流 15 秒）
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && navigator.onLine && Sync.hasUrl()) {
+        const last = DB.getDeviceSettings().lastSyncAt || 0;
+        if (Date.now() - last > 15000) {
+          autoSyncCloud({ reason: 'resume', showNotice: false });
+        }
       }
     });
 
@@ -128,6 +141,37 @@
       updateNetworkIndicators();
       showToast('已進入無網路狀態！晶片計時作業仍可離線執行，有網後再統一上傳', 'warn');
     });
+  }
+
+  let _isAutoSyncing = false;
+  async function autoSyncCloud({ reason = 'manual', showNotice = false } = {}) {
+    if (_isAutoSyncing || !navigator.onLine || !Sync.hasUrl()) return;
+    _isAutoSyncing = true;
+    const portalBanner = $('portal-net-banner');
+    if (portalBanner) {
+      portalBanner.className = 'inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-extrabold bg-sky-950/80 border border-sky-500/50 text-sky-300';
+      portalBanner.textContent = '🔄 連線正常，正在自動同步雲端最新活動與資料...';
+    }
+    try {
+      const uploadRes = await Sync.fullBidirectionalSync(state.session);
+      await reloadState();
+      const evtCount = (state.platform?.events || []).length;
+      if (showNotice) {
+        const uploaded = (uploadRes.uploadedChips || 0) + (uploadRes.uploadedRegs || 0) + (uploadRes.uploadedScans || 0);
+        const msg = uploaded > 0 || uploadRes.platformSynced
+          ? `☁️ 雲端雙向同步完成！已上傳本地異動並更新最新 ${evtCount} 場活動資料`
+          : `☁️ 已同步雲端最新資料（共 ${evtCount} 場路跑活動）`;
+        showToast(msg, 'success');
+      }
+    } catch (err) {
+      console.warn(`自動同步 (${reason}) 失敗:`, err);
+      if (showNotice && reason === 'manual') {
+        showToast(`雲端同步失敗：${err.message}`, 'error');
+      }
+    } finally {
+      _isAutoSyncing = false;
+      updateNetworkIndicators();
+    }
   }
 
   function registerServiceWorker() {
@@ -159,11 +203,10 @@
     if (evt) {
       const evtRegs = regs.filter((r) => r.eventId === evt.eventId);
       const evtScans = scans.filter((s) => s.eventId === evt.eventId);
-      state.computed = TE.computeResults({
+      state.computed = TE.computeEventResults({
+        event: evt,
         runners: evtRegs,
         scans: evtScans,
-        categories: evt.categories || [],
-        checkpoints: evt.checkpoints || [],
         rankBy: state.rankBy
       });
     } else {
@@ -283,7 +326,10 @@
     const events = state.platform?.events || [];
     const statusLabel = { active: '進行中', upcoming: '籌備中', finished: '已結束' };
     const optionsHtml = events.length
-      ? events.map((ev) => `<option value="${esc(ev.eventId)}">${esc(ev.name)} (${esc(ev.date || '')}) [${statusLabel[ev.status] || ev.status}]</option>`).join('')
+      ? events.map((ev) => {
+          const typeTag = ev.eventType === 'lap_timed' ? `🔁繞圈(${ev.lapDistanceKm}K/圈)` : '🏃距離賽';
+          return `<option value="${esc(ev.eventId)}">${typeTag} ${esc(ev.name)} (${esc(ev.date || '')}) [${statusLabel[ev.status] || ev.status}]</option>`;
+        }).join('')
       : '<option value="">尚無活動</option>';
 
     ['portal-event-select', 'staff-login-event', 'admin-event-select'].forEach((id) => {
@@ -321,12 +367,18 @@
     }
 
     const portalBanner = $('portal-net-banner');
-    if (portalBanner) {
+    const portalCloudTip = $('portal-cloud-tip');
+    if (portalCloudTip) {
+      portalCloudTip.classList.toggle('hidden', Boolean(settings.gasUrl));
+    }
+    if (portalBanner && !_isAutoSyncing) {
       if (onlineNet) {
         portalBanner.className = 'inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-extrabold bg-emerald-950/70 border border-emerald-500/40 text-emerald-300';
+        const evtCount = (state.platform?.events || []).length;
+        const lastStr = settings.lastSyncAt ? ` • 最後同步 ${TE.formatClockSec(settings.lastSyncAt)}` : '';
         portalBanner.textContent = settings.gasUrl
-          ? '🟢 網路連線正常 • 已連接 Google 雲端試算表，亦支援無網路離線作業'
-          : '🟢 網路連線正常 • 本機離線模式運作中（可至後台設定 Google 試算表同步）';
+          ? `🟢 已連線雲端試算表（共 ${evtCount} 場活動）${lastStr}`
+          : '🟡 尚未綁定雲端網址 • 目前僅顯示本機離線資料';
       } else {
         portalBanner.className = 'inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-extrabold bg-amber-950/80 border border-amber-500/50 text-amber-300';
         portalBanner.textContent = '📴 目前無網路連線 • 晶片計時作業仍可正常離線登入與感應，連網後統一上傳同步！';
@@ -470,7 +522,18 @@
   function getLockedCheckpoint() {
     const evt = getActiveEvent();
     const acc = state.session?.account;
-    if (!acc || !acc.checkpointId) return null;
+    if (!acc) return null;
+    // 繞圈計時賽無中間管制點，任何合法感應作業員進入繞圈賽皆自動鎖定單一「繞圈計次感應區 (LAP)」
+    if (evt && evt.eventType === 'lap_timed') {
+      return (evt.checkpoints && evt.checkpoints[0]) || {
+        id: 'LAP',
+        name: '繞圈計次感應區',
+        order: 1,
+        distanceKm: Number(evt.lapDistanceKm || 2.54),
+        type: 'lap'
+      };
+    }
+    if (!acc.checkpointId) return null;
     return (evt?.checkpoints || []).find((c) => c.id === acc.checkpointId) || {
       id: acc.checkpointId,
       name: acc.checkpointId,
@@ -529,9 +592,21 @@
   }
 
   function renderScanPanel(evt, lockedCp) {
-    $('locked-event-title').textContent = evt ? `🏟️ 鎖定活動：${evt.name}（${evt.date || ''}）` : '尚未選定活動';
-    $('locked-cp-name').textContent = lockedCp ? `#${lockedCp.order || '-'} ${lockedCp.name}` : '未指派站點';
-    $('locked-cp-meta').textContent = lockedCp ? `代碼：${lockedCp.id} ｜ 累計距離：${lockedCp.distanceKm} km` : '請確認本活動有對應站點代碼';
+    const isLap = evt?.eventType === 'lap_timed';
+    $('locked-event-title').textContent = evt
+      ? (isLap
+          ? `🔁 繞圈計時賽：${evt.name}（單圈 ${evt.lapDistanceKm} km • 無管制點，每刷 1 次累積 1 圈）`
+          : `🏟️ 鎖定活動：${evt.name}（${evt.date || ''}）`)
+      : '尚未選定活動';
+    $('locked-cp-name').textContent = lockedCp
+      ? (isLap ? `🔁 ${lockedCp.name}` : `#${lockedCp.order || '-'} ${lockedCp.name}`)
+      : '未指派站點';
+    $('locked-cp-meta').textContent = lockedCp
+      ? (isLap ? `代碼：${lockedCp.id} ｜ 每圈計程：${evt.lapDistanceKm} km` : `代碼：${lockedCp.id} ｜ 累計距離：${lockedCp.distanceKm} km`)
+      : '請確認本活動有對應站點代碼';
+
+    const col3Label = $('hero-col3-label');
+    if (col3Label) col3Label.textContent = isLap ? '累積圈數 / 總里程' : '本場經過時間';
 
     // 模擬器列出所有「共用晶片」（並標示該晶片是否已報名本活動，方便測試比對與未報名攔截！）
     const evtRegIdSet = new Set(
@@ -681,24 +756,57 @@
       return;
     }
 
-    // 3. 計算本場經過時間
-    const startCp = [...(evt.checkpoints || [])].sort((a, b) => a.order - b.order).find((c) => c.type === 'start');
-    const startScan = startCp
-      ? state.allScans.find((s) => !s.deleted && s.eventId === evt.eventId && s.bib === reg.bib && s.checkpointId === startCp.id)
-      : null;
+    // 3. 依活動性質計算顯示（繞圈計時賽顯示累積圈數＋總里程；一般距離賽顯示經過時間）
+    if (evt.eventType === 'lap_timed') {
+      const lapKm = Number(evt.lapDistanceKm || 2.54);
+      const gunMs = cat && cat.gunTimeMs ? Number(cat.gunTimeMs) : null;
+      const hrs = cat ? Number(cat.durationHours || cat.distanceKm || 6) : 6;
+      const cutMs = gunMs !== null ? gunMs + hrs * 3600 * 1000 : null;
+      const isOvertime = cutMs !== null && scanTs > cutMs;
 
-    let elapsedStr = '尚未鳴槍';
-    if (cat && cat.gunTimeMs) elapsedStr = TE.formatDuration(scanTs - Number(cat.gunTimeMs), true);
-    else if (startScan) elapsedStr = TE.formatDuration(scanTs - Number(startScan.timestampMs), true);
+      const prevValidLaps = state.allScans
+        .filter((s) => !s.deleted && s.eventId === evt.eventId && s.bib === reg.bib && (cutMs === null || s.timestampMs <= cutMs))
+        .sort((a, b) => a.timestampMs - b.timestampMs);
 
-    NFC.sound.beepSuccess();
-    heroCard.classList.add('flash-success');
-    $('scan-status-pill').className = 'inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-extrabold bg-emerald-500 text-slate-950 mb-3';
-    $('scan-status-pill').textContent = `✅ 比對成功並計時 — ${lockedCp.name}`;
-    $('hero-bib-cat').textContent = `${reg.bib} • ${displayCat}`;
-    $('hero-name').textContent = reg.name;
-    $('hero-elapsed').textContent = elapsedStr;
-    $('hero-subinfo').textContent = `感應時間：${TE.formatClockMs(scanTs)} ｜ 活動：${evt.name} ｜ 操作員：${operator}`;
+      const newLapCount = isOvertime ? prevValidLaps.length : prevValidLaps.length + 1;
+      const totalKm = (newLapCount * lapKm).toFixed(2);
+      const lastPrevTs = prevValidLaps.length ? prevValidLaps[prevValidLaps.length - 1].timestampMs : gunMs;
+      const singleLapStr = lastPrevTs !== null ? TE.formatDuration(scanTs - lastPrevTs, false) : '--';
+
+      if (isOvertime) {
+        NFC.sound.beepWarning();
+        heroCard.classList.add('flash-warn');
+        $('scan-status-pill').className = 'inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-extrabold bg-amber-500 text-slate-950 mb-3';
+        $('scan-status-pill').textContent = `⏰ 已逾 ${hrs} 小時限時（已留存紀錄，不計入正式圈數）`;
+      } else {
+        NFC.sound.beepSuccess();
+        heroCard.classList.add('flash-success');
+        $('scan-status-pill').className = 'inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-extrabold bg-emerald-500 text-slate-950 mb-3';
+        $('scan-status-pill').textContent = `🔁 繞圈計次成功！第 ${newLapCount} 圈 (+${lapKm} km)`;
+      }
+      $('hero-bib-cat').textContent = `${reg.bib} • ${displayCat}`;
+      $('hero-name').textContent = reg.name;
+      $('hero-elapsed').textContent = `${newLapCount} 圈 • ${totalKm} km`;
+      $('hero-subinfo').textContent = `感應時間：${TE.formatClockMs(scanTs)} ｜ 本圈耗時：${singleLapStr} ｜ 操作員：${operator}`;
+    } else {
+      const startCp = [...(evt.checkpoints || [])].sort((a, b) => a.order - b.order).find((c) => c.type === 'start');
+      const startScan = startCp
+        ? state.allScans.find((s) => !s.deleted && s.eventId === evt.eventId && s.bib === reg.bib && s.checkpointId === startCp.id)
+        : null;
+
+      let elapsedStr = '尚未鳴槍';
+      if (cat && cat.gunTimeMs) elapsedStr = TE.formatDuration(scanTs - Number(cat.gunTimeMs), true);
+      else if (startScan) elapsedStr = TE.formatDuration(scanTs - Number(startScan.timestampMs), true);
+
+      NFC.sound.beepSuccess();
+      heroCard.classList.add('flash-success');
+      $('scan-status-pill').className = 'inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-extrabold bg-emerald-500 text-slate-950 mb-3';
+      $('scan-status-pill').textContent = `✅ 比對成功並計時 — ${lockedCp.name}`;
+      $('hero-bib-cat').textContent = `${reg.bib} • ${displayCat}`;
+      $('hero-name').textContent = reg.name;
+      $('hero-elapsed').textContent = elapsedStr;
+      $('hero-subinfo').textContent = `感應時間：${TE.formatClockMs(scanTs)} ｜ 活動：${evt.name} ｜ 操作員：${operator}`;
+    }
 
     if (Sync.isOnlineEnabled() && navigator.onLine) {
       Sync.pushSingleScan(res.scan).then(() => reloadState());
@@ -1007,6 +1115,9 @@
               <div>
                 <div class="flex items-center gap-2 flex-wrap">
                   <span class="font-black text-white text-base">${esc(ev.name)}</span>
+                  ${ev.eventType === 'lap_timed'
+                    ? `<span class="px-2 py-0.5 rounded-full text-[11px] font-black bg-purple-500/20 text-purple-300 border border-purple-500/40">🔁 繞圈計時 (${ev.lapDistanceKm}km/圈)</span>`
+                    : '<span class="px-2 py-0.5 rounded-full text-[11px] font-bold bg-sky-500/20 text-sky-300">🏃 距離賽</span>'}
                   ${statusBadge[ev.status] || ''}
                   ${isDefault ? '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-sky-600 text-white">公開預設</span>' : ''}
                 </div>
@@ -1038,6 +1149,13 @@
       $('cfg-evt-location').value = currentEvt.location || '';
       $('cfg-evt-status').value = currentEvt.status || 'active';
       $('cfg-evt-debounce').value = String(currentEvt.debounceSeconds ?? 30);
+      const isLap = currentEvt.eventType === 'lap_timed';
+      $('cfg-evt-type-badge').textContent = isLap ? '🔁 繞圈計時賽' : '🏃 一般距離賽';
+      $('cfg-evt-type-badge').className = isLap
+        ? 'px-2.5 py-2 rounded-xl text-xs font-black bg-purple-900/60 text-purple-200 border border-purple-500/40 shrink-0'
+        : 'px-2.5 py-2 rounded-xl text-xs font-black bg-slate-800 text-sky-300 shrink-0';
+      $('cfg-evt-lap-km').classList.toggle('hidden', !isLap);
+      if (isLap) $('cfg-evt-lap-km').value = String(currentEvt.lapDistanceKm || 2.54);
     }
 
     $('cfg-admin-user').value = state.platform.adminUsername || 'admin';
@@ -1092,10 +1210,8 @@
     const computed = state.computed;
     if (!evt || !computed) return;
 
-    $('kpi-total').textContent = String(computed.summary.totalRunners);
-    $('kpi-finished').textContent = String(computed.summary.finishedCount);
-    $('kpi-oncourse').textContent = String(computed.summary.onCourseCount);
-    $('kpi-notstarted').textContent = String(computed.summary.notStartedCount);
+    const isLap = evt.eventType === 'lap_timed';
+    const s = computed.summary;
 
     const catFilter = $('results-category-filter');
     const cats = evt.categories || [];
@@ -1103,6 +1219,98 @@
     if (!cats.some((c) => c.id === state.resultsCatFilter)) state.resultsCatFilter = 'ALL';
     catFilter.value = state.resultsCatFilter;
     $('results-rankby-select').value = state.rankBy;
+    $('results-rankby-select').classList.toggle('hidden', isLap);
+
+    const q = state.resultsSearch.trim().toLowerCase();
+    const filtered = computed.rows.filter((r) => {
+      if (state.resultsCatFilter !== 'ALL' && r.categoryId !== state.resultsCatFilter) return false;
+      if (q) return r.bib.toLowerCase().includes(q) || r.name.toLowerCase().includes(q) || (r.idNumber || '').toLowerCase().includes(q);
+      return true;
+    });
+
+    const tbody = $('results-tbody');
+
+    if (isLap) {
+      $('kpi-label-1').textContent = '本場報名人數';
+      $('kpi-label-2').textContent = '全場累積總圈數';
+      $('kpi-label-3').textContent = '全場累積總里程 (km)';
+      $('kpi-label-4').textContent = '領先最高里程 (km)';
+
+      $('kpi-total').textContent = String(s.totalRunners);
+      $('kpi-finished').textContent = `${s.totalLapsAll} 圈`;
+      $('kpi-oncourse').textContent = s.totalKmAll.toFixed(2);
+      $('kpi-notstarted').textContent = s.topDistanceKm.toFixed(2);
+
+      $('results-edit-banner').textContent = `🔁 繞圈計時賽模式（單圈 ${evt.lapDistanceKm} km • 依累積總里程排名）：點擊任一選手的「🔁 逐圈明細 / 補刪圈」可檢視每圈耗時、補登漏圈或刪除誤感應。`;
+
+      $('results-thead').innerHTML = `
+        <tr>
+          <th class="px-3 py-3">總名次</th>
+          <th class="px-3 py-3">組名次</th>
+          <th class="px-3 py-3">編號</th>
+          <th class="px-3 py-3">姓名</th>
+          <th class="px-3 py-3">身份證</th>
+          <th class="px-3 py-3">限時組別</th>
+          <th class="px-3 py-3">累積圈數</th>
+          <th class="px-3 py-3">累積總里程</th>
+          <th class="px-3 py-3">累積耗時</th>
+          <th class="px-3 py-3">最後通過時間</th>
+          <th class="px-3 py-3">最速 / 平均單圈</th>
+          <th class="px-3 py-3">平均配速</th>
+          <th class="px-3 py-3 text-right">逐圈管理</th>
+        </tr>
+      `;
+
+      if (filtered.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="13" class="py-8 text-center text-slate-500">本場繞圈活動尚無成績資料</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = filtered
+        .map((row) => `
+          <tr class="hover:bg-slate-800/40 align-middle">
+            <td class="px-3 py-2.5 font-mono-num font-black text-amber-400">${row.overallRank ?? '-'}</td>
+            <td class="px-3 py-2.5 font-mono-num font-bold text-sky-300">${row.categoryRank ?? '-'}</td>
+            <td class="px-3 py-2.5 font-mono-num font-bold text-white">${esc(row.bib)}</td>
+            <td class="px-3 py-2.5 font-bold text-white">${esc(row.name)}</td>
+            <td class="px-3 py-2.5 font-mono-num text-slate-400">${esc(row.idNumber || row.idMasked || '--')}</td>
+            <td class="px-3 py-2.5">
+              <span class="inline-flex items-center gap-1.5 text-xs font-bold">
+                <span class="w-2 h-2 rounded-full" style="background:${esc(row.categoryColor)}"></span>
+                ${esc(row.categoryName)} (${row.durationHours}H)
+              </span>
+            </td>
+            <td class="px-3 py-2.5 font-mono-num font-black text-purple-300 text-base">${row.lapCount} 圈${row.overtimeCount ? ` <span class="text-[10px] text-rose-400">(+${row.overtimeCount}超時)</span>` : ''}</td>
+            <td class="px-3 py-2.5 font-mono-num font-black text-emerald-400 text-base">${row.totalDistanceKm.toFixed(2)} km</td>
+            <td class="px-3 py-2.5 font-mono-num text-sky-300">${row.totalElapsedMs !== null ? TE.formatDuration(row.totalElapsedMs, false) : '--'}</td>
+            <td class="px-3 py-2.5 font-mono-num text-slate-300">${row.lastLapTimeMs ? TE.formatClockSec(row.lastLapTimeMs) : '--'}</td>
+            <td class="px-3 py-2.5 font-mono-num text-xs text-slate-300">
+              ${row.bestLapMs !== null ? TE.formatDuration(row.bestLapMs, false) : '--'} / ${row.avgLapMs !== null ? TE.formatDuration(row.avgLapMs, false) : '--'}
+            </td>
+            <td class="px-3 py-2.5 font-mono-num text-slate-300">${esc(row.avgPace)}</td>
+            <td class="px-3 py-2.5 text-right">
+              <button type="button" data-open-lap-bib="${esc(row.bib)}"
+                class="px-3 py-1.5 rounded-lg text-xs font-black bg-purple-600/30 hover:bg-purple-600/50 border border-purple-500/40 text-purple-200 transition">
+                🔁 逐圈明細 / 補刪圈
+              </button>
+            </td>
+          </tr>
+        `)
+        .join('');
+      return;
+    }
+
+    // 一般距離路跑
+    $('kpi-label-1').textContent = '本場報名人數';
+    $('kpi-label-2').textContent = '已完賽';
+    $('kpi-label-3').textContent = '賽道進行中';
+    $('kpi-label-4').textContent = '尚未出發';
+    $('results-edit-banner').textContent = '🛡️ 最高管理員修正模式：點擊下方任一選手的「站點時間」或「罰時」即可補登、修改或刪除，自動重算名次。';
+
+    $('kpi-total').textContent = String(s.totalRunners);
+    $('kpi-finished').textContent = String(s.finishedCount);
+    $('kpi-oncourse').textContent = String(s.onCourseCount);
+    $('kpi-notstarted').textContent = String(s.notStartedCount);
 
     const checkpoints = computed.checkpoints;
     $('results-thead').innerHTML = `
@@ -1123,14 +1331,6 @@
       </tr>
     `;
 
-    const q = state.resultsSearch.trim().toLowerCase();
-    const filtered = computed.rows.filter((r) => {
-      if (state.resultsCatFilter !== 'ALL' && r.categoryId !== state.resultsCatFilter) return false;
-      if (q) return r.bib.toLowerCase().includes(q) || r.name.toLowerCase().includes(q) || (r.idNumber || '').toLowerCase().includes(q);
-      return true;
-    });
-
-    const tbody = $('results-tbody');
     if (filtered.length === 0) {
       tbody.innerHTML = `<tr><td colspan="${12 + checkpoints.length}" class="py-8 text-center text-slate-500">本活動尚無成績資料</td></tr>`;
       return;
@@ -1209,10 +1409,16 @@
   function renderAdminRaceTab() {
     const evt = getActiveEvent();
     if (!evt) return;
+    const isLap = evt.eventType === 'lap_timed';
+
+    $('admin-lap-no-cp-banner').classList.toggle('hidden', !isLap);
+    $('admin-checkpoints-card').classList.toggle('hidden', isLap);
 
     $('categories-list').innerHTML = (evt.categories || [])
-      .map(
-        (c, idx) => `
+      .map((c, idx) => {
+        const hrs = Number(c.durationHours || c.distanceKm || 6);
+        const cutoffStr = isLap && c.gunTimeMs ? ` ｜ 限時截止：${TE.formatClockSec(Number(c.gunTimeMs) + hrs * 3600000)}` : '';
+        return `
         <div class="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-3" data-cat-index="${idx}">
           <div class="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-end">
             <div class="sm:col-span-2">
@@ -1224,8 +1430,8 @@
               <input type="text" value="${esc(c.name)}" data-cat-field="name" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-sm font-bold text-white" />
             </div>
             <div class="sm:col-span-2">
-              <label class="block text-[11px] text-slate-400 mb-1">距離 (km)</label>
-              <input type="number" step="0.001" value="${esc(c.distanceKm)}" data-cat-field="distanceKm" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-sm font-mono-num text-white" />
+              <label class="block text-[11px] text-slate-400 mb-1">${isLap ? '限時小時數 (H)' : '距離 (km)'}</label>
+              <input type="number" step="${isLap ? '0.5' : '0.001'}" value="${esc(isLap ? hrs : c.distanceKm)}" data-cat-field="distanceKm" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-sm font-mono-num text-white" />
             </div>
             <div class="sm:col-span-4 flex flex-wrap gap-1.5">
               <button type="button" data-save-cat="${idx}" class="px-3 py-2 rounded-lg text-xs font-bold bg-sky-600 hover:bg-sky-500 text-white">儲存分組</button>
@@ -1234,11 +1440,12 @@
           </div>
 
           <div class="pt-2 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2.5">
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2 flex-wrap">
               <span class="text-xs text-slate-400 font-bold">鳴槍起跑時間：</span>
               <span class="font-mono-num text-base font-black ${c.gunTimeMs ? 'text-emerald-400' : 'text-slate-500'}">
                 ${c.gunTimeMs ? TE.formatClockSec(c.gunTimeMs) : '尚未鳴槍'}
               </span>
+              ${cutoffStr ? `<span class="text-xs font-mono-num text-amber-300">${cutoffStr}</span>` : ''}
             </div>
             <div class="flex flex-wrap items-center gap-2">
               <button type="button" data-gun-now="${idx}" class="px-4 py-2 rounded-xl text-xs font-black bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow">
@@ -1251,8 +1458,8 @@
             </div>
           </div>
         </div>
-      `
-      )
+      `;
+      })
       .join('');
 
     const sortedCps = [...(evt.checkpoints || [])].sort((a, b) => a.order - b.order);
@@ -1362,19 +1569,20 @@
     if (!navigator.onLine) return showToast('目前無網路連線，請連網後再統一上傳', 'warn');
     if (!Sync.hasUrl()) return showToast('尚未設定 Google Apps Script 雲端網址', 'warn');
     try {
-      const res = await Sync.syncPendingToCloud();
+      const res = await Sync.fullBidirectionalSync(state.session);
       await reloadState();
-      if (!silent || res.uploadedScans > 0 || res.uploadedChips > 0 || res.uploadedRegs > 0) {
+      const evtCount = (state.platform?.events || []).length;
+      if (!silent || res.platformSynced || res.uploadedScans > 0 || res.uploadedChips > 0 || res.uploadedRegs > 0) {
         showToast(
-          `☁️ 統一上傳完成！晶片 ${res.uploadedChips}、報名 ${res.uploadedRegs}、感應 ${res.uploadedScans} 筆` +
+          `☁️ 雙向同步完成！${res.platformSynced ? '活動設定已上傳、' : ''}晶片 ${res.uploadedChips}、報名 ${res.uploadedRegs}、感應 ${res.uploadedScans} 筆（雲端共 ${evtCount} 場活動）` +
             (res.skippedDuplicate ? `（略過重複 ${res.skippedDuplicate} 筆）` : ''),
           'success'
         );
       } else {
-        showToast('目前沒有待上傳的離線資料', 'info');
+        showToast(`☁️ 已與雲端同步完成（共 ${evtCount} 場活動，資料完全一致）`, 'success');
       }
     } catch (err) {
-      showToast(`雲端上傳失敗：${err.message}`, 'error');
+      showToast(`雲端同步失敗：${err.message}`, 'error');
     }
   }
 
@@ -1484,9 +1692,24 @@
     $('portal-event-select').addEventListener('change', (e) => onEventChange(e.target.value));
     $('admin-event-select').addEventListener('change', (e) => onEventChange(e.target.value));
 
-    // 大廳導覽
+    // 大廳導覽、手動同步與快速綁定雲端網址
     $('btn-portal-staff').addEventListener('click', () => switchView('staff-login'));
     $('btn-portal-admin').addEventListener('click', () => switchView('admin-login'));
+    $('btn-portal-sync-now').addEventListener('click', async () => {
+      if (!Sync.hasUrl()) {
+        showToast('尚未設定雲端網址，請點下方「🔗 綁定雲端網址」或從後台設定', 'warn');
+        return;
+      }
+      await autoSyncCloud({ reason: 'manual', showNotice: true });
+    });
+    $('btn-portal-bind-url').addEventListener('click', async () => {
+      const url = prompt('請貼上主辦單位的 Google Apps Script 網頁應用程式網址 (https://script.google.com/macros/s/.../exec)：');
+      if (!url || !url.trim()) return;
+      DB.saveDeviceSettings({ gasUrl: url.trim(), mode: 'online' });
+      renderHeader();
+      updateNetworkIndicators();
+      await autoSyncCloud({ reason: 'manual', showNotice: true });
+    });
     $('btn-logout').addEventListener('click', handleLogout);
     $('header-brand-home').addEventListener('click', () => { if (!state.session) switchView('portal'); });
     document.querySelectorAll('[data-goto]').forEach((b) => b.addEventListener('click', () => switchView(b.dataset.goto)));
@@ -1637,9 +1860,15 @@
     /* ==================== 後台管理區事件 ==================== */
     document.querySelectorAll('.admin-tab-btn').forEach((b) => b.addEventListener('click', () => switchAdminTab(b.dataset.adminTab)));
 
-    // 建立新路跑活動 Modal
+    // 建立新路跑活動 Modal（支援一般距離賽與繞圈計時賽）
     const closeNewEvt = () => $('modal-new-event').classList.add('hidden');
+    $('new-evt-type').addEventListener('change', (e) => {
+      $('new-evt-lap-km-box').classList.toggle('hidden', e.target.value !== 'lap_timed');
+    });
     $('btn-open-new-event-modal').addEventListener('click', () => {
+      $('new-evt-type').value = 'distance';
+      $('new-evt-lap-km-box').classList.add('hidden');
+      $('new-evt-lap-km').value = '2.54';
       $('new-evt-name').value = '';
       $('new-evt-date').value = new Date().toISOString().slice(0, 10);
       $('new-evt-location').value = '';
@@ -1650,10 +1879,14 @@
 
     $('form-new-event').addEventListener('submit', async (e) => {
       e.preventDefault();
+      const evtType = $('new-evt-type').value;
+      const lapKm = Number($('new-evt-lap-km').value || 2.54);
       const newEvt = DB.createEventTemplate(
         $('new-evt-name').value.trim(),
         $('new-evt-date').value,
-        $('new-evt-location').value.trim()
+        $('new-evt-location').value.trim(),
+        evtType,
+        lapKm
       );
       const updated = await DB.savePlatform({
         ...state.platform,
@@ -1664,7 +1897,12 @@
       if (Sync.isOnlineEnabled() && navigator.onLine) Sync.pushPlatform(updated, state.session.auth);
       closeNewEvt();
       await reloadState();
-      showToast(`🏟️ 已建立新活動「${newEvt.name}」！請接著設定分組並匯入選手名單`, 'success');
+      showToast(
+        evtType === 'lap_timed'
+          ? `🔁 已建立繞圈計時賽「${newEvt.name}」(單圈 ${lapKm} km，預設 6H/12H/24H)！`
+          : `🏟️ 已建立新活動「${newEvt.name}」！請接著設定分組並匯入選手名單`,
+        'success'
+      );
     });
 
     // 活動卡片操作
@@ -1701,13 +1939,23 @@
 
     $('form-event-basic').addEventListener('submit', async (e) => {
       e.preventDefault();
-      await updateCurrentEvent(() => ({
-        name: $('cfg-evt-name').value.trim(),
-        date: $('cfg-evt-date').value,
-        location: $('cfg-evt-location').value.trim(),
-        status: $('cfg-evt-status').value,
-        debounceSeconds: Number($('cfg-evt-debounce').value || 30)
-      }));
+      await updateCurrentEvent((ev) => {
+        const patch = {
+          name: $('cfg-evt-name').value.trim(),
+          date: $('cfg-evt-date').value,
+          location: $('cfg-evt-location').value.trim(),
+          status: $('cfg-evt-status').value,
+          debounceSeconds: Number($('cfg-evt-debounce').value || 30)
+        };
+        if (ev.eventType === 'lap_timed') {
+          const newLapKm = Math.max(0.05, Number($('cfg-evt-lap-km').value || 2.54));
+          patch.lapDistanceKm = newLapKm;
+          if (ev.checkpoints && ev.checkpoints[0]) {
+            patch.checkpoints = [{ ...ev.checkpoints[0], distanceKm: newLapKm }];
+          }
+        }
+        return patch;
+      });
       showToast('本活動基本資訊已更新', 'success');
     });
 
@@ -1806,7 +2054,92 @@
       showToast(`已匯出「${evt.name}」Excel 報表：${f}`, 'success');
     });
 
+    let activeLapModalBib = '';
+    const renderLapDetailModal = (bib) => {
+      const evt = getActiveEvent();
+      if (!evt || !state.computed) return;
+      const row = state.computed.rows.find((r) => r.bib === bib);
+      if (!row) return;
+      activeLapModalBib = bib;
+      $('modal-lap-title').textContent = `🔁 逐圈明細 — ${row.bib} ${row.name} (${row.categoryName})`;
+      $('modal-lap-summary').textContent = `有效 ${row.lapCount} 圈 × ${row.lapDistanceKm} km ＝ 總里程 ${row.totalDistanceKm.toFixed(2)} km ｜ 總名次 #${row.overallRank || '-'} ｜ 組名次 #${row.categoryRank || '-'}`;
+      $('lap-modal-bib').value = row.bib;
+      $('lap-modal-idnumber').value = row.idNumber || '';
+      $('lap-manual-time').value = TE.formatClockMs(Date.now());
+
+      const tb = $('modal-lap-tbody');
+      if (!row.laps.length) {
+        tb.innerHTML = '<tr><td colspan="6" class="py-5 text-center text-slate-500">尚無繞圈感應紀錄，可由上方表單手動補登</td></tr>';
+      } else {
+        tb.innerHTML = row.laps
+          .map((l) => `
+            <tr class="${l.overtime ? 'bg-rose-950/30 text-rose-300' : 'hover:bg-slate-800/40'}">
+              <td class="py-2 px-3 font-mono-num font-bold">${l.overtime ? '超時' : `第 ${l.lapNumber} 圈`}</td>
+              <td class="py-2 px-2 font-mono-num text-sky-300">${TE.formatClockMs(l.timestampMs)}</td>
+              <td class="py-2 px-2 font-mono-num">${l.lapDurationMs !== null ? TE.formatDuration(l.lapDurationMs, false) : '--'}</td>
+              <td class="py-2 px-2 font-mono-num text-slate-400">${esc(l.lapPace)}</td>
+              <td class="py-2 px-2 font-mono-num font-bold text-emerald-400">${l.cumulativeKm !== null ? `${l.cumulativeKm.toFixed(2)} km` : '不計'}</td>
+              <td class="py-2 px-3 text-right">
+                <button type="button" data-del-lap-scan="${esc(l.scanId)}" class="px-2 py-1 rounded text-[11px] font-bold bg-rose-600/20 hover:bg-rose-600/40 text-rose-300">刪除</button>
+              </td>
+            </tr>
+          `)
+          .join('');
+      }
+      $('modal-lap-detail').classList.remove('hidden');
+    };
+
+    $('btn-close-lap-modal').addEventListener('click', () => {
+      activeLapModalBib = '';
+      $('modal-lap-detail').classList.add('hidden');
+    });
+
+    $('form-add-lap-manual').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const evt = getActiveEvent();
+      const bib = $('lap-modal-bib').value;
+      const idNumber = $('lap-modal-idnumber').value;
+      const tsMs = TE.parseDateTimeToMs(evt.date, $('lap-manual-time').value.trim());
+      if (tsMs === null) return showToast('時間格式錯誤，請輸入 HH:mm:ss 或 HH:mm:ss.SSS', 'error');
+
+      const lapCpId = evt.checkpoints?.[0]?.id || 'LAP';
+      const res = await DB.addScan({
+        eventId: evt.eventId,
+        bib,
+        idNumber,
+        checkpointId: lapCpId,
+        timestampMs: tsMs,
+        source: 'admin',
+        operator: state.session.account.username,
+        note: $('lap-manual-note').value.trim() || '後台人工補圈',
+        bypassDebounce: true
+      });
+      if (Sync.isOnlineEnabled() && navigator.onLine) {
+        try { await Sync.pushAdminEditScan(res.scan, state.session.auth); } catch {}
+      }
+      await reloadState();
+      renderLapDetailModal(bib);
+      showToast('已人工補登 1 圈並重新計算總里程與名次！', 'success');
+    });
+
+    $('modal-lap-tbody').addEventListener('click', async (e) => {
+      const delBtn = e.target.closest('[data-del-lap-scan]');
+      if (!delBtn || !confirm('確定刪除此圈感應紀錄嗎？')) return;
+      const scanId = delBtn.dataset.delLapScan;
+      const existing = state.allScans.find((s) => s.id === scanId);
+      if (!existing) return;
+      const updated = await DB.putScan({ ...existing, deleted: true, source: 'admin', operator: state.session.account.username, note: '管理員刪除誤刷圈', synced: 0 });
+      if (Sync.isOnlineEnabled() && navigator.onLine) {
+        try { await Sync.pushAdminEditScan(updated, state.session.auth); } catch {}
+      }
+      await reloadState();
+      if (activeLapModalBib) renderLapDetailModal(activeLapModalBib);
+      showToast('已刪除此圈紀錄並重算總里程與名次', 'info');
+    });
+
     $('results-tbody').addEventListener('click', (e) => {
+      const lapBtn = e.target.closest('[data-open-lap-bib]');
+      if (lapBtn) { renderLapDetailModal(lapBtn.dataset.openLapBib); return; }
       const scanBtn = e.target.closest('[data-edit-scan-bib]');
       if (scanBtn) {
         openEditScanModal(scanBtn.dataset.editScanReg, scanBtn.dataset.editScanBib, scanBtn.dataset.editScanIdnum, scanBtn.dataset.editScanCp, scanBtn.dataset.editScanId);
@@ -1897,6 +2230,9 @@
     $('btn-add-category').addEventListener('click', async () => {
       await updateCurrentEvent((ev) => {
         const n = (ev.categories || []).length + 1;
+        if (ev.eventType === 'lap_timed') {
+          return { categories: [...(ev.categories || []), { id: `H${n}`, name: `自訂 ${n * 3} 小時組`, durationHours: n * 3, distanceKm: n * 3, gunTimeMs: null, gunTimeIso: '', color: '#a855f7' }] };
+        }
         return { categories: [...(ev.categories || []), { id: `CAT${n}`, name: `新分組 ${n}`, distanceKm: 5, gunTimeMs: null, gunTimeIso: '', color: '#a855f7' }] };
       });
     });
@@ -1910,11 +2246,13 @@
       if (saveBtn) {
         const idx = Number(saveBtn.dataset.saveCat);
         const card = saveBtn.closest('[data-cat-index]');
+        const numVal = Number(card.querySelector('[data-cat-field="distanceKm"]').value || 0);
         cats[idx] = {
           ...cats[idx],
           id: card.querySelector('[data-cat-field="id"]').value.trim(),
           name: card.querySelector('[data-cat-field="name"]').value.trim(),
-          distanceKm: Number(card.querySelector('[data-cat-field="distanceKm"]').value || 0)
+          distanceKm: numVal,
+          ...(evt.eventType === 'lap_timed' ? { durationHours: numVal } : {})
         };
         await updateCurrentEvent(() => ({ categories: cats }));
         showToast('分組設定已儲存', 'success');
@@ -2095,13 +2433,14 @@
 
     $('btn-save-gas-url').addEventListener('click', async () => {
       const url = $('input-gas-url').value.trim();
-      DB.saveDeviceSettings({ gasUrl: url });
+      DB.saveDeviceSettings({ gasUrl: url, mode: url ? 'online' : 'offline' });
       renderHeader();
       updateNetworkIndicators();
-      if (!url) return showToast('已清除 GAS 網址', 'info');
+      if (!url) return showToast('已清除 GAS 網址並切回離線模式', 'info');
       try {
         const res = await Sync.ping(url);
-        showToast(`✅ 連線成功！${res.message || ''}`, 'success');
+        showToast(`✅ 連線成功！${res.message || ''} 正在自動同步資料...`, 'success');
+        await handleUploadPendingSync(false);
       } catch (err) { showToast(`❌ 連線測試失敗：${err.message}`, 'error'); }
     });
 
@@ -2133,13 +2472,24 @@
     };
     $('btn-copy-staff-link').addEventListener('click', () => copyLink('./index.html', false, '工作人員端連線網址'));
     $('btn-copy-public-link').addEventListener('click', () => copyLink('./public.html', true, '本活動公開查詢連結'));
+    $('btn-copy-config-js').addEventListener('click', async () => {
+      const gasUrl = DB.getDeviceSettings().gasUrl;
+      if (!gasUrl) return showToast('請先於上方輸入並儲存 Google Apps Script 網址', 'warn');
+      const code = `window.APP_CONFIG = {\n  DEFAULT_GAS_URL: '${gasUrl}',\n  AUTO_SYNC_ON_START: true\n};\n`;
+      try {
+        await navigator.clipboard.writeText(code);
+        showToast('已複製 js/config.js 設定碼！貼入 GitHub 的 js/config.js 後，全部手機開啟即自動同步！', 'success');
+      } catch {
+        prompt('請複製以下內容並貼入 js/config.js：', code);
+      }
+    });
 
     $('btn-load-demo-data').addEventListener('click', async () => {
-      if (!confirm('載入雙場次模擬資料將會覆蓋目前本機資料，確定繼續嗎？')) return;
+      if (!confirm('載入模擬資料將會覆蓋目前本機資料（包含距離賽與 2.54km 繞圈計時賽），確定繼續嗎？')) return;
       await DB.loadDemoData();
-      state.selectedEventId = 'EVT-2026-SPRING';
+      state.selectedEventId = 'EVT-2026-ULTRA';
       await reloadState();
-      showToast('⚡ 已載入 2 場活動與共用晶片模擬資料！同一選手已跨場報名不同組別', 'success');
+      showToast('⚡ 已載入 3 場模擬活動（含 6H/12H/24H 環湖繞圈計時賽）！', 'success');
     });
     $('btn-clear-all-data').addEventListener('click', async () => {
       if (!confirm('確定清空本機所有活動、晶片與感應資料嗎？')) return;

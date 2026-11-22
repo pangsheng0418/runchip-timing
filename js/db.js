@@ -25,7 +25,9 @@
       name,
       date,
       location,
-      status: 'active', // 'active' | 'upcoming' | 'finished'
+      status: 'active',
+      eventType: 'distance', // 'distance' (一般距離賽) | 'lap_timed' (繞圈計時賽)
+      lapDistanceKm: 0,
       debounceSeconds: 30,
       rankBy: 'gun',
       categories: [
@@ -44,10 +46,35 @@
     };
   }
 
+  function createLapTimedEvent(eventId = 'EVT-2026-LAP', name = '2026 超馬繞圈計時賽', date = getTodayStr(), location = '大安森林公園環道', lapDistanceKm = 2.54) {
+    const lapKm = Number(lapDistanceKm || 2.54);
+    return {
+      eventId,
+      name,
+      date,
+      location,
+      status: 'active',
+      eventType: 'lap_timed',
+      lapDistanceKm: lapKm,
+      debounceSeconds: 30,
+      rankBy: 'distance',
+      categories: [
+        { id: '6H', name: '6小時繞圈組', durationHours: 6, distanceKm: 6, gunTimeMs: null, gunTimeIso: '', color: '#10b981' },
+        { id: '12H', name: '12小時繞圈組', durationHours: 12, distanceKm: 12, gunTimeMs: null, gunTimeIso: '', color: '#3b82f6' },
+        { id: '24H', name: '24小時繞圈組', durationHours: 24, distanceKm: 24, gunTimeMs: null, gunTimeIso: '', color: '#ef4444' }
+      ],
+      checkpoints: [
+        { id: 'LAP', name: '繞圈計次感應區', order: 1, distanceKm: lapKm, type: 'lap' }
+      ],
+      updatedAt: Date.now()
+    };
+  }
+
   function createDefaultStaffAccounts() {
     const now = Date.now();
     return [
       { username: 'writer01', password: '1111', displayName: '晶片寫入報到組', role: 'writer', eventId: 'ALL', checkpointId: '', enabled: true, updatedAt: now },
+      { username: 'lap01', password: '1111', displayName: '繞圈計次感應組', role: 'scanner', eventId: 'ALL', checkpointId: 'LAP', enabled: true, updatedAt: now },
       { username: 'start01', password: '1111', displayName: '起點感應組', role: 'scanner', eventId: 'ALL', checkpointId: 'START', enabled: true, updatedAt: now },
       { username: 'cp1', password: '1111', displayName: '補給站 1 感應組', role: 'scanner', eventId: 'ALL', checkpointId: 'CP1', enabled: true, updatedAt: now },
       { username: 'cp2', password: '1111', displayName: '補給站 2 / 折返點組', role: 'scanner', eventId: 'ALL', checkpointId: 'CP2', enabled: true, updatedAt: now },
@@ -121,7 +148,7 @@
 
       const existing = await this.getPlatform();
       if (!existing) {
-        await this.savePlatform(createDefaultPlatform());
+        await this.savePlatform(createDefaultPlatform(), true);
       }
       return this.db;
     }
@@ -140,9 +167,10 @@
     /* ---------------- 裝置設定與登入階段 ---------------- */
 
     getDeviceSettings() {
+      const cfgGasUrl = (global.APP_CONFIG && global.APP_CONFIG.DEFAULT_GAS_URL ? String(global.APP_CONFIG.DEFAULT_GAS_URL).trim() : '');
       const defaults = {
-        mode: 'offline',
-        gasUrl: '',
+        mode: cfgGasUrl ? 'online' : 'offline',
+        gasUrl: cfgGasUrl,
         deviceId: generateDeviceId(),
         highContrast: false,
         soundEnabled: true,
@@ -158,7 +186,14 @@
           localStorage.setItem(SETTINGS_KEY, JSON.stringify(defaults));
           return defaults;
         }
-        return { ...defaults, ...JSON.parse(raw) };
+        const parsed = JSON.parse(raw);
+        const merged = { ...defaults, ...parsed };
+        // 若本機尚未設定網址但 js/config.js 已設定預設網址，自動套用並開啟連線
+        if (!merged.gasUrl && cfgGasUrl) {
+          merged.gasUrl = cfgGasUrl;
+          merged.mode = 'online';
+        }
+        return merged;
       } catch {
         return defaults;
       }
@@ -193,15 +228,18 @@
       return this._req(this._tx('platform').get('main'));
     }
 
-    async savePlatform(platform) {
+    async savePlatform(platform, markSynced = false) {
       await this.init();
-      const record = { ...platform, id: 'main', updatedAt: Date.now() };
+      const record = { ...platform, id: 'main', synced: markSynced ? 1 : 0, updatedAt: Date.now() };
       await this._req(this._tx('platform', 'readwrite').put(record));
       return record;
     }
 
-    createEventTemplate(name, date, location) {
+    createEventTemplate(name, date, location, eventType = 'distance', lapDistanceKm = 2.54) {
       const id = 'EVT-' + Date.now().toString(36).toUpperCase().slice(-6);
+      if (eventType === 'lap_timed') {
+        return createLapTimedEvent(id, name || '新繞圈計時賽', date || getTodayStr(), location || '', lapDistanceKm);
+      }
       return createDefaultEvent(id, name || '新路跑活動', date || getTodayStr(), location || '');
     }
 
@@ -469,27 +507,37 @@
     /* ---------------- 待同步狀態與批次標記 ---------------- */
 
     async getPendingSyncCounts() {
-      const [chips, regs, scans] = await Promise.all([
+      const [platform, chips, regs, scans] = await Promise.all([
+        this.getPlatform(),
         this.getAllChips(),
         this.getAllRegistrations(),
         this.getAllScans()
       ]);
+      const platformDirty = platform && platform.synced === 0 ? 1 : 0;
       const unsyncedChips = chips.filter((c) => !c.synced);
       const unsyncedRegs = regs.filter((r) => !r.synced);
       const unsyncedScans = scans.filter((s) => !s.synced);
       return {
+        platformDirty,
         chips: unsyncedChips.length,
         registrations: unsyncedRegs.length,
         scans: unsyncedScans.length,
-        total: unsyncedChips.length + unsyncedRegs.length + unsyncedScans.length,
+        total: platformDirty + unsyncedChips.length + unsyncedRegs.length + unsyncedScans.length,
         unsyncedChips,
         unsyncedRegs,
         unsyncedScans
       };
     }
 
-    async markSynced({ chipIds = [], regIds = [], scanIds = [] }) {
+    async markSynced({ platform = false, chipIds = [], regIds = [], scanIds = [] }) {
       await this.init();
+      if (platform) {
+        const cur = await this.getPlatform();
+        if (cur && !cur.synced) {
+          cur.synced = 1;
+          await this._req(this._tx('platform', 'readwrite').put(cur));
+        }
+      }
       if (chipIds.length) {
         const set = new Set(chipIds);
         const all = await this.getAllChips();
@@ -519,24 +567,35 @@
       }
     }
 
+    /**
+     * 將雲端完整快照合併至本機 IndexedDB（確保各裝置資料完全一致，同時保留本機未上傳之離線紀錄）
+     */
     async mergeCloudData(cloudData) {
       await this.init();
       if (!cloudData) return;
 
       const cur = await this.getPlatform();
+      const hasCloudEvents = Array.isArray(cloudData.events) && cloudData.events.length > 0;
       const mergedPlatform = {
         ...cur,
         adminUsername: cloudData.globalConfig?.adminUsername || cur.adminUsername,
         adminPassword: cloudData.globalConfig?.adminPassword || cur.adminPassword,
-        activeEventId: cloudData.globalConfig?.activeEventId || cur.activeEventId,
-        events: Array.isArray(cloudData.events) && cloudData.events.length ? cloudData.events : cur.events,
+        activeEventId: cloudData.globalConfig?.activeEventId || (hasCloudEvents ? cloudData.events[0].eventId : cur.activeEventId),
+        events: hasCloudEvents ? cloudData.events : cur.events,
         staffAccounts: Array.isArray(cloudData.staffAccounts) && cloudData.staffAccounts.length
           ? cloudData.staffAccounts
           : cur.staffAccounts
       };
-      await this.savePlatform(mergedPlatform);
+      await this.savePlatform(mergedPlatform, true);
 
       if (Array.isArray(cloudData.chips)) {
+        const cloudChipSet = new Set(cloudData.chips.map((c) => String(c.idNumber || '').trim().toUpperCase()));
+        const localChips = await this.getAllChips();
+        for (const lc of localChips) {
+          if (lc.synced && !cloudChipSet.has(lc.idNumber)) {
+            await this.deleteChip(lc.idNumber);
+          }
+        }
         for (const c of cloudData.chips) {
           const local = await this.getChipById(c.idNumber);
           if (local && !local.synced && local.updatedAt > (c.updatedAt || 0)) continue;
@@ -547,6 +606,12 @@
       if (Array.isArray(cloudData.registrations)) {
         const localAll = await this.getAllRegistrations();
         const localMap = new Map(localAll.map((r) => [r.regId, r]));
+        const cloudRegSet = new Set(cloudData.registrations.map((r) => r.regId));
+        for (const lr of localAll) {
+          if (lr.synced && !cloudRegSet.has(lr.regId)) {
+            await this.deleteRegistration(lr.regId);
+          }
+        }
         for (const r of cloudData.registrations) {
           const local = localMap.get(r.regId);
           if (local && !local.synced && local.updatedAt > (r.updatedAt || 0)) continue;
@@ -557,6 +622,12 @@
       if (Array.isArray(cloudData.scans)) {
         const localAll = await this.getAllScans();
         const localMap = new Map(localAll.map((s) => [s.id, s]));
+        const cloudScanSet = new Set(cloudData.scans.map((s) => s.id));
+        for (const ls of localAll) {
+          if (ls.synced && !cloudScanSet.has(ls.id)) {
+            await this._req(this._tx('scans', 'readwrite').delete(ls.id));
+          }
+        }
         for (const s of cloudData.scans) {
           const local = localMap.get(s.id);
           if (local && !local.synced && local.updatedAt > (s.updatedAt || 0)) continue;
@@ -664,12 +735,20 @@
         updatedAt: now
       };
 
+      const evt3 = createLapTimedEvent('EVT-2026-ULTRA', '2026 環湖超級馬拉松繞圈賽', getTodayStr(), '碧潭環湖賽道 (單圈2.54K)', 2.54);
+      const gunUltra6 = now - 165 * min;  // 6H 組已開跑 2 小時 45 分
+      const gunUltra12 = now - 250 * min; // 12H 組已開跑 4 小時 10 分
+      const gunUltra24 = now - 320 * min; // 24H 組已開跑 5 小時 20 分
+      evt3.categories[0].gunTimeMs = gunUltra6; evt3.categories[0].gunTimeIso = new Date(gunUltra6).toISOString();
+      evt3.categories[1].gunTimeMs = gunUltra12; evt3.categories[1].gunTimeIso = new Date(gunUltra12).toISOString();
+      evt3.categories[2].gunTimeMs = gunUltra24; evt3.categories[2].gunTimeIso = new Date(gunUltra24).toISOString();
+
       const platform = createDefaultPlatform();
       platform.adminUsername = prev?.adminUsername || 'admin';
       platform.adminPassword = prev?.adminPassword || 'admin1234';
       if (prev?.staffAccounts?.length) platform.staffAccounts = prev.staffAccounts;
-      platform.activeEventId = evt1.eventId;
-      platform.events = [evt1, evt2];
+      platform.activeEventId = evt3.eventId;
+      platform.events = [evt1, evt2, evt3];
       await this.savePlatform(platform);
 
       // 共用晶片主檔（每人僅一張晶片：姓名 + 身份證字號，可跨場參加多項活動！）
@@ -696,12 +775,21 @@
         { eventId: evt1.eventId, bib: 'C201', name: '吳冠宇', idNumber: 'T189123456', categoryId: '10K' }
       ], false);
 
-      // 活動 2 名單（秋季海岸路跑 — 林志明、陳怡君、王雅婷使用「同一張晶片」報名不同場次與組別！）
+      // 活動 2 名單（秋季海岸路跑）
       await this.upsertRegistrationsBulk([
         { eventId: evt2.eventId, bib: 'S101', name: '林志明', idNumber: 'A123456789', categoryId: '12K' },
         { eventId: evt2.eventId, bib: 'S102', name: '陳怡君', idNumber: 'B234567891', categoryId: '12K' },
         { eventId: evt2.eventId, bib: 'L201', name: '王雅婷', idNumber: 'F256789123', categoryId: '5K' },
         { eventId: evt2.eventId, bib: 'L202', name: '劉佳穎', idNumber: 'N291234567', categoryId: '5K' }
+      ], false);
+
+      // 活動 3 名單（繞圈計時賽 — 同一批選手持同一晶片挑戰 6H / 12H / 24H 繞圈！）
+      await this.upsertRegistrationsBulk([
+        { eventId: evt3.eventId, bib: 'U001', name: '林志明', idNumber: 'A123456789', categoryId: '12H' },
+        { eventId: evt3.eventId, bib: 'U002', name: '陳怡君', idNumber: 'B234567891', categoryId: '12H' },
+        { eventId: evt3.eventId, bib: 'U101', name: '張家豪', idNumber: 'C145678912', categoryId: '24H' },
+        { eventId: evt3.eventId, bib: 'U201', name: '王雅婷', idNumber: 'F256789123', categoryId: '6H' },
+        { eventId: evt3.eventId, bib: 'U202', name: '吳冠宇', idNumber: 'T189123456', categoryId: '6H' }
       ], false);
 
       const addS = (eventId, bib, idNumber, checkpointId, timestampMs) =>
@@ -744,7 +832,21 @@
       await addS(evt2.eventId, 'L201', 'F256789123', 'START', gunCoast5 + 3100);
       await addS(evt2.eventId, 'L201', 'F256789123', 'FINISH', gunCoast5 + 26 * min + 48200);
 
-      this.saveDeviceSettings({ selectedEventId: evt1.eventId });
+      // 活動 3 繞圈計時賽感應紀錄（每繞一圈 2.54 km 感應一次累積圈數與總里程）
+      const addLaps = async (bib, idNum, startMs, count, avgLapMin) => {
+        let cur = startMs;
+        for (let i = 1; i <= count; i++) {
+          cur += Math.round((avgLapMin + ((i % 3) - 1) * 0.6) * min);
+          await addS(evt3.eventId, bib, idNum, 'LAP', cur);
+        }
+      };
+      await addLaps('U101', 'C145678912', gunUltra24, 18, 15.2); // 18圈 = 45.72 km (24H組)
+      await addLaps('U001', 'A123456789', gunUltra12, 15, 14.5); // 15圈 = 38.10 km (12H組)
+      await addLaps('U002', 'B234567891', gunUltra12, 13, 15.8); // 13圈 = 33.02 km (12H組)
+      await addLaps('U201', 'F256789123', gunUltra6, 10, 14.2);  // 10圈 = 25.40 km (6H組)
+      await addLaps('U202', 'T189123456', gunUltra6, 10, 14.9);  // 10圈 = 25.40 km (6H組，同里程比先後！)
+
+      this.saveDeviceSettings({ selectedEventId: evt3.eventId });
       return true;
     }
 

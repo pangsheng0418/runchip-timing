@@ -79,31 +79,31 @@
 
       <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4">
-          <div class="text-xs text-slate-400 font-bold">本場報名人數</div>
+          <div id="pub-kpi-label-1" class="text-xs text-slate-400 font-bold">本場報名人數</div>
           <div id="pub-kpi-total" class="text-3xl font-black text-white font-mono-num mt-1">0</div>
         </div>
         <div class="bg-slate-900 border border-emerald-500/30 rounded-2xl p-4">
-          <div class="text-xs text-emerald-400 font-bold">已完賽人數</div>
+          <div id="pub-kpi-label-2" class="text-xs text-emerald-400 font-bold">已完賽人數</div>
           <div id="pub-kpi-finished" class="text-3xl font-black text-emerald-400 font-mono-num mt-1">0</div>
         </div>
         <div class="bg-slate-900 border border-amber-500/30 rounded-2xl p-4">
-          <div class="text-xs text-amber-400 font-bold">賽道上人數</div>
+          <div id="pub-kpi-label-3" class="text-xs text-amber-400 font-bold">賽道上人數</div>
           <div id="pub-kpi-oncourse" class="text-3xl font-black text-amber-400 font-mono-num mt-1">0</div>
         </div>
         <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4">
-          <div class="text-xs text-slate-400 font-bold">未出發</div>
+          <div id="pub-kpi-label-4" class="text-xs text-slate-400 font-bold">未出發</div>
           <div id="pub-kpi-notstarted" class="text-3xl font-black text-slate-300 font-mono-num mt-1">0</div>
         </div>
       </div>
 
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
-          <h3 class="text-sm font-extrabold text-white">🏃 各分組完賽進度</h3>
+          <h3 id="pub-cat-card-title" class="text-sm font-extrabold text-white">🏃 各分組完賽進度</h3>
           <div id="pub-category-stats" class="space-y-3"></div>
         </div>
 
         <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
-          <h3 class="text-sm font-extrabold text-white">📍 各補給站通過人數統計</h3>
+          <h3 id="pub-right-card-title" class="text-sm font-extrabold text-white">📍 各補給站通過人數統計</h3>
           <div id="pub-checkpoint-stats" class="space-y-3"></div>
         </div>
       </div>
@@ -112,7 +112,7 @@
     <!-- 3. 本場即時成績排行榜 -->
     <section class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
       <div class="flex flex-wrap items-center justify-between gap-3">
-        <h2 class="text-base font-extrabold text-white">🏆 本場即時成績排行榜</h2>
+        <h2 id="pub-lb-title" class="text-base font-extrabold text-white">🏆 本場即時成績排行榜</h2>
         <div class="flex flex-wrap gap-2">
           <select id="pub-cat-filter" class="bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-white">
             <option value="ALL">全部組別</option>
@@ -126,20 +126,7 @@
 
       <div class="overflow-x-auto">
         <table class="w-full text-xs sm:text-sm text-left whitespace-nowrap">
-          <thead class="text-xs uppercase text-slate-400 border-b border-slate-800">
-            <tr>
-              <th class="py-2.5 pr-3">總名次</th>
-              <th class="py-2.5 pr-3">組名次</th>
-              <th class="py-2.5 pr-3">編號</th>
-              <th class="py-2.5 pr-3">姓名</th>
-              <th class="py-2.5 pr-3">身份證 (隱碼)</th>
-              <th class="py-2.5 pr-3">組別</th>
-              <th class="py-2.5 pr-3">最新動態 / 站點</th>
-              <th class="py-2.5 pr-3">大會時間</th>
-              <th class="py-2.5 pr-3">淨時間</th>
-              <th class="py-2.5">平均配速 / ETA</th>
-            </tr>
-          </thead>
+          <thead id="pub-leaderboard-thead" class="text-xs uppercase text-slate-400 border-b border-slate-800"></thead>
           <tbody id="pub-leaderboard-tbody" class="divide-y divide-slate-800/70"></tbody>
         </table>
       </div>
@@ -150,6 +137,7 @@
     </footer>
   </main>
 
+  <script src="./js/config.js"></script>
   <script src="./js/timing-engine.js"></script>
   <script src="./js/db.js"></script>
   <script src="./js/sync.js"></script>

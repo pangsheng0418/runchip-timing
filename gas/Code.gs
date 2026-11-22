@@ -44,10 +44,10 @@ function setupSheets() {
     ]);
   }
 
-  // 2. Events（多場次路跑活動清單、各場分組鳴槍與站點）
+  // 2. Events（多場次路跑活動清單：支援一般距離賽 distance 與繞圈計時賽 lap_timed）
   const evtSheet = getOrCreateSheet_(ss, SHEET_NAMES.EVENTS, [
     'eventId', 'name', 'date', 'location', 'status', 'debounceSeconds',
-    'rankBy', 'categoriesJson', 'checkpointsJson', 'updatedAt'
+    'rankBy', 'categoriesJson', 'checkpointsJson', 'updatedAt', 'eventType', 'lapDistanceKm'
   ]);
   if (evtSheet.getLastRow() <= 1) {
     const defaultCats = JSON.stringify([
@@ -62,9 +62,10 @@ function setupSheets() {
       { id: 'CP3', name: '補給站 3 (21K)', order: 4, distanceKm: 21.1, type: 'checkpoint' },
       { id: 'FINISH', name: '終點衝線門', order: 5, distanceKm: 42.195, type: 'finish' }
     ]);
-    evtSheet.getRange(2, 1, 1, 10).setValues([[
+    evtSheet.getRange(2, 3, 1, 1).setNumberFormat('@');
+    evtSheet.getRange(2, 1, 1, 12).setValues([[
       'EVT-2026-01', '2026 智慧城市馬拉松', today, '台北市政府廣場', 'active',
-      30, 'gun', defaultCats, defaultCps, now
+      30, 'gun', defaultCats, defaultCps, now, 'distance', 0
     ]]);
   }
 
@@ -73,8 +74,9 @@ function setupSheets() {
     'username', 'password', 'displayName', 'role', 'eventId', 'checkpointId', 'enabled', 'updatedAt'
   ]);
   if (staffSheet.getLastRow() <= 1) {
-    staffSheet.getRange(2, 1, 6, 8).setValues([
+    staffSheet.getRange(2, 1, 7, 8).setValues([
       ['writer01', '1111', '晶片寫入報到組', 'writer', 'ALL', '', 1, now],
+      ['lap01', '1111', '繞圈計次感應組', 'scanner', 'ALL', 'LAP', 1, now],
       ['start01', '1111', '起點感應組', 'scanner', 'ALL', 'START', 1, now],
       ['cp1', '1111', '補給站 1 感應組', 'scanner', 'ALL', 'CP1', 1, now],
       ['cp2', '1111', '補給站 2 / 折返點組', 'scanner', 'ALL', 'CP2', 1, now],
@@ -229,13 +231,19 @@ function doPost(e) {
     }
 
     if (action === 'batchSync') {
+      // 若為最高管理員帶入 auth + platform 資料，同步更新所有活動、分組鳴槍與作業員帳號
+      let platformSynced = false;
+      if (payload.platform && verifyAdmin_(payload.auth, adminUser, adminPass)) {
+        handleSavePlatform_(payload.platform);
+        platformSynced = true;
+      }
       const chipRes = handleUpsertChips_(payload.chips || []);
       const regRes = handleUpsertRegistrations_(payload.registrations || []);
       const scanRes = handlePushScans_(payload.scans || []);
       return jsonResponse_({
         ok: true,
         serverTimeMs: Date.now(),
-        result: { chips: chipRes, registrations: regRes, scans: scanRes }
+        result: { platformSynced: platformSynced, chips: chipRes, registrations: regRes, scans: scanRes }
       });
     }
 
@@ -302,6 +310,20 @@ function readStaffList_() {
   }).filter(function (s) { return s.username; });
 }
 
+function formatDateCell_(val) {
+  if (!val) return '';
+  if (val instanceof Date) {
+    return Utilities.formatDate(val, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  }
+  const s = String(val).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const parsed = new Date(s);
+  if (!isNaN(parsed.getTime())) {
+    return Utilities.formatDate(parsed, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  }
+  return s;
+}
+
 function readEventsList_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName(SHEET_NAMES.EVENTS);
@@ -310,12 +332,15 @@ function readEventsList_() {
     let cps = [];
     try { cats = JSON.parse(ev.categoriesJson || '[]'); } catch (e) {}
     try { cps = JSON.parse(ev.checkpointsJson || '[]'); } catch (e) {}
+    const eventType = String(ev.eventType || 'distance').trim() || 'distance';
     return {
       eventId: String(ev.eventId || '').trim(),
       name: String(ev.name || '').trim(),
-      date: String(ev.date || '').trim(),
+      date: formatDateCell_(ev.date),
       location: String(ev.location || '').trim(),
       status: String(ev.status || 'active').trim(),
+      eventType: eventType,
+      lapDistanceKm: Number(ev.lapDistanceKm || 0),
       debounceSeconds: Number(ev.debounceSeconds || 30),
       rankBy: String(ev.rankBy || 'gun').trim(),
       categories: Array.isArray(cats) ? cats : [],
@@ -613,11 +638,17 @@ function handleSavePlatform_(payload) {
   }
 
   if (Array.isArray(payload.events)) {
-    const evtSheet = getOrCreateSheet_(ss, SHEET_NAMES.EVENTS, [
+    const evtHeaders = [
       'eventId', 'name', 'date', 'location', 'status', 'debounceSeconds',
-      'rankBy', 'categoriesJson', 'checkpointsJson', 'updatedAt'
-    ]);
-    if (evtSheet.getLastRow() > 1) evtSheet.getRange(2, 1, evtSheet.getLastRow() - 1, 10).clearContent();
+      'rankBy', 'categoriesJson', 'checkpointsJson', 'updatedAt', 'eventType', 'lapDistanceKm'
+    ];
+    const evtSheet = getOrCreateSheet_(ss, SHEET_NAMES.EVENTS, evtHeaders);
+    // 確保舊版 10 欄工作表自動補齊第 11、12 欄標題
+    if (evtSheet.getLastColumn() < 12) {
+      evtSheet.getRange(1, 1, 1, 12).setValues([evtHeaders])
+        .setFontWeight('bold').setBackground('#1e293b').setFontColor('#ffffff');
+    }
+    if (evtSheet.getLastRow() > 1) evtSheet.getRange(2, 1, evtSheet.getLastRow() - 1, 12).clearContent();
     if (payload.events.length > 0) {
       const rows = payload.events.map(function (ev) {
         return [
@@ -630,10 +661,14 @@ function handleSavePlatform_(payload) {
           String(ev.rankBy || 'gun').trim(),
           JSON.stringify(ev.categories || []),
           JSON.stringify(ev.checkpoints || []),
-          Number(ev.updatedAt || Date.now())
+          Number(ev.updatedAt || Date.now()),
+          String(ev.eventType || 'distance').trim(),
+          Number(ev.lapDistanceKm || 0)
         ];
       });
-      evtSheet.getRange(2, 1, rows.length, 10).setValues(rows);
+      const range = evtSheet.getRange(2, 1, rows.length, 12);
+      evtSheet.getRange(2, 3, rows.length, 1).setNumberFormat('@');
+      range.setValues(rows);
     }
   }
 

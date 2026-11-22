@@ -450,12 +450,241 @@
     };
 
     return {
+      eventType: 'distance',
       rows,
       summary,
       checkpoints: sortedCheckpoints,
       startCp,
       finishCp
     };
+  }
+
+  /**
+   * 繞圈計時賽專用運算引擎 (6H / 12H / 24H 或自訂時數)
+   * 規則：
+   * - 無管制點，每次感應計 1 圈，累積里程 = 有效圈數 × 單圈公里數 (lapDistanceKm)
+   * - 若該組已設定鳴槍時間與限時小時數，超過截止時間 (gunTimeMs + durationHours * 3600s) 之感應標記為 overtime，不計入正式里程
+   * - 排名順序：依「總里程 / 圈數」降冪，同里程時依「累積耗時（達成最後一圈時間）」升冪
+   */
+  function computeLapTimedResults({
+    runners = [],
+    scans = [],
+    categories = [],
+    checkpoints = [],
+    lapDistanceKm = 2.54
+  }) {
+    const lapKm = Math.max(0.001, Number(lapDistanceKm || 2.54));
+    const catMap = new Map(categories.map((c) => [c.id, c]));
+    const activeScans = scans.filter((s) => !s.deleted);
+
+    const scansByBib = new Map();
+    for (const s of activeScans) {
+      if (!scansByBib.has(s.bib)) scansByBib.set(s.bib, []);
+      scansByBib.get(s.bib).push(s);
+    }
+
+    const runnerMap = new Map();
+    for (const r of runners) runnerMap.set(r.bib, r);
+    for (const bib of scansByBib.keys()) {
+      if (!runnerMap.has(bib)) {
+        runnerMap.set(bib, {
+          bib,
+          name: `未登錄選手 (${bib})`,
+          idNumber: '',
+          idMasked: '',
+          categoryId: categories[0]?.id || '',
+          penaltySec: 0
+        });
+      }
+    }
+
+    const now = Date.now();
+    const rows = [];
+
+    for (const runner of runnerMap.values()) {
+      const cat = catMap.get(runner.categoryId) || null;
+      const gunTimeMs = cat && cat.gunTimeMs ? Number(cat.gunTimeMs) : null;
+      const durationHours = cat ? Number(cat.durationHours || cat.distanceKm || 6) : 6;
+      const cutoffTimeMs = gunTimeMs !== null && durationHours > 0
+        ? gunTimeMs + durationHours * 3600 * 1000
+        : null;
+
+      const sortedScans = (scansByBib.get(runner.bib) || [])
+        .slice()
+        .sort((a, b) => Number(a.timestampMs) - Number(b.timestampMs));
+
+      const laps = [];
+      let prevTs = gunTimeMs;
+      let validLapNum = 0;
+
+      for (const s of sortedScans) {
+        const ts = Number(s.timestampMs);
+        const overtime = cutoffTimeMs !== null && ts > cutoffTimeMs;
+        if (!overtime) validLapNum++;
+        const lapDurationMs = prevTs !== null && ts >= prevTs ? ts - prevTs : null;
+        laps.push({
+          lapNumber: overtime ? null : validLapNum,
+          scanId: s.id,
+          timestampMs: ts,
+          lapDurationMs,
+          lapPace: formatPace(lapDurationMs, lapKm),
+          cumulativeKm: overtime ? null : Number((validLapNum * lapKm).toFixed(3)),
+          overtime,
+          source: s.source,
+          note: s.note || ''
+        });
+        if (!overtime) prevTs = ts;
+      }
+
+      const validLaps = laps.filter((l) => !l.overtime);
+      const lapCount = validLaps.length;
+      const totalDistanceKm = Number((lapCount * lapKm).toFixed(3));
+      const lastValidLap = lapCount > 0 ? validLaps[lapCount - 1] : null;
+      const lastLapTimeMs = lastValidLap ? lastValidLap.timestampMs : null;
+
+      const validDurations = validLaps.map((l) => l.lapDurationMs).filter((d) => d !== null && d > 0);
+      const bestLapMs = validDurations.length ? Math.min(...validDurations) : null;
+      const avgLapMs = validDurations.length
+        ? validDurations.reduce((a, b) => a + b, 0) / validDurations.length
+        : null;
+
+      const totalElapsedMs =
+        lastLapTimeMs !== null && gunTimeMs !== null
+          ? lastLapTimeMs - gunTimeMs
+          : (validDurations.length ? validDurations.reduce((a, b) => a + b, 0) : null);
+
+      const avgPace = formatPace(totalElapsedMs, totalDistanceKm);
+
+      let status = 'not_started';
+      if (cutoffTimeMs !== null && now >= cutoffTimeMs) {
+        status = lapCount > 0 ? 'finished' : 'not_started';
+      } else if (lapCount > 0 || (gunTimeMs !== null && now >= gunTimeMs)) {
+        status = 'on_course';
+      }
+
+      rows.push({
+        runner,
+        bib: runner.bib,
+        name: runner.name,
+        idNumber: runner.idNumber || '',
+        idMasked: runner.idMasked || maskIdNumber(runner.idNumber),
+        idHash: runner.idHash || '',
+        categoryId: runner.categoryId,
+        categoryName: cat ? cat.name : runner.categoryId || '未分組',
+        categoryColor: cat ? cat.color : '#64748b',
+        durationHours,
+        gunTimeMs,
+        cutoffTimeMs,
+        lapDistanceKm: lapKm,
+        laps,
+        lapCount,
+        overtimeCount: laps.length - lapCount,
+        totalDistanceKm,
+        lastLapTimeMs,
+        totalElapsedMs,
+        bestLapMs,
+        avgLapMs,
+        avgPace,
+        status,
+        overallRank: null,
+        categoryRank: null
+      });
+    }
+
+    // 排名：依總里程（圈數）降冪；同里程則先達成者（累積耗時小 / 最後一圈時間早）名次在前
+    const ranked = rows
+      .filter((r) => r.lapCount > 0)
+      .sort((a, b) => {
+        if (b.totalDistanceKm !== a.totalDistanceKm) return b.totalDistanceKm - a.totalDistanceKm;
+        const tA = a.totalElapsedMs !== null ? a.totalElapsedMs : (a.lastLapTimeMs || Infinity);
+        const tB = b.totalElapsedMs !== null ? b.totalElapsedMs : (b.lastLapTimeMs || Infinity);
+        return tA - tB;
+      });
+
+    ranked.forEach((r, idx) => { r.overallRank = idx + 1; });
+
+    const catCounter = {};
+    ranked.forEach((r) => {
+      const cid = r.categoryId || '__NONE__';
+      catCounter[cid] = (catCounter[cid] || 0) + 1;
+      r.categoryRank = catCounter[cid];
+    });
+
+    rows.sort((a, b) => {
+      if (a.overallRank !== null && b.overallRank !== null) return a.overallRank - b.overallRank;
+      if (a.overallRank !== null) return -1;
+      if (b.overallRank !== null) return 1;
+      return String(a.bib).localeCompare(String(b.bib), 'zh-Hant', { numeric: true });
+    });
+
+    const totalLapsAll = rows.reduce((sum, r) => sum + r.lapCount, 0);
+    const totalKmAll = Number(rows.reduce((sum, r) => sum + r.totalDistanceKm, 0).toFixed(2));
+    const topDistanceKm = rows.length ? Math.max(...rows.map((r) => r.totalDistanceKm)) : 0;
+
+    const summary = {
+      totalRunners: rows.length,
+      activeWithLaps: rows.filter((r) => r.lapCount > 0).length,
+      finishedCount: rows.filter((r) => r.status === 'finished').length,
+      onCourseCount: rows.filter((r) => r.status === 'on_course').length,
+      notStartedCount: rows.filter((r) => r.status === 'not_started').length,
+      totalLapsAll,
+      totalKmAll,
+      topDistanceKm,
+      lapDistanceKm: lapKm,
+      byCategory: categories.map((cat) => {
+        const list = rows.filter((r) => r.categoryId === cat.id);
+        const gunMs = cat.gunTimeMs ? Number(cat.gunTimeMs) : null;
+        const hrs = Number(cat.durationHours || cat.distanceKm || 6);
+        const cutMs = gunMs !== null ? gunMs + hrs * 3600 * 1000 : null;
+        const remainingMs = cutMs !== null ? Math.max(0, cutMs - now) : null;
+        const kms = list.map((r) => r.totalDistanceKm);
+        const topKm = kms.length ? Math.max(...kms) : 0;
+        const sumLaps = list.reduce((a, b) => a + b.lapCount, 0);
+        const avgKm = list.length ? Number((kms.reduce((a, b) => a + b, 0) / list.length).toFixed(2)) : 0;
+        return {
+          ...cat,
+          durationHours: hrs,
+          cutoffTimeMs: cutMs,
+          remainingMs,
+          total: list.length,
+          withLaps: list.filter((r) => r.lapCount > 0).length,
+          sumLaps,
+          topKm,
+          avgKm
+        };
+      }),
+      topLeaders: rows.filter((r) => r.lapCount > 0).slice(0, 6)
+    };
+
+    return {
+      eventType: 'lap_timed',
+      lapDistanceKm: lapKm,
+      rows,
+      summary,
+      checkpoints
+    };
+  }
+
+  /**
+   * 統一入口：依活動性質自動分派一般距離賽或繞圈計時賽引擎
+   */
+  function computeEventResults({ event, runners = [], scans = [], rankBy = 'gun' }) {
+    if (event && event.eventType === 'lap_timed') {
+      return computeLapTimedResults({
+        runners,
+        scans,
+        categories: event.categories || [],
+        checkpoints: event.checkpoints || [],
+        lapDistanceKm: Number(event.lapDistanceKm || 2.54)
+      });
+    }
+    return computeResults({
+      runners,
+      scans,
+      categories: event?.categories || [],
+      checkpoints: event?.checkpoints || [],
+      rankBy
+    });
   }
 
   global.TimingEngine = {
@@ -466,6 +695,8 @@
     parseDateTimeToMs,
     maskIdNumber,
     sha256Hex,
-    computeResults
+    computeResults,
+    computeLapTimedResults,
+    computeEventResults
   };
 })(window);

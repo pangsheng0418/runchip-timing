@@ -1,5 +1,5 @@
 /**
- * 智慧路跑 NFC 晶片計時平台 v3.0 — 單一活動 Excel (.xlsx) 一鍵匯出模組 (SheetJS)
+ * 智慧路跑 NFC 晶片計時平台 v3.3 — 支援「一般距離賽」與「繞圈計時賽」雙模式 Excel (.xlsx) 匯出
  */
 (function (global) {
   'use strict';
@@ -10,16 +10,104 @@
     not_started: '未出發'
   };
 
+  function exportLapTimedToExcel({ event, computed, scans, maskId = false }) {
+    const TE = global.TimingEngine;
+    const wb = global.XLSX.utils.book_new();
+    const maxLaps = computed.rows.reduce((m, r) => Math.max(m, r.lapCount || 0), 0);
+
+    // 工作表 1：繞圈成績總表（依總里程排名）
+    const rows1 = computed.rows.map((row) => {
+      const obj = {
+        活動名稱: event?.name || '',
+        總名次: row.overallRank ?? '',
+        分組名次: row.categoryRank ?? '',
+        參賽編號: row.bib,
+        選手姓名: row.name,
+        身份證字號: maskId ? row.idMasked : (row.idNumber || row.idMasked),
+        限時分組: `${row.categoryName} (${row.durationHours}H)`,
+        累積圈數: row.lapCount,
+        單圈距離_km: row.lapDistanceKm,
+        總里程_km: Number(row.totalDistanceKm.toFixed(3)),
+        累積耗時: row.totalElapsedMs !== null ? TE.formatDuration(row.totalElapsedMs, true) : '',
+        最後通過時間: row.lastLapTimeMs ? TE.formatClockMs(row.lastLapTimeMs) : '',
+        最速單圈: row.bestLapMs !== null ? TE.formatDuration(row.bestLapMs, false) : '',
+        平均單圈: row.avgLapMs !== null ? TE.formatDuration(row.avgLapMs, false) : '',
+        平均配速: row.avgPace !== '--' ? row.avgPace : '',
+        超時圈數: row.overtimeCount || 0
+      };
+      for (let i = 0; i < maxLaps; i++) {
+        const lap = row.laps.filter((l) => !l.overtime)[i];
+        obj[`第${i + 1}圈`] = lap ? TE.formatClockSec(lap.timestampMs) : '';
+      }
+      return obj;
+    });
+
+    const ws1 = global.XLSX.utils.json_to_sheet(rows1);
+    ws1['!cols'] = Object.keys(rows1[0] || { 參賽編號: '' }).map((k) => ({ wch: Math.max(13, k.length * 2 + 2) }));
+    global.XLSX.utils.book_append_sheet(wb, ws1, '繞圈成績總表');
+
+    // 工作表 2：各限時分組里程統計
+    const rows2 = (computed.summary.byCategory || []).map((c) => ({
+      活動名稱: event?.name || '',
+      分組代碼: c.id,
+      分組名稱: c.name,
+      限時小時: c.durationHours,
+      鳴槍時間: c.gunTimeMs ? TE.formatClockSec(c.gunTimeMs) : '尚未鳴槍',
+      截止時間: c.cutoffTimeMs ? TE.formatClockSec(c.cutoffTimeMs) : '--',
+      參賽人數: c.total,
+      已有圈數人數: c.withLaps,
+      全組總圈數: c.sumLaps,
+      最高里程_km: c.topKm,
+      平均里程_km: c.avgKm
+    }));
+    const ws2 = global.XLSX.utils.json_to_sheet(rows2);
+    ws2['!cols'] = Object.keys(rows2[0] || { 分組名稱: '' }).map(() => ({ wch: 16 }));
+    global.XLSX.utils.book_append_sheet(wb, ws2, '各分組里程統計');
+
+    // 工作表 3：逐圈原始感應明細
+    const rows3 = [];
+    for (const row of computed.rows) {
+      for (const lap of row.laps) {
+        rows3.push({
+          活動代碼: event?.eventId || '',
+          參賽編號: row.bib,
+          選手姓名: row.name,
+          分組: row.categoryName,
+          圈次: lap.overtime ? '超時不計' : lap.lapNumber,
+          感應時間: TE.formatClockMs(lap.timestampMs),
+          單圈耗時: lap.lapDurationMs !== null ? TE.formatDuration(lap.lapDurationMs, false) : '',
+          單圈配速: lap.lapPace !== '--' ? lap.lapPace : '',
+          累積里程_km: lap.cumulativeKm !== null ? lap.cumulativeKm : '',
+          來源: lap.source || '',
+          備註: lap.note || ''
+        });
+      }
+    }
+    const ws3 = global.XLSX.utils.json_to_sheet(rows3);
+    ws3['!cols'] = Object.keys(rows3[0] || { 參賽編號: '' }).map(() => ({ wch: 16 }));
+    global.XLSX.utils.book_append_sheet(wb, ws3, '逐圈原始感應紀錄');
+
+    const safeName = (event?.name || '繞圈計時賽').replace(/[\\/:*?"<>|]/g, '_');
+    const dateTag = event?.date || new Date().toISOString().slice(0, 10);
+    const suffix = maskId ? '繞圈公開隱碼版' : '繞圈完整報表';
+    const fileName = `${safeName}_${suffix}_${dateTag}.xlsx`;
+    global.XLSX.writeFile(wb, fileName);
+    return fileName;
+  }
+
   function exportResultsToExcel({ event, computed, scans, maskId = false }) {
     if (typeof global.XLSX === 'undefined') {
       throw new Error('SheetJS (XLSX) 套件尚未載入，請確認網路連線或重新整理頁面');
+    }
+
+    if (event?.eventType === 'lap_timed' || computed?.eventType === 'lap_timed') {
+      return exportLapTimedToExcel({ event, computed, scans, maskId });
     }
 
     const TE = global.TimingEngine;
     const wb = global.XLSX.utils.book_new();
     const checkpoints = computed.checkpoints || [];
 
-    /* ==================== 工作表 1：成績總表 ==================== */
     const resultRows = computed.rows.map((row) => {
       const obj = {
         活動名稱: event?.name || '',
@@ -55,7 +143,6 @@
     ws1['!cols'] = Object.keys(resultRows[0] || { 參賽編號: '' }).map((k) => ({ wch: Math.max(14, k.length * 2 + 2) }));
     global.XLSX.utils.book_append_sheet(wb, ws1, '成績總表');
 
-    /* ==================== 工作表 2：各分組統計 ==================== */
     const statRows = (computed.summary.byCategory || []).map((c) => ({
       活動名稱: event?.name || '',
       分組代碼: c.id,
@@ -75,7 +162,6 @@
     ws2['!cols'] = Object.keys(statRows[0] || { 分組名稱: '' }).map(() => ({ wch: 16 }));
     global.XLSX.utils.book_append_sheet(wb, ws2, '各分組統計');
 
-    /* ==================== 工作表 3：原始感應紀錄 ==================== */
     const cpNameMap = new Map(checkpoints.map((cp) => [cp.id, cp.name]));
     const rawRows = (scans || [])
       .filter((s) => !s.deleted)
