@@ -1,9 +1,6 @@
 /**
- * 智慧路跑 NFC 晶片計時系統 — 公開選手動態即時查詢頁面控制器 (免登入)
- * 資料來源優先順序：
- * 1. URL 參數 ?api=<GAS_URL>
- * 2. 同源裝置設定的 gasUrl
- * 3. 本機 IndexedDB 預覽模式（無需網路即可即時展示或測試）
+ * 智慧路跑 NFC 晶片計時平台 v3.0 — 多場次公開選手動態即時查詢頁面控制器 (免登入)
+ * 支援 URL 參數：?event=<eventId>&api=<gasUrl>
  */
 (function () {
   'use strict';
@@ -14,12 +11,10 @@
 
   const state = {
     gasUrl: '',
-    isCloud: false,
-    config: null,
-    categories: [],
-    checkpoints: [],
-    runners: [],
-    scans: [],
+    events: [],
+    allRegistrations: [],
+    allScans: [],
+    selectedEventId: '',
     computed: null,
     catFilter: 'ALL',
     rankBy: 'gun',
@@ -41,13 +36,14 @@
   async function initPublicPage() {
     const params = new URLSearchParams(location.search);
     const paramApi = (params.get('api') || '').trim();
-    const savedApi = (DB.getDeviceSettings().gasUrl || '').trim();
-    state.gasUrl = paramApi || savedApi;
+    const paramEvent = (params.get('event') || '').trim();
+    const saved = DB.getDeviceSettings();
+
+    state.gasUrl = paramApi || (saved.gasUrl || '').trim();
+    state.selectedEventId = paramEvent || (saved.selectedEventId || '');
 
     bindEvents();
-    await loadData();
-
-    // 每 20 秒自動刷新最新賽道動態
+    await loadData(false);
     setInterval(() => loadData(true), 20000);
   }
 
@@ -59,46 +55,46 @@
       if (state.gasUrl) {
         const res = await Sync.fetchPublicData(state.gasUrl);
         const d = res.data;
-        state.isCloud = true;
-        state.config = d.config;
-        state.categories = d.categories || [];
-        state.checkpoints = d.checkpoints || [];
-        state.runners = d.runners || [];
-        state.scans = d.scans || [];
+        state.events = d.events || [];
+        state.allRegistrations = d.registrations || [];
+        state.allScans = d.scans || [];
+        if (!state.selectedEventId || !state.events.some((e) => e.eventId === state.selectedEventId)) {
+          state.selectedEventId = d.globalConfig?.activeEventId || state.events[0]?.eventId || '';
+        }
         badge.textContent = 'Google 雲端試算表即時同步';
       } else {
         await loadFromLocalIndexedDB();
         badge.textContent = '本機預覽模式（未指定雲端 API）';
       }
     } catch (err) {
-      console.warn('雲端讀取失敗，切換回本機預覽資料:', err);
+      console.warn('雲端讀取失敗，切換本機快取:', err);
       await loadFromLocalIndexedDB();
       badge.textContent = `雲端連線中斷，顯示本機快取 (${err.message})`;
     }
 
+    renderEventSelector();
     recomputeAndRender();
     $('pub-last-updated').textContent = `更新時間：${TE.formatClockSec(Date.now())}`;
   }
 
   async function loadFromLocalIndexedDB() {
     await DB.init();
-    const [cfg, runners, scans] = await Promise.all([
-      DB.getConfig(),
-      DB.getAllRunners(),
+    const [platform, regs, scans] = await Promise.all([
+      DB.getPlatform(),
+      DB.getAllRegistrations(),
       DB.getAllScans()
     ]);
 
-    state.isCloud = false;
-    state.config = {
-      raceName: cfg.raceName,
-      raceDate: cfg.raceDate,
-      rankBy: cfg.rankBy || 'gun'
-    };
-    state.categories = cfg.categories || [];
-    state.checkpoints = cfg.checkpoints || [];
-    // 公開頁面嚴格隱碼身份證字號，僅保留 idMasked 與 idHash
-    state.runners = await Promise.all(
-      runners.map(async (r) => ({
+    state.events = platform.events || [];
+    if (!state.selectedEventId || !state.events.some((e) => e.eventId === state.selectedEventId)) {
+      state.selectedEventId = platform.activeEventId || state.events[0]?.eventId || '';
+    }
+
+    // 公開頁嚴格隱碼身份證，僅保留 idMasked 與 idHash
+    state.allRegistrations = await Promise.all(
+      regs.map(async (r) => ({
+        regId: r.regId,
+        eventId: r.eventId,
         bib: r.bib,
         name: r.name,
         idMasked: r.idMasked || TE.maskIdNumber(r.idNumber),
@@ -107,106 +103,119 @@
         penaltySec: r.penaltySec || 0
       }))
     );
-    state.scans = scans.filter((s) => !s.deleted);
+    state.allScans = scans.filter((s) => !s.deleted);
+  }
+
+  function getActiveEvent() {
+    return state.events.find((e) => e.eventId === state.selectedEventId) || state.events[0] || null;
+  }
+
+  function renderEventSelector() {
+    const sel = $('pub-event-select');
+    if (state.events.length === 0) {
+      sel.innerHTML = '<option value="">尚無路跑活動</option>';
+      return;
+    }
+    const statusTag = { active: '進行中', upcoming: '籌備中', finished: '已結束' };
+    sel.innerHTML = state.events
+      .map((ev) => `<option value="${esc(ev.eventId)}">${esc(ev.name)} (${esc(ev.date || '')}${ev.location ? ' • ' + esc(ev.location) : ''}) [${statusTag[ev.status] || ev.status}]</option>`)
+      .join('');
+    sel.value = state.selectedEventId;
   }
 
   function recomputeAndRender() {
+    const evt = getActiveEvent();
+    if (!evt) return;
+
+    const eventRegs = state.allRegistrations.filter((r) => r.eventId === evt.eventId);
+    const eventScans = state.allScans.filter((s) => s.eventId === evt.eventId && !s.deleted);
+
     state.computed = TE.computeResults({
-      runners: state.runners,
-      scans: state.scans,
-      categories: state.categories,
-      checkpoints: state.checkpoints,
+      runners: eventRegs,
+      scans: eventScans,
+      categories: evt.categories || [],
+      checkpoints: evt.checkpoints || [],
       rankBy: state.rankBy
     });
 
-    $('pub-race-name').textContent = state.config?.raceName || '智慧路跑即時成績查詢';
-    $('pub-race-date').textContent = state.config?.raceDate ? `賽事日期：${state.config.raceDate}` : '';
+    $('pub-race-name').textContent = evt.name;
+    $('pub-race-meta').textContent = `${evt.date || '--'}${evt.location ? ` ｜ 地點：${evt.location}` : ''} ｜ 活動代碼：${evt.eventId}`;
 
-    renderOverview();
+    renderOverview(evt);
     renderLeaderboard();
-    if (state.searchQuery) {
-      runSearch(state.searchQuery);
-    }
+    if (state.searchQuery) runSearch(state.searchQuery);
   }
 
-  function renderOverview() {
+  function renderOverview(evt) {
     const s = state.computed.summary;
     $('pub-kpi-total').textContent = String(s.totalRunners);
     $('pub-kpi-finished').textContent = String(s.finishedCount);
     $('pub-kpi-oncourse').textContent = String(s.onCourseCount);
     $('pub-kpi-notstarted').textContent = String(s.notStartedCount);
 
-    // 各分組完賽進度條
     const catContainer = $('pub-category-stats');
-    if (!s.byCategory.length) {
-      catContainer.innerHTML = '<div class="text-xs text-slate-500">尚無分組資料</div>';
-    } else {
-      catContainer.innerHTML = s.byCategory
-        .map((c) => {
-          const pct = c.total > 0 ? Math.round((c.finished / c.total) * 100) : 0;
-          return `
-            <div class="space-y-1.5">
-              <div class="flex items-center justify-between text-xs">
-                <span class="font-bold text-white flex items-center gap-1.5">
-                  <span class="w-2.5 h-2.5 rounded-full" style="background:${esc(c.color)}"></span>
-                  ${esc(c.name)}
-                </span>
-                <span class="font-mono-num text-slate-300">
-                  完賽 <strong class="text-emerald-400">${c.finished}</strong> /
-                  賽道 <strong class="text-amber-400">${c.onCourse}</strong> /
-                  總數 ${c.total} (${pct}%)
-                </span>
+    catContainer.innerHTML = !s.byCategory.length
+      ? '<div class="text-xs text-slate-500">本場活動尚無分組</div>'
+      : s.byCategory
+          .map((c) => {
+            const pct = c.total > 0 ? Math.round((c.finished / c.total) * 100) : 0;
+            return `
+              <div class="space-y-1.5">
+                <div class="flex items-center justify-between text-xs">
+                  <span class="font-bold text-white flex items-center gap-1.5">
+                    <span class="w-2.5 h-2.5 rounded-full" style="background:${esc(c.color)}"></span>
+                    ${esc(c.name)}
+                  </span>
+                  <span class="font-mono-num text-slate-300">
+                    完賽 <strong class="text-emerald-400">${c.finished}</strong> /
+                    賽道 <strong class="text-amber-400">${c.onCourse}</strong> /
+                    總數 ${c.total} (${pct}%)
+                  </span>
+                </div>
+                <div class="h-2.5 rounded-full bg-slate-800 overflow-hidden">
+                  <div class="h-full rounded-full transition-all duration-500" style="width:${pct}%; background:${esc(c.color)}"></div>
+                </div>
               </div>
-              <div class="h-2.5 rounded-full bg-slate-800 overflow-hidden">
-                <div class="h-full rounded-full transition-all duration-500" style="width:${pct}%; background:${esc(c.color)}"></div>
-              </div>
-            </div>
-          `;
-        })
-        .join('');
-    }
+            `;
+          })
+          .join('');
 
-    // 各站點通過人數統計
     const cpContainer = $('pub-checkpoint-stats');
     const maxPassed = Math.max(1, s.totalRunners);
-    if (!s.byCheckpoint.length) {
-      cpContainer.innerHTML = '<div class="text-xs text-slate-500">尚無站點資料</div>';
-    } else {
-      cpContainer.innerHTML = s.byCheckpoint
-        .map((cp) => {
-          const pct = Math.min(100, Math.round((cp.passedCount / maxPassed) * 100));
-          return `
-            <div class="space-y-1">
-              <div class="flex items-center justify-between text-xs">
-                <span class="font-bold text-slate-200">#${cp.order} ${esc(cp.name)}</span>
-                <span class="font-mono-num font-bold text-sky-400">${cp.passedCount} 人通過</span>
+    cpContainer.innerHTML = !s.byCheckpoint.length
+      ? '<div class="text-xs text-slate-500">本場活動尚無站點</div>'
+      : s.byCheckpoint
+          .map((cp) => {
+            const pct = Math.min(100, Math.round((cp.passedCount / maxPassed) * 100));
+            return `
+              <div class="space-y-1">
+                <div class="flex items-center justify-between text-xs">
+                  <span class="font-bold text-slate-200">#${cp.order} ${esc(cp.name)}</span>
+                  <span class="font-mono-num font-bold text-sky-400">${cp.passedCount} 人通過</span>
+                </div>
+                <div class="h-2 rounded-full bg-slate-800 overflow-hidden">
+                  <div class="h-full rounded-full bg-sky-500 transition-all duration-500" style="width:${pct}%"></div>
+                </div>
               </div>
-              <div class="h-2 rounded-full bg-slate-800 overflow-hidden">
-                <div class="h-full rounded-full bg-sky-500 transition-all duration-500" style="width:${pct}%"></div>
-              </div>
-            </div>
-          `;
-        })
-        .join('');
-    }
+            `;
+          })
+          .join('');
 
-    // 排行榜分組下拉選單
     const catSelect = $('pub-cat-filter');
+    const cats = evt.categories || [];
     catSelect.innerHTML =
       '<option value="ALL">全部組別</option>' +
-      state.categories.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('');
+      cats.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('');
+    if (!cats.some((c) => c.id === state.catFilter)) state.catFilter = 'ALL';
     catSelect.value = state.catFilter;
   }
 
-  /**
-   * 選手搜尋：支援 姓名、參賽編號、完整身份證字號（SHA-256 隱私安全比對）
-   */
   async function runSearch(rawQuery) {
     const q = String(rawQuery || '').trim();
     state.searchQuery = q;
     const container = $('pub-search-results');
 
-    if (!q) {
+    if (!q || !state.computed) {
       container.classList.add('hidden');
       container.innerHTML = '';
       return;
@@ -226,9 +235,26 @@
     container.classList.remove('hidden');
 
     if (matches.length === 0) {
+      // 貼心提示：檢查該選手是否參加了「其他場次」的活動
+      const otherEvtIds = new Set(
+        state.allRegistrations
+          .filter((r) => r.eventId !== state.selectedEventId && (
+            r.name.toLowerCase().includes(qLower) ||
+            (r.idHash && r.idHash === qHash)
+          ))
+          .map((r) => r.eventId)
+      );
+      const otherHint = otherEvtIds.size > 0
+        ? `<div class="mt-2 flex flex-wrap justify-center gap-2">${Array.from(otherEvtIds).map((eid) => {
+            const ev = state.events.find((x) => x.eventId === eid);
+            return `<button type="button" data-switch-pub-event="${esc(eid)}" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-sky-600 hover:bg-sky-500 text-white">切換至「${esc(ev ? ev.name : eid)}」查看 →</button>`;
+          }).join('')}</div>`
+        : '';
+
       container.innerHTML = `
         <div class="rounded-2xl bg-slate-950 border border-slate-800 p-5 text-center text-sm text-slate-400">
-          查無符合「<strong class="text-white">${esc(q)}</strong>」的選手資料，請確認編號、姓名或完整身份證字號是否正確。
+          本場活動查無符合「<strong class="text-white">${esc(q)}</strong>」的選手資料。
+          ${otherHint}
         </div>
       `;
       return;
@@ -249,6 +275,20 @@
           ? `${row.lastCheckpoint.name}（${TE.formatClockSec(row.lastScan.timestampMs)}）`
           : '尚未通過任何感應點';
 
+        // 列出此選手（同 idHash）同時報名的其他場次方便切換查詢
+        const otherRegs = row.idHash
+          ? state.allRegistrations.filter((r) => r.idHash === row.idHash && r.eventId !== state.selectedEventId)
+          : [];
+        const otherEvtChips = otherRegs.length
+          ? `<div class="flex flex-wrap items-center gap-1.5 text-xs pt-1">
+               <span class="text-slate-400">同晶片參加其他場次：</span>
+               ${otherRegs.map((or) => {
+                 const ev = state.events.find((e) => e.eventId === or.eventId);
+                 return `<button type="button" data-switch-pub-event="${esc(or.eventId)}" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-sky-700 text-sky-300 font-bold">${esc(ev ? ev.name : or.eventId)} (${esc(or.categoryId)})</button>`;
+               }).join('')}
+             </div>`
+          : '';
+
         const etaBlock =
           row.status === 'on_course' && row.etaTimestampMs
             ? `<div class="bg-amber-950/40 border border-amber-500/40 rounded-xl p-3">
@@ -264,7 +304,6 @@
                  <div class="text-[11px] text-slate-400 font-mono-num">平均配速 ${esc(row.avgPace)}</div>
                </div>`;
 
-        // 視覺化站點進度時間軸
         const timelineHtml = checkpoints
           .map((cp) => {
             const scan = row.cpScanMap[cp.id];
@@ -298,8 +337,9 @@
                 </div>
                 <div class="text-xs text-slate-400 mt-1">
                   分組：<strong class="text-slate-200">${esc(row.categoryName)}</strong>
-                  ${row.idMasked ? ` ｜ 身份證字號：<code class="text-sky-300 font-mono-num">${esc(row.idMasked)}</code>` : ''}
+                  ${row.idMasked ? ` ｜ 身份證：<code class="text-sky-300 font-mono-num">${esc(row.idMasked)}</code>` : ''}
                 </div>
+                ${otherEvtChips}
               </div>
               <div class="text-right">
                 <div class="text-[11px] text-slate-400">最後通過位置</div>
@@ -334,11 +374,12 @@
   }
 
   function renderLeaderboard() {
+    if (!state.computed) return;
     const rows = state.computed.rows.filter((r) => state.catFilter === 'ALL' || r.categoryId === state.catFilter);
     const tbody = $('pub-leaderboard-tbody');
 
     if (rows.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="10" class="py-8 text-center text-slate-500">目前尚無選手成績資料</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="10" class="py-8 text-center text-slate-500">本場活動尚無選手報名或成績資料</td></tr>';
       return;
     }
 
@@ -388,6 +429,12 @@
   function bindEvents() {
     $('btn-pub-refresh').addEventListener('click', () => loadData(false));
 
+    $('pub-event-select').addEventListener('change', (e) => {
+      state.selectedEventId = e.target.value;
+      state.catFilter = 'ALL';
+      recomputeAndRender();
+    });
+
     $('form-pub-search').addEventListener('submit', (e) => {
       e.preventDefault();
       runSearch($('pub-search-input').value);
@@ -407,14 +454,22 @@
       recomputeAndRender();
     });
 
-    // 點擊排行榜任一列直接展開該選手完整分段與動態卡片
     $('pub-leaderboard-tbody').addEventListener('click', (e) => {
       const tr = e.target.closest('[data-pick-bib]');
       if (!tr) return;
-      const bib = tr.dataset.pickBib;
-      $('pub-search-input').value = bib;
-      runSearch(bib);
+      $('pub-search-input').value = tr.dataset.pickBib;
+      runSearch(tr.dataset.pickBib);
       window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+
+    // 點擊搜尋結果中的「切換至其他活動」快捷鈕
+    $('pub-search-results').addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-switch-pub-event]');
+      if (!btn) return;
+      state.selectedEventId = btn.dataset.switchPubEvent;
+      $('pub-event-select').value = state.selectedEventId;
+      state.catFilter = 'ALL';
+      recomputeAndRender();
     });
   }
 

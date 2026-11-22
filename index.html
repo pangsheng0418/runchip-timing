@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <meta name="theme-color" content="#0f172a" />
-  <title>智慧路跑 NFC 晶片計時系統</title>
+  <title>智慧路跑 NFC 多場次共用晶片計時平台</title>
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/svg+xml" href="./icon.svg" />
   <script src="https://cdn.tailwindcss.com"></script>
@@ -20,17 +20,16 @@
         <img src="./icon.svg" alt="Logo" class="w-9 h-9 rounded-lg shrink-0" />
         <div class="min-w-0">
           <h1 id="header-race-name" class="text-base sm:text-lg font-extrabold tracking-tight text-white truncate">
-            智慧路跑 NFC 晶片計時系統
+            智慧路跑 NFC 多場次計時平台
           </h1>
           <div class="flex items-center gap-2 text-xs text-slate-400">
-            <span id="header-race-date">--</span>
+            <span id="header-event-badge" class="text-sky-300 font-bold truncate">--</span>
             <span>•</span>
-            <span id="header-device-id" class="font-mono-num">--</span>
+            <span id="header-device-id" class="font-mono-num shrink-0">--</span>
           </div>
         </div>
       </div>
 
-      <!-- 狀態燈號、目前登入者、待同步與登出 -->
       <div class="flex items-center gap-2 flex-wrap">
         <span id="badge-network" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-slate-800 border border-slate-700 text-slate-300">
           <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
@@ -53,30 +52,37 @@
     </div>
   </header>
 
-  <!-- 全域 Toast 提示容器 -->
+  <!-- 全域 Toast -->
   <div id="toast-container" class="fixed top-20 right-4 z-50 flex flex-col gap-2 max-w-sm w-[calc(100vw-2rem)] pointer-events-none"></div>
 
   <main class="max-w-7xl mx-auto px-3 sm:px-6 py-5 space-y-6">
 
     <!-- ================================================================== -->
-    <!-- VIEW 1：系統作業區入口大廳（進入系統即顯示三大作業區） -->
+    <!-- VIEW 1：系統作業區入口大廳（選取活動 + 三大作業區） -->
     <!-- ================================================================== -->
-    <section id="view-portal" class="app-view space-y-6 py-2 sm:py-6">
+    <section id="view-portal" class="app-view space-y-6 py-2 sm:py-4">
       <div class="text-center max-w-3xl mx-auto space-y-2.5">
         <div id="portal-net-banner" class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-extrabold bg-emerald-950/70 border border-emerald-500/40 text-emerald-300">
-          🟢 網路連線正常 • 支援線上即時同步與無網路離線作業
+          🟢 網路連線正常 • 多場次共用晶片平台（支援無網路離線感應）
         </div>
-        <h2 class="text-2xl sm:text-4xl font-black text-white tracking-tight">請選擇作業區域</h2>
+        <h2 class="text-2xl sm:text-4xl font-black text-white tracking-tight">智慧路跑多場次計時平台</h2>
         <p class="text-sm sm:text-base text-slate-400">
-          依權限嚴格區分「公開查詢」、「晶片計時鎖定站點作業」與「後台最高管理」；賽道無網路時仍可離線感應，有網後統一上傳同步。
+          晶片僅寫入「<strong>姓名＋身份證字號</strong>」，每位選手持同一晶片即可重複參加不同活動與組別；感應時自動依選取活動比對參賽明細！
         </p>
+      </div>
+
+      <!-- 大廳選取路跑活動橫幅 -->
+      <div class="max-w-3xl mx-auto bg-slate-900 border-2 border-sky-500/40 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center gap-3 shadow-lg">
+        <label for="portal-event-select" class="text-sm font-black text-sky-300 shrink-0">🏟️ 選取路跑活動：</label>
+        <select id="portal-event-select"
+          class="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-base font-black text-white focus:border-sky-400 focus:outline-none">
+        </select>
       </div>
 
       <!-- 三大作業區卡片 -->
       <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
-
         <!-- 1. 公開查詢頁 -->
-        <div class="group bg-slate-900 border-2 border-sky-500/40 hover:border-sky-400 rounded-3xl p-6 flex flex-col justify-between space-y-5 transition shadow-xl">
+        <div class="bg-slate-900 border-2 border-sky-500/40 hover:border-sky-400 rounded-3xl p-6 flex flex-col justify-between space-y-5 transition shadow-xl">
           <div class="space-y-3">
             <div class="flex items-center justify-between">
               <span class="text-4xl">🌐</span>
@@ -86,11 +92,11 @@
             </div>
             <h3 class="text-2xl font-black text-white">公開查詢頁</h3>
             <p class="text-sm text-slate-300 leading-relaxed">
-              提供選手、親友與民眾即時查詢賽事總覽、各組完賽進度、最後通過補給站、預估完賽時間 (ETA) 與排行榜。
+              可自由切換平台內各項路跑活動，即時查詢總覽看板、選手最後通過站點、預估完賽時間 (ETA) 與各組排名。
             </p>
             <ul class="text-xs text-slate-400 space-y-1.5 pt-1">
-              <li>• 支援姓名、參賽編號或身份證字號查詢</li>
-              <li>• 全面採個資隱碼顯示（如 <code class="text-sky-300">A123****89</code>）</li>
+              <li>• 支援切換多場活動查詢個人歷次成績</li>
+              <li>• 姓名、參賽編號、身份證（隱碼 <code class="text-sky-300">A123****89</code>）查詢</li>
               <li>• 每 20 秒自動刷新最新賽道動態</li>
             </ul>
           </div>
@@ -101,22 +107,22 @@
         </div>
 
         <!-- 2. 晶片計時作業區 -->
-        <div class="group bg-slate-900 border-2 border-emerald-500/40 hover:border-emerald-400 rounded-3xl p-6 flex flex-col justify-between space-y-5 transition shadow-xl">
+        <div class="bg-slate-900 border-2 border-emerald-500/40 hover:border-emerald-400 rounded-3xl p-6 flex flex-col justify-between space-y-5 transition shadow-xl">
           <div class="space-y-3">
             <div class="flex items-center justify-between">
               <span class="text-4xl">📡</span>
               <span class="px-3 py-1 rounded-full text-xs font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
-                帳密管制・鎖定指定區
+                帳密管制・鎖定活動與站點
               </span>
             </div>
             <h3 class="text-2xl font-black text-white">晶片計時作業</h3>
             <p class="text-sm text-slate-300 leading-relaxed">
-              提供「晶片寫入報到」及「各站感應計時」工作人員使用；依帳號自動鎖定指定感應站點，徹底防止選錯站感應錯誤。
+              提供「共用晶片寫入（姓名＋身份證）」與「選取活動鎖定站點感應」；感應時自動比對該活動選手明細與組別。
             </p>
             <ul class="text-xs text-slate-400 space-y-1.5 pt-1">
-              <li>• 帳號綁定唯一感應站點或晶片寫入區，無法誤切</li>
-              <li>• <strong>無網路時可離線登入與感應</strong>（本機 IndexedDB 暫存）</li>
-              <li>• 恢復網路後可一鍵統一上傳雲端同步</li>
+              <li>• 鎖定作業活動與感應站點，防止誤選站點或錯場</li>
+              <li>• 自動攔截「非本場活動報名選手」避免誤計</li>
+              <li>• <strong>無網路可離線感應</strong>，連網後一鍵統一上傳</li>
             </ul>
           </div>
           <button id="btn-portal-staff" type="button"
@@ -126,7 +132,7 @@
         </div>
 
         <!-- 3. 後台管理區 -->
-        <div class="group bg-slate-900 border-2 border-amber-500/40 hover:border-amber-400 rounded-3xl p-6 flex flex-col justify-between space-y-5 transition shadow-xl">
+        <div class="bg-slate-900 border-2 border-amber-500/40 hover:border-amber-400 rounded-3xl p-6 flex flex-col justify-between space-y-5 transition shadow-xl">
           <div class="space-y-3">
             <div class="flex items-center justify-between">
               <span class="text-4xl">🛡️</span>
@@ -136,12 +142,12 @@
             </div>
             <h3 class="text-2xl font-black text-white">後台管理區</h3>
             <p class="text-sm text-slate-300 leading-relaxed">
-              系統最高權限專區；管理賽事分組鳴槍、所有選手與成績修正、指派作業員帳密與鎖定站點，以及匯入匯出與備份還原。
+              建立多項路跑活動、事前匯入各活動選手名單與組別、各組鳴槍與站點設定、管理員成績修正、作業員帳號與備份同步。
             </p>
             <ul class="text-xs text-slate-400 space-y-1.5 pt-1">
-              <li>• 獨立管理員帳密保護，可建立與修改所有成績</li>
-              <li>• 管控各站作業員帳號、密碼與綁定感應站點</li>
-              <li>• Excel 報表匯出、完整系統 JSON 備份與還原</li>
+              <li>• 建立與切換多場活動，分別匯入各場參賽名單</li>
+              <li>• 管控各站作業員帳號、密碼與鎖定活動/站點</li>
+              <li>• 單場 Excel 報表匯出、平台完整 JSON 備份還原</li>
             </ul>
           </div>
           <button id="btn-portal-admin" type="button"
@@ -151,7 +157,7 @@
         </div>
       </div>
 
-      <!-- 預設測試帳號一覽（折疊提示） -->
+      <!-- 預設測試帳號一覽 -->
       <details class="max-w-4xl mx-auto bg-slate-900/70 border border-slate-800 rounded-2xl p-4 text-xs text-slate-400">
         <summary class="cursor-pointer font-bold text-slate-300 select-none">
           🔑 查看系統預設測試帳號密碼（可於後台管理區自由新增與修改）
@@ -167,13 +173,12 @@
               </tr>
             </thead>
             <tbody class="divide-y divide-slate-800/60 font-mono-num">
-              <tr><td class="py-1.5 pr-3 text-amber-300 font-sans font-bold">後台管理區</td><td class="pr-3 text-white">admin</td><td class="pr-3 text-white">admin1234</td><td class="font-sans">最高權限（成績修正、帳號指派、備份同步）</td></tr>
-              <tr><td class="py-1.5 pr-3 text-emerald-300 font-sans font-bold">晶片寫入組</td><td class="pr-3 text-white">writer01</td><td class="pr-3 text-white">1111</td><td class="font-sans">鎖定僅進入「NFC 晶片寫入與報到」</td></tr>
-              <tr><td class="py-1.5 pr-3 text-emerald-300 font-sans font-bold">起點感應組</td><td class="pr-3 text-white">start01</td><td class="pr-3 text-white">1111</td><td class="font-sans">鎖定站點：起點感應門 (START)</td></tr>
-              <tr><td class="py-1.5 pr-3 text-emerald-300 font-sans font-bold">補給站 1 組</td><td class="pr-3 text-white">cp1</td><td class="pr-3 text-white">1111</td><td class="font-sans">鎖定站點：補給站 1 (CP1)</td></tr>
-              <tr><td class="py-1.5 pr-3 text-emerald-300 font-sans font-bold">補給站 2 組</td><td class="pr-3 text-white">cp2</td><td class="pr-3 text-white">1111</td><td class="font-sans">鎖定站點：折返點 / 補給站 2 (CP2)</td></tr>
-              <tr><td class="py-1.5 pr-3 text-emerald-300 font-sans font-bold">補給站 3 組</td><td class="pr-3 text-white">cp3</td><td class="pr-3 text-white">1111</td><td class="font-sans">鎖定站點：補給站 3 (CP3)</td></tr>
-              <tr><td class="py-1.5 pr-3 text-emerald-300 font-sans font-bold">終點衝線組</td><td class="pr-3 text-white">finish01</td><td class="pr-3 text-white">1111</td><td class="font-sans">鎖定站點：終點衝線門 (FINISH)</td></tr>
+              <tr><td class="py-1.5 pr-3 text-amber-300 font-sans font-bold">後台管理區</td><td class="pr-3 text-white">admin</td><td class="pr-3 text-white">admin1234</td><td class="font-sans">最高權限（多活動建立、名單匯入、成績修正、帳號與備份）</td></tr>
+              <tr><td class="py-1.5 pr-3 text-emerald-300 font-sans font-bold">共用晶片寫入組</td><td class="pr-3 text-white">writer01</td><td class="pr-3 text-white">1111</td><td class="font-sans">僅進入「共用 NFC 晶片寫入（姓名＋身份證）」</td></tr>
+              <tr><td class="py-1.5 pr-3 text-emerald-300 font-sans font-bold">起點感應組</td><td class="pr-3 text-white">start01</td><td class="pr-3 text-white">1111</td><td class="font-sans">依選定活動鎖定站點：起點感應門 (START)</td></tr>
+              <tr><td class="py-1.5 pr-3 text-emerald-300 font-sans font-bold">補給站 1 組</td><td class="pr-3 text-white">cp1</td><td class="pr-3 text-white">1111</td><td class="font-sans">依選定活動鎖定站點：補給站 1 (CP1)</td></tr>
+              <tr><td class="py-1.5 pr-3 text-emerald-300 font-sans font-bold">補給站 2 組</td><td class="pr-3 text-white">cp2</td><td class="pr-3 text-white">1111</td><td class="font-sans">依選定活動鎖定站點：補給站 2 (CP2)</td></tr>
+              <tr><td class="py-1.5 pr-3 text-emerald-300 font-sans font-bold">終點衝線組</td><td class="pr-3 text-white">finish01</td><td class="pr-3 text-white">1111</td><td class="font-sans">依選定活動鎖定站點：終點衝線門 (FINISH)</td></tr>
             </tbody>
           </table>
         </div>
@@ -181,7 +186,7 @@
     </section>
 
     <!-- ================================================================== -->
-    <!-- VIEW 2：晶片計時作業人員登入頁（支援線上同步驗證與無網路離線登入） -->
+    <!-- VIEW 2：晶片計時作業人員登入頁（選擇目標活動 + 帳密管制） -->
     <!-- ================================================================== -->
     <section id="view-staff-login" class="app-view hidden max-w-md mx-auto py-4 space-y-4">
       <button type="button" data-goto="portal" class="text-xs font-bold text-slate-400 hover:text-white">
@@ -192,7 +197,7 @@
         <div class="text-center space-y-1.5">
           <div class="text-4xl">📡</div>
           <h2 class="text-2xl font-black text-white">晶片計時作業登入</h2>
-          <p class="text-xs text-slate-400">登入後系統將自動鎖定您負責的感應站點或晶片寫入區，防止誤選站點。</p>
+          <p class="text-xs text-slate-400">請選擇本次作業活動並輸入帳密；登入後將鎖定該活動與指定站點以防誤感應。</p>
         </div>
 
         <div id="staff-login-offline-hint" class="rounded-xl border border-emerald-500/30 bg-emerald-950/30 p-3 text-xs text-emerald-200">
@@ -201,8 +206,14 @@
 
         <form id="form-staff-login" class="space-y-3.5">
           <div>
+            <label class="block text-xs font-bold text-sky-300 mb-1">🏟️ 選擇作業路跑活動</label>
+            <select id="staff-login-event"
+              class="w-full bg-slate-950 border border-sky-500/50 rounded-xl px-3.5 py-3 text-sm font-black text-white focus:border-sky-400 focus:outline-none">
+            </select>
+          </div>
+          <div>
             <label class="block text-xs font-bold text-slate-400 mb-1">作業人員帳號</label>
-            <input id="staff-login-user" required autocomplete="username" type="text" placeholder="例如：writer01 / start01 / cp1 / finish01"
+            <input id="staff-login-user" required autocomplete="username" type="text" placeholder="writer01 / start01 / cp1 / finish01"
               class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-base font-bold text-white focus:border-emerald-400 focus:outline-none" />
           </div>
           <div>
@@ -211,17 +222,16 @@
               class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-base font-bold text-white focus:border-emerald-400 focus:outline-none" />
           </div>
 
-          <button id="btn-staff-login-submit" type="submit"
+          <button type="submit"
             class="w-full py-3.5 rounded-xl text-base font-black bg-emerald-500 hover:bg-emerald-400 text-slate-950 transition shadow">
-            登入並進入指定作業區
+            登入並進入指定活動作業區
           </button>
         </form>
 
-        <!-- 快速填入測試帳號 -->
         <div class="pt-2 border-t border-slate-800 space-y-2">
-          <div class="text-[11px] font-bold text-slate-400">快速體驗（點擊自動帶入預設帳號密碼 1111）：</div>
+          <div class="text-[11px] font-bold text-slate-400">快速體驗（點選自動帶入帳號與預設密碼 1111）：</div>
           <div class="flex flex-wrap gap-1.5">
-            <button type="button" data-quick-staff="writer01" class="px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 text-sky-300">晶片寫入(writer01)</button>
+            <button type="button" data-quick-staff="writer01" class="px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 text-sky-300">共用晶片寫入(writer01)</button>
             <button type="button" data-quick-staff="start01" class="px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 text-emerald-300">起點(start01)</button>
             <button type="button" data-quick-staff="cp1" class="px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 text-emerald-300">補給1(cp1)</button>
             <button type="button" data-quick-staff="cp2" class="px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 text-emerald-300">補給2(cp2)</button>
@@ -232,7 +242,7 @@
     </section>
 
     <!-- ================================================================== -->
-    <!-- VIEW 3：後台管理區最高權限登入頁（獨立管理員帳號與密碼） -->
+    <!-- VIEW 3：後台管理區最高權限登入頁 -->
     <!-- ================================================================== -->
     <section id="view-admin-login" class="app-view hidden max-w-md mx-auto py-4 space-y-4">
       <button type="button" data-goto="portal" class="text-xs font-bold text-slate-400 hover:text-white">
@@ -243,7 +253,7 @@
         <div class="text-center space-y-1.5">
           <div class="text-4xl">🛡️</div>
           <h2 class="text-2xl font-black text-white">後台管理區登入</h2>
-          <p class="text-xs text-slate-400">最高權限專區，請輸入獨立管理員帳號與密碼（預設：<code class="text-amber-300">admin / admin1234</code>）</p>
+          <p class="text-xs text-slate-400">最高權限獨立帳密（預設：<code class="text-amber-300">admin / admin1234</code>）</p>
         </div>
 
         <form id="form-admin-login" class="space-y-3.5">
@@ -266,21 +276,21 @@
     </section>
 
     <!-- ================================================================== -->
-    <!-- VIEW 4：晶片計時作業區（登入後自動鎖定站點/寫入區 + 離線轉連線一鍵上傳） -->
+    <!-- VIEW 4：晶片計時作業區（鎖定活動＋鎖定站點 / 共用晶片寫入） -->
     <!-- ================================================================== -->
     <section id="view-staff-workspace" class="app-view hidden space-y-4">
 
-      <!-- 作業人員專屬狀態列：顯示鎖定作業區 + 離線/線上切換 + 統一上傳雲端 -->
+      <!-- 鎖定作業活動與站點列 + 離線/線上切換與統一上傳 -->
       <div class="hc-card bg-slate-900 border-2 border-emerald-500/50 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3">
         <div class="space-y-1">
           <div class="flex items-center gap-2 flex-wrap">
             <span class="px-2.5 py-0.5 rounded-full text-xs font-black bg-emerald-500 text-slate-950">🔒 權限已鎖定</span>
+            <span id="staff-locked-event-pill" class="px-2.5 py-0.5 rounded-full text-xs font-black bg-sky-500/20 border border-sky-500/40 text-sky-300">🏟️ --</span>
             <span id="staff-locked-zone-title" class="text-lg sm:text-xl font-black text-white">--</span>
           </div>
           <div id="staff-operator-meta" class="text-xs text-slate-400 font-mono-num">--</div>
         </div>
 
-        <!-- 離線/線上模式切換 & 統一上傳同步 -->
         <div class="flex flex-wrap items-center gap-2">
           <button id="btn-staff-toggle-mode" type="button"
             class="px-3.5 py-2 rounded-xl text-xs font-black bg-slate-800 hover:bg-slate-700 border border-slate-600 text-sky-300 transition">
@@ -291,30 +301,28 @@
             ☁️ 統一上傳離線資料 (<span id="staff-pending-count" class="font-mono-num">0</span>)
           </button>
           <button id="btn-staff-export-offline-json" type="button"
-            class="px-3 py-2 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700"
-            title="若現場完全無網路，可將本機感應匯出 JSON 交由後台合併">
+            class="px-3 py-2 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700">
             💾 匯出離線檔
           </button>
         </div>
       </div>
 
-      <!-- 若此帳號同時有寫入與指定站點權限 (role==='both') 才顯示子頁籤 -->
+      <!-- 若此帳號同時具備寫入＋指定站點 (role==='both') 顯示切換 -->
       <div id="staff-both-tabs" class="hidden flex gap-2">
         <button type="button" data-staff-sub="scan" class="staff-sub-btn flex-1 py-3 rounded-xl font-black text-sm bg-emerald-500 text-slate-950">
-          ⏱️ 指定站點感應計時
+          ⏱️ 指定活動站點感應計時
         </button>
         <button type="button" data-staff-sub="writer" class="staff-sub-btn flex-1 py-3 rounded-xl font-black text-sm bg-slate-800 text-slate-300">
-          📡 晶片寫入與報到
+          📡 共用 NFC 晶片寫入製卡
         </button>
       </div>
 
-      <!-- ==================== 子面板 A：指定站點極速感應終端 ==================== -->
+      <!-- ==================== 子面板 A：指定活動與站點感應終端 ==================== -->
       <div id="staff-panel-scan" class="space-y-4">
         <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
-          <!-- 鎖定站點大型資訊卡（不可下拉誤切站點！） -->
-          <div class="lg:col-span-7 hc-card bg-slate-900 border-2 border-sky-500 rounded-2xl p-4 flex flex-col justify-between gap-3">
-            <div class="flex items-center justify-between gap-2">
-              <span class="text-xs font-extrabold text-sky-300">🔒 已綁定鎖定站點（防誤選保護）</span>
+          <div class="lg:col-span-7 hc-card bg-slate-900 border-2 border-sky-500 rounded-2xl p-4 flex flex-col justify-between gap-2.5">
+            <div class="flex items-center justify-between gap-2 flex-wrap">
+              <span class="text-xs font-extrabold text-sky-300">🔒 已鎖定活動與感應站點（自動比對本活動選手明細）</span>
               <div class="flex items-center gap-2">
                 <button id="btn-toggle-sound" type="button" class="px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-800 border border-slate-700 text-emerald-300">
                   🔊 音效開
@@ -324,13 +332,13 @@
                 </button>
               </div>
             </div>
+            <div id="locked-event-title" class="text-sm font-black text-amber-300">--</div>
             <div class="flex items-baseline justify-between gap-3 flex-wrap">
               <div id="locked-cp-name" class="text-2xl sm:text-3xl font-black text-white">--</div>
-              <div id="locked-cp-meta" class="font-mono-num text-sm font-bold text-sky-400">--</div>
+              <div id="locked-cp-meta" class="font-mono-num text-xs sm:text-sm font-bold text-sky-400">--</div>
             </div>
           </div>
 
-          <!-- 毫秒精準系統時鐘 -->
           <div class="lg:col-span-5 hc-card bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col justify-center items-center text-center">
             <div class="text-xs font-bold uppercase tracking-widest text-slate-400">系統標準時間 (精確至毫秒)</div>
             <div id="live-clock" class="font-mono-num text-4xl sm:text-5xl font-black text-sky-400 tracking-tight mt-1">
@@ -343,12 +351,12 @@
         <!-- 感應結果超大高對比看板 -->
         <div id="scan-hero-card" class="hc-card bg-slate-900 border-2 border-slate-700 rounded-3xl p-5 sm:p-8 text-center transition-colors">
           <div id="scan-status-pill" class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-extrabold bg-slate-800 text-slate-300 mb-3">
-            等待選手晶片靠近感應區
+            等待選手晶片靠近感應區（依晶片姓名／身份證比對本活動明細）
           </div>
 
           <div class="grid grid-cols-1 md:grid-cols-3 gap-4 items-center my-2">
             <div>
-              <div class="text-xs font-bold text-slate-400">參賽編號 / 組別</div>
+              <div class="text-xs font-bold text-slate-400">本場參賽編號 / 組別</div>
               <div id="hero-bib-cat" class="text-3xl sm:text-4xl font-black text-amber-400 font-mono-num mt-1">---</div>
             </div>
             <div>
@@ -356,7 +364,7 @@
               <div id="hero-name" class="text-4xl sm:text-6xl font-black text-white tracking-wide mt-1">準備就緒</div>
             </div>
             <div>
-              <div class="text-xs font-bold text-slate-400">經過時間 (大會 / 淨時間)</div>
+              <div class="text-xs font-bold text-slate-400">本場經過時間</div>
               <div id="hero-elapsed" class="font-mono-num text-3xl sm:text-5xl font-black text-emerald-400 mt-1">--:--:--.---</div>
             </div>
           </div>
@@ -373,34 +381,34 @@
           </div>
         </div>
 
-        <!-- 手動補感應 + 模擬器 -->
+        <!-- 手動補感應 + 模擬晶片感應測試器 -->
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <div class="hc-card bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
             <div class="flex items-center justify-between">
               <h3 class="text-base font-extrabold text-white">⌨️ 手動補感應（晶片損壞備案）</h3>
-              <span class="text-xs text-slate-400">參賽編號或身份證字號</span>
+              <span class="text-xs text-slate-400">本場編號、姓名或身份證</span>
             </div>
             <form id="form-manual-scan" class="flex gap-2">
-              <input id="manual-scan-input" type="text" placeholder="例如：A001 或 A123456789"
-                class="flex-1 text-lg font-bold bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-sky-500" />
+              <input id="manual-scan-input" type="text" placeholder="輸入本場編號、姓名或身份證字號"
+                class="flex-1 text-base sm:text-lg font-bold bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-sky-500" />
               <button type="submit"
                 class="px-5 py-3 rounded-xl text-base font-black bg-sky-500 hover:bg-sky-400 text-slate-950 shrink-0 transition">
-                立即補登
+                比對補登
               </button>
             </form>
           </div>
 
           <div class="hc-card bg-slate-900 border border-indigo-500/40 rounded-2xl p-4 space-y-3">
             <div class="flex items-center justify-between">
-              <h3 class="text-base font-extrabold text-indigo-300">🧪 模擬 NFC 感應測試器 (Mock Scan)</h3>
+              <h3 class="text-base font-extrabold text-indigo-300">🧪 模擬共用晶片刷過 (Mock Scan)</h3>
               <button id="btn-load-demo-shortcut" type="button" class="text-xs font-bold text-amber-300 hover:underline">
-                載入模擬選手
+                載入雙場次模擬資料
               </button>
             </div>
             <div class="flex flex-wrap sm:flex-nowrap gap-2">
-              <select id="mock-runner-select"
-                class="flex-1 text-base font-bold bg-slate-950 border border-slate-700 rounded-xl px-3 py-3 text-white">
-                <option value="">-- 隨機挑選一名選手 --</option>
+              <select id="mock-chip-select"
+                class="flex-1 text-sm sm:text-base font-bold bg-slate-950 border border-slate-700 rounded-xl px-3 py-3 text-white">
+                <option value="">-- 隨機挑選一張共用晶片 --</option>
               </select>
               <button id="btn-mock-scan" type="button"
                 class="w-full sm:w-auto px-5 py-3 rounded-xl text-base font-black bg-indigo-500 hover:bg-indigo-400 text-white shrink-0 transition">
@@ -413,7 +421,7 @@
         <!-- 本站最新感應紀錄 -->
         <div class="hc-card bg-slate-900 border border-slate-800 rounded-2xl p-4">
           <div class="flex items-center justify-between mb-3">
-            <h3 class="text-base font-extrabold text-white">📋 本鎖定站點即時感應紀錄（最新 20 筆）</h3>
+            <h3 class="text-base font-extrabold text-white">📋 本活動鎖定站點感應紀錄（最新 20 筆）</h3>
             <span id="checkpoint-scan-count" class="text-xs font-bold px-2.5 py-1 rounded-full bg-slate-800 text-sky-300">0 筆</span>
           </div>
           <div class="overflow-x-auto">
@@ -421,9 +429,9 @@
               <thead class="text-xs uppercase text-slate-400 border-b border-slate-800">
                 <tr>
                   <th class="py-2 pr-3">感應時間</th>
-                  <th class="py-2 pr-3">參賽編號</th>
+                  <th class="py-2 pr-3">本場編號</th>
                   <th class="py-2 pr-3">姓名</th>
-                  <th class="py-2 pr-3">分組</th>
+                  <th class="py-2 pr-3">本場組別</th>
                   <th class="py-2 pr-3">來源</th>
                   <th class="py-2 text-right">雲端狀態</th>
                 </tr>
@@ -434,82 +442,96 @@
         </div>
       </div>
 
-      <!-- ==================== 子面板 B：NFC 晶片寫入與報到 ==================== -->
+      <!-- ==================== 子面板 B：共用 NFC 晶片寫入（僅姓名 + 身份證字號） ==================== -->
       <div id="staff-panel-writer" class="hidden space-y-5">
         <div id="writer-nfc-banner" class="rounded-2xl border border-sky-500/40 bg-sky-950/30 p-4 text-sm text-sky-200 flex items-start gap-3">
           <span class="text-xl">📱</span>
           <div>
-            <div class="font-bold">Web NFC 環境狀態檢測</div>
+            <div class="font-bold">共用 NFC 晶片寫入說明（跨場次通用）</div>
             <p id="writer-nfc-status-text" class="text-sky-300/90 mt-0.5">檢查中...</p>
           </div>
         </div>
 
         <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+          <!-- 左側：僅需姓名與身份證字號 -->
           <div class="lg:col-span-6 bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
-            <h3 class="text-lg font-extrabold text-white">🏷️ 選手報到與 NFC 晶片寫入</h3>
-            <form id="form-nfc-write" class="space-y-3.5">
-              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label class="block text-xs font-bold text-slate-400 mb-1">參賽編號 (Bib) *</label>
-                  <input id="writer-bib" required type="text" placeholder="例如：A001"
-                    class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-base font-bold text-white focus:border-emerald-500 focus:outline-none" />
-                </div>
-                <div>
-                  <label class="block text-xs font-bold text-slate-400 mb-1">參賽分組 *</label>
-                  <select id="writer-category" required
-                    class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-base font-bold text-white focus:border-emerald-500 focus:outline-none">
-                  </select>
-                </div>
-              </div>
+            <div>
+              <h3 class="text-lg font-extrabold text-white">🏷️ 寫入共用 NFC 晶片（僅姓名＋身份證字號）</h3>
+              <p class="text-xs text-slate-400 mt-1">
+                晶片內僅寫入 <code class="text-emerald-300">姓名|身份證字號</code>，同一晶片可直接重複參加本平台所有不同場次與組別，免重複寫卡！
+              </p>
+            </div>
 
-              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label class="block text-xs font-bold text-slate-400 mb-1">選手姓名 *</label>
-                  <input id="writer-name" required type="text" placeholder="例如：王小明"
-                    class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-base font-bold text-white focus:border-emerald-500 focus:outline-none" />
-                </div>
-                <div>
-                  <label class="block text-xs font-bold text-slate-400 mb-1">身份證字號 *</label>
-                  <input id="writer-idnumber" required type="text" placeholder="例如：A123456789"
-                    class="w-full uppercase bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-base font-bold text-white focus:border-emerald-500 focus:outline-none" />
-                </div>
+            <form id="form-nfc-write" class="space-y-3.5">
+              <div>
+                <label class="block text-xs font-bold text-slate-400 mb-1">選手姓名 *</label>
+                <input id="writer-name" required type="text" placeholder="例如：林志明"
+                  class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-lg font-bold text-white focus:border-emerald-500 focus:outline-none" />
+              </div>
+              <div>
+                <label class="block text-xs font-bold text-slate-400 mb-1">身份證字號 *（跨場次比對主鍵）</label>
+                <input id="writer-idnumber" required type="text" placeholder="例如：A123456789"
+                  class="w-full uppercase bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-lg font-mono-num font-bold text-white focus:border-emerald-500 focus:outline-none" />
               </div>
 
               <div class="pt-2 flex flex-col sm:flex-row gap-2.5">
                 <button id="btn-write-nfc" type="submit"
                   class="flex-1 py-3.5 px-4 rounded-xl text-base font-black bg-emerald-500 hover:bg-emerald-400 text-slate-950 transition shadow">
-                  📡 寫入 NFC 晶片並自動驗證
+                  📡 寫入共用晶片並驗證
                 </button>
-                <button id="btn-mock-write-nfc" type="button"
-                  class="py-3.5 px-4 rounded-xl text-sm font-extrabold bg-indigo-600 hover:bg-indigo-500 text-white transition">
-                  🧪 模擬寫入驗證
+                <button id="btn-bind-uid-nfc" type="button"
+                  class="py-3.5 px-4 rounded-xl text-sm font-black bg-sky-500 hover:bg-sky-400 text-slate-950 transition shadow"
+                  title="適用唯讀晶片或 MIFARE 卡：免寫入直接綁定晶片唯一 UID">
+                  🔗 僅綁定晶片 UID
                 </button>
               </div>
-              <button id="btn-save-runner-only" type="button"
-                class="w-full py-2.5 px-4 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 transition">
-                僅儲存選手報到資料（不寫入晶片）
-              </button>
+              <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <button id="btn-read-test-nfc" type="button"
+                  class="py-2.5 px-3 rounded-xl text-xs font-extrabold bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 transition">
+                  🔍 讀取 / 測試晶片
+                </button>
+                <button id="btn-mock-write-nfc" type="button"
+                  class="py-2.5 px-3 rounded-xl text-xs font-extrabold bg-indigo-600/80 hover:bg-indigo-500 text-white transition">
+                  🧪 模擬寫入驗證
+                </button>
+                <button id="btn-save-chip-only" type="button"
+                  class="py-2.5 px-3 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 transition">
+                  💾 僅登錄晶片主檔
+                </button>
+              </div>
             </form>
 
-            <div id="writer-verify-box" class="hidden rounded-xl border p-4 text-sm space-y-1.5">
-              <div id="writer-verify-title" class="font-extrabold"></div>
+            <div id="writer-verify-box" class="hidden rounded-xl border p-4 text-sm space-y-2">
+              <div class="flex items-start justify-between gap-2">
+                <div id="writer-verify-title" class="font-extrabold"></div>
+                <button id="btn-cancel-nfc-op" type="button"
+                  class="hidden shrink-0 px-2.5 py-1 rounded-lg text-xs font-black bg-rose-600 hover:bg-rose-500 text-white">
+                  取消 / 略過
+                </button>
+              </div>
               <div id="writer-verify-detail" class="text-xs font-mono-num break-all opacity-90"></div>
             </div>
           </div>
 
+          <!-- 右側：從已匯入活動名單快速點選帶入製卡 -->
           <div class="lg:col-span-6 bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
             <div class="flex flex-wrap items-center justify-between gap-2">
-              <h3 class="text-base font-extrabold text-white">👥 選手報到名單 (<span id="roster-count">0</span> 人)</h3>
-              <input id="roster-search" type="search" placeholder="搜尋編號、姓名或身份證..."
-                class="w-full sm:w-56 bg-slate-950 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-white focus:border-sky-500 focus:outline-none" />
+              <h3 class="text-base font-extrabold text-white">👥 待製卡 / 已發卡選手清單 (<span id="writer-people-count">0</span> 人)</h3>
+              <div class="flex gap-2 w-full sm:w-auto">
+                <select id="writer-event-filter" class="bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-1.5 text-xs font-bold text-sky-300">
+                  <option value="ALL">所有活動名單</option>
+                </select>
+                <input id="roster-search" type="search" placeholder="搜尋姓名或身份證..."
+                  class="flex-1 sm:w-40 bg-slate-950 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-white focus:border-sky-500 focus:outline-none" />
+              </div>
             </div>
-            <div class="overflow-x-auto max-h-[380px]">
+            <div class="overflow-x-auto max-h-[390px]">
               <table class="w-full text-xs sm:text-sm text-left">
                 <thead class="text-xs uppercase text-slate-400 border-b border-slate-800 sticky top-0 bg-slate-900">
                   <tr>
-                    <th class="py-2 pr-2">編號</th>
                     <th class="py-2 pr-2">姓名</th>
-                    <th class="py-2 pr-2">組別</th>
+                    <th class="py-2 pr-2">身份證字號</th>
+                    <th class="py-2 pr-2">已報名活動數</th>
                     <th class="py-2 pr-2">晶片狀態</th>
                     <th class="py-2 text-right">操作</th>
                   </tr>
@@ -523,34 +545,164 @@
     </section>
 
     <!-- ================================================================== -->
-    <!-- VIEW 5：後台管理區（最高權限：成績、帳號管制、賽事設定、備份、同步） -->
+    <!-- VIEW 5：後台管理區（多活動切換 + 6 大管理分頁） -->
     <!-- ================================================================== -->
-    <section id="view-admin-workspace" class="app-view hidden space-y-5">
+    <section id="view-admin-workspace" class="app-view hidden space-y-4">
 
-      <!-- 後台導覽分頁 -->
-      <div class="bg-slate-900 border border-amber-500/40 rounded-2xl p-2 flex flex-wrap gap-1.5">
-        <button type="button" data-admin-tab="results" class="admin-tab-btn px-4 py-2.5 rounded-xl text-xs sm:text-sm font-black bg-amber-500 text-slate-950">
-          🏆 成績管理與修正
-        </button>
-        <button type="button" data-admin-tab="staff" class="admin-tab-btn px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold text-slate-300 hover:bg-slate-800">
-          👷 作業人員帳號與站點管制
-        </button>
-        <button type="button" data-admin-tab="race" class="admin-tab-btn px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold text-slate-300 hover:bg-slate-800">
-          🏁 賽事 / 鳴槍 / 站點與密碼
-        </button>
-        <button type="button" data-admin-tab="backup" class="admin-tab-btn px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold text-slate-300 hover:bg-slate-800">
-          💾 匯入匯出與備份還原
-        </button>
-        <button type="button" data-admin-tab="sync" class="admin-tab-btn px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold text-slate-300 hover:bg-slate-800">
-          ☁️ 雲端同步與分享連結
+      <!-- 後台頂部「目前管理活動」快速切換列 -->
+      <div class="bg-slate-900 border-2 border-amber-500/40 rounded-2xl p-3.5 flex flex-wrap items-center justify-between gap-3">
+        <div class="flex flex-wrap items-center gap-2.5 flex-1 min-w-[240px]">
+          <span class="text-xs font-black text-amber-300 shrink-0">🏟️ 目前管理活動：</span>
+          <select id="admin-event-select"
+            class="flex-1 max-w-md bg-slate-950 border border-amber-500/50 rounded-xl px-3.5 py-2 text-sm font-black text-white focus:outline-none">
+          </select>
+        </div>
+        <button id="btn-open-new-event-modal" type="button"
+          class="px-4 py-2 rounded-xl text-xs font-black bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow">
+          ＋ 建立新路跑活動
         </button>
       </div>
 
-      <!-- ==================== 後台分頁 1：成績總覽與人工修正 ==================== -->
-      <div id="admin-tab-results" class="admin-panel space-y-4">
+      <!-- 後台 6 大分頁導覽 -->
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-2 flex flex-wrap gap-1.5">
+        <button type="button" data-admin-tab="events" class="admin-tab-btn px-3.5 py-2 rounded-xl text-xs sm:text-sm font-black bg-amber-500 text-slate-950">
+          🏟️ 活動管理與帳密
+        </button>
+        <button type="button" data-admin-tab="roster" class="admin-tab-btn px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold text-slate-300 hover:bg-slate-800">
+          👥 選手名單與組別匯入
+        </button>
+        <button type="button" data-admin-tab="results" class="admin-tab-btn px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold text-slate-300 hover:bg-slate-800">
+          🏆 成績管理與修正
+        </button>
+        <button type="button" data-admin-tab="race" class="admin-tab-btn px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold text-slate-300 hover:bg-slate-800">
+          🔫 分組鳴槍與站點
+        </button>
+        <button type="button" data-admin-tab="staff" class="admin-tab-btn px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold text-slate-300 hover:bg-slate-800">
+          👷 作業員帳號管制
+        </button>
+        <button type="button" data-admin-tab="sync" class="admin-tab-btn px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold text-slate-300 hover:bg-slate-800">
+          💾 備份匯出與雲端同步
+        </button>
+      </div>
+
+      <!-- ==================== 後台分頁 1：多活動總覽與管理員帳密 ==================== -->
+      <div id="admin-tab-events" class="admin-panel space-y-5">
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
+          <h2 class="text-lg font-extrabold text-white">🏟️ 平台所有路跑活動清單</h2>
+          <div id="admin-events-list" class="grid grid-cols-1 md:grid-cols-2 gap-3"></div>
+        </div>
+
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
+          <h2 class="text-lg font-extrabold text-white">✏️ 編輯目前活動基本資訊</h2>
+          <form id="form-event-basic" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+            <div class="lg:col-span-2">
+              <label class="block text-xs font-bold text-slate-400 mb-1">活動名稱</label>
+              <input id="cfg-evt-name" type="text" required class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm font-bold text-white" />
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-400 mb-1">活動日期</label>
+              <input id="cfg-evt-date" type="date" required class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white" />
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-400 mb-1">活動地點</label>
+              <input id="cfg-evt-location" type="text" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white" />
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-400 mb-1">狀態 / 防連點秒數</label>
+              <div class="flex gap-1.5">
+                <select id="cfg-evt-status" class="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-2 py-2 text-xs font-bold text-white">
+                  <option value="active">進行中</option>
+                  <option value="upcoming">籌備中</option>
+                  <option value="finished">已結束</option>
+                </select>
+                <input id="cfg-evt-debounce" type="number" min="0" max="600" class="w-16 bg-slate-950 border border-slate-700 rounded-xl px-2 py-2 text-xs font-mono-num text-white" title="防連點冷卻秒數" />
+              </div>
+            </div>
+            <div class="sm:col-span-2 lg:col-span-5 flex justify-end">
+              <button type="submit" class="px-5 py-2.5 rounded-xl text-sm font-black bg-sky-500 hover:bg-sky-400 text-slate-950">
+                💾 儲存目前活動資訊
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <div class="bg-slate-900 border border-amber-500/30 rounded-2xl p-5 space-y-4">
+          <h2 class="text-base font-extrabold text-amber-300">🛡️ 最高管理員獨立帳號與密碼設定</h2>
+          <form id="form-admin-credentials" class="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+            <div>
+              <label class="block text-xs font-bold text-slate-400 mb-1">管理員帳號</label>
+              <input id="cfg-admin-user" type="text" required class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm font-mono-num text-white" />
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-400 mb-1">管理員密碼</label>
+              <input id="cfg-admin-pass" type="text" required class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm font-mono-num text-white" />
+            </div>
+            <div>
+              <button type="submit" class="w-full py-2.5 rounded-xl text-xs font-black bg-amber-500 hover:bg-amber-400 text-slate-950">
+                更新管理員帳密並同步
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- ==================== 後台分頁 2：本活動選手名單與組別匯入 ==================== -->
+      <div id="admin-tab-roster" class="admin-panel hidden space-y-5">
+        <div class="bg-slate-900 border border-sky-500/30 rounded-2xl p-5 space-y-3">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 class="text-lg font-extrabold text-white">📥 事前匯入「<span id="roster-import-event-name" class="text-sky-300">--</span>」選手名單與組別</h2>
+              <p class="text-xs text-slate-400 mt-0.5">
+                匯入格式（每行一筆）：<code class="text-sky-300">參賽編號,姓名,身份證字號,分組代碼</code>（感應晶片時將以「身份證字號」自動比對本名單！）
+              </p>
+            </div>
+            <div class="flex gap-2">
+              <button id="btn-admin-add-reg" type="button" class="px-3.5 py-2 rounded-xl text-xs font-black bg-emerald-500 hover:bg-emerald-400 text-slate-950">
+                ＋ 單筆新增參賽選手
+              </button>
+              <label class="cursor-pointer px-4 py-2 rounded-xl text-xs font-black bg-sky-600 hover:bg-sky-500 text-white">
+                上傳 .csv / .xlsx
+                <input id="input-import-file" type="file" accept=".csv,.xlsx,.xls" class="hidden" />
+              </label>
+            </div>
+          </div>
+          <textarea id="textarea-bulk-csv" rows="4" placeholder="S101,林志明,A123456789,12K&#10;S102,陳怡君,B234567891,12K&#10;L201,王雅婷,F256789123,5K"
+            class="w-full font-mono-num text-xs bg-slate-950 border border-slate-700 rounded-xl p-3 text-slate-200 focus:border-sky-500 focus:outline-none"></textarea>
+          <button id="btn-import-csv-text" type="button"
+            class="px-5 py-2.5 rounded-xl text-xs font-black bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white">
+            匯入上方名單至目前活動
+          </button>
+        </div>
+
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <h3 class="text-base font-extrabold text-white">👥 本活動已匯入選手明細 (<span id="admin-reg-count">0</span> 人)</h3>
+            <input id="admin-reg-search" type="search" placeholder="搜尋編號、姓名、身份證..."
+              class="w-full sm:w-64 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white" />
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-xs sm:text-sm text-left whitespace-nowrap">
+              <thead class="text-xs uppercase text-slate-400 border-b border-slate-800">
+                <tr>
+                  <th class="py-2 pr-3">本場編號</th>
+                  <th class="py-2 pr-3">姓名</th>
+                  <th class="py-2 pr-3">身份證字號</th>
+                  <th class="py-2 pr-3">本場分組</th>
+                  <th class="py-2 pr-3">共用晶片狀態</th>
+                  <th class="py-2 text-right">操作</th>
+                </tr>
+              </thead>
+              <tbody id="admin-reg-tbody" class="divide-y divide-slate-800/70"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ==================== 後台分頁 3：本活動成績管理與人工修正 ==================== -->
+      <div id="admin-tab-results" class="admin-panel hidden space-y-4">
         <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4">
-            <div class="text-xs font-bold text-slate-400">總參賽人數</div>
+            <div class="text-xs font-bold text-slate-400">本場報名人數</div>
             <div id="kpi-total" class="text-3xl font-black text-white font-mono-num mt-1">0</div>
           </div>
           <div class="bg-slate-900 border border-emerald-500/30 rounded-2xl p-4">
@@ -579,20 +731,14 @@
             <input id="results-search" type="search" placeholder="搜尋姓名 / 編號 / 身分證..."
               class="bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs sm:text-sm text-white w-48" />
           </div>
-          <div class="flex flex-wrap gap-2">
-            <button id="btn-admin-add-runner" type="button"
-              class="px-3.5 py-2 rounded-xl text-xs font-black bg-sky-600 hover:bg-sky-500 text-white">
-              ＋ 建立 / 編輯選手
-            </button>
-            <button id="btn-export-excel-quick" type="button"
-              class="px-4 py-2 rounded-xl text-xs font-black bg-emerald-500 hover:bg-emerald-400 text-slate-950">
-              📊 匯出 Excel (.xlsx)
-            </button>
-          </div>
+          <button id="btn-export-excel-quick" type="button"
+            class="px-4 py-2 rounded-xl text-xs font-black bg-emerald-500 hover:bg-emerald-400 text-slate-950">
+            📊 匯出本場 Excel (.xlsx)
+          </button>
         </div>
 
         <div class="rounded-xl border border-amber-500/40 bg-amber-950/30 px-4 py-2.5 text-xs text-amber-200 font-bold">
-          🛡️ 最高管理員編輯模式：點擊下方任一選手的「站點時間」或「罰時」即可補登、修改或刪除；點擊「姓名」可修改選手資料。
+          🛡️ 最高管理員修正模式：點擊下方任一選手的「站點時間」或「罰時」即可補登、修改或刪除，自動重算名次。
         </div>
 
         <div class="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
@@ -605,74 +751,13 @@
         </div>
       </div>
 
-      <!-- ==================== 後台分頁 2：作業人員帳號與鎖定站點管制 ==================== -->
-      <div id="admin-tab-staff" class="admin-panel hidden space-y-4">
-        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
-          <div class="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <h2 class="text-lg font-extrabold text-white">👷 晶片計時作業人員帳號與站點指派</h2>
-              <p class="text-xs text-slate-400 mt-0.5">
-                為各站工作人員建立獨立帳號與密碼，並強制指派負責區域（晶片寫入 或 鎖定單一感應站點），避免現場誤選站點。
-              </p>
-            </div>
-            <button id="btn-add-staff" type="button"
-              class="px-4 py-2 rounded-xl text-xs font-black bg-emerald-500 hover:bg-emerald-400 text-slate-950">
-              ＋ 新增作業員帳號
-            </button>
-          </div>
-
-          <div id="staff-accounts-list" class="space-y-3"></div>
-
-          <div class="flex justify-end pt-2">
-            <button id="btn-save-staff-accounts" type="button"
-              class="px-5 py-2.5 rounded-xl text-sm font-black bg-sky-500 hover:bg-sky-400 text-slate-950">
-              💾 儲存作業員帳號並同步雲端
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <!-- ==================== 後台分頁 3：賽事、鳴槍、站點與管理員密碼 ==================== -->
+      <!-- ==================== 後台分頁 4：本活動分組鳴槍與站點設定 ==================== -->
       <div id="admin-tab-race" class="admin-panel hidden space-y-5">
         <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
-          <h2 class="text-lg font-extrabold text-white">🏁 賽事基本資料與最高管理員獨立帳密</h2>
-          <form id="form-race-basic" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-            <div class="lg:col-span-2">
-              <label class="block text-xs font-bold text-slate-400 mb-1">賽事名稱</label>
-              <input id="cfg-race-name" type="text" required class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white" />
-            </div>
-            <div>
-              <label class="block text-xs font-bold text-slate-400 mb-1">賽事日期</label>
-              <input id="cfg-race-date" type="date" required class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white" />
-            </div>
-            <div>
-              <label class="block text-xs font-bold text-slate-400 mb-1">防連點秒數</label>
-              <input id="cfg-debounce-sec" type="number" min="0" max="600" required class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white font-mono-num" />
-            </div>
-            <div class="sm:col-span-2 lg:col-span-5 grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-slate-800">
-              <div>
-                <label class="block text-xs font-bold text-amber-300 mb-1">🛡️ 最高管理員帳號</label>
-                <input id="cfg-admin-user" type="text" required class="w-full bg-slate-950 border border-amber-500/40 rounded-xl px-3 py-2 text-sm text-white font-mono-num" />
-              </div>
-              <div>
-                <label class="block text-xs font-bold text-amber-300 mb-1">🛡️ 最高管理員密碼</label>
-                <input id="cfg-admin-pass" type="text" required class="w-full bg-slate-950 border border-amber-500/40 rounded-xl px-3 py-2 text-sm text-white font-mono-num" />
-              </div>
-            </div>
-            <div class="sm:col-span-2 lg:col-span-5 flex justify-end">
-              <button type="submit" class="px-5 py-2.5 rounded-xl text-sm font-black bg-sky-500 hover:bg-sky-400 text-slate-950">
-                💾 儲存賽事與管理員設定
-              </button>
-            </div>
-          </form>
-        </div>
-
-        <!-- 分組與鳴槍起跑 -->
-        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
           <div class="flex flex-wrap items-center justify-between gap-2">
             <div>
-              <h2 class="text-lg font-extrabold text-white">🔫 分組設定與獨立鳴槍起跑 (Gun Time)</h2>
-              <p class="text-xs text-slate-400">支援一鍵鳴槍（精確至秒）或手動輸入起跑時間。</p>
+              <h2 class="text-lg font-extrabold text-white">🔫 本活動分組設定與獨立鳴槍起跑 (Gun Time)</h2>
+              <p class="text-xs text-slate-400">可針對目前選取的活動設定專屬組別、距離與各組獨立鳴槍起跑時間。</p>
             </div>
             <button id="btn-add-category" type="button" class="px-3.5 py-2 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-sky-300 border border-slate-700">
               ＋ 新增分組
@@ -681,12 +766,11 @@
           <div id="categories-list" class="space-y-3"></div>
         </div>
 
-        <!-- 感應站點設定 -->
         <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
           <div class="flex flex-wrap items-center justify-between gap-2">
             <div>
-              <h2 class="text-lg font-extrabold text-white">📍 賽道感應站點順序與距離設定</h2>
-              <p class="text-xs text-slate-400">累計距離 (km) 用於自動計算分段配速與預估完賽時間 (ETA)。</p>
+              <h2 class="text-lg font-extrabold text-white">📍 本活動賽道感應站點順序與累計距離</h2>
+              <p class="text-xs text-slate-400">各活動可設定不同站點數量與距離。</p>
             </div>
             <button id="btn-add-checkpoint" type="button" class="px-3.5 py-2 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-sky-300 border border-slate-700">
               ＋ 新增站點
@@ -695,83 +779,125 @@
           <div id="checkpoints-list" class="space-y-2.5"></div>
           <div class="flex justify-end">
             <button id="btn-save-checkpoints" type="button" class="px-5 py-2.5 rounded-xl text-sm font-black bg-sky-500 hover:bg-sky-400 text-slate-950">
-              💾 儲存站點設定
+              💾 儲存本活動站點設定
             </button>
           </div>
         </div>
       </div>
 
-      <!-- ==================== 後台分頁 4：匯入、匯出與完整備份還原 ==================== -->
-      <div id="admin-tab-backup" class="admin-panel hidden space-y-5">
+      <!-- ==================== 後台分頁 5：作業人員帳號與站點管制 ==================== -->
+      <div id="admin-tab-staff" class="admin-panel hidden space-y-4">
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 class="text-lg font-extrabold text-white">👷 作業人員帳號、綁定活動與鎖定站點管制</h2>
+              <p class="text-xs text-slate-400 mt-0.5">
+                可將帳號鎖定在「單一活動＋單一站點」，或設為「所有活動（登入時由人員選取活動）＋鎖定單一站點」。
+              </p>
+            </div>
+            <button id="btn-add-staff" type="button" class="px-4 py-2 rounded-xl text-xs font-black bg-emerald-500 hover:bg-emerald-400 text-slate-950">
+              ＋ 新增作業員帳號
+            </button>
+          </div>
+          <div id="staff-accounts-list" class="space-y-3"></div>
+          <div class="flex justify-end pt-2">
+            <button id="btn-save-staff-accounts" type="button" class="px-5 py-2.5 rounded-xl text-sm font-black bg-sky-500 hover:bg-sky-400 text-slate-950">
+              💾 儲存作業員帳號並同步雲端
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ==================== 後台分頁 6：備份匯出與雲端同步 ==================== -->
+      <div id="admin-tab-sync" class="admin-panel hidden space-y-5">
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
-          <!-- Excel 報表匯出 -->
           <div class="bg-slate-900 border border-emerald-500/30 rounded-2xl p-5 space-y-3">
-            <h2 class="text-lg font-extrabold text-white">📊 Excel 成績報表匯出 (.xlsx)</h2>
-            <p class="text-xs text-slate-400">包含「成績總表（含各站點、分段耗時/配速、大會/淨時間、總名次與分組名次）」、「各分組統計」與「原始感應紀錄」。</p>
-            <div class="flex flex-wrap gap-2.5 pt-2">
-              <button id="btn-export-excel-full" type="button"
-                class="flex-1 py-3 px-4 rounded-xl text-xs sm:text-sm font-black bg-emerald-500 hover:bg-emerald-400 text-slate-950">
+            <h2 class="text-lg font-extrabold text-white">📊 本場活動 Excel 報表匯出 (.xlsx)</h2>
+            <p class="text-xs text-slate-400">匯出目前選取活動之「成績總表」、「各分組統計」與「原始感應紀錄」。</p>
+            <div class="flex flex-wrap gap-2 pt-1">
+              <button id="btn-export-excel-full" type="button" class="flex-1 py-3 px-4 rounded-xl text-xs font-black bg-emerald-500 hover:bg-emerald-400 text-slate-950">
                 📥 匯出完整報表（主辦留存）
               </button>
-              <button id="btn-export-excel-masked" type="button"
-                class="flex-1 py-3 px-4 rounded-xl text-xs sm:text-sm font-bold bg-slate-800 hover:bg-slate-700 text-sky-300 border border-slate-700">
+              <button id="btn-export-excel-masked" type="button" class="flex-1 py-3 px-4 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-sky-300 border border-slate-700">
                 📥 匯出隱碼報表（對外公告）
               </button>
             </div>
           </div>
 
-          <!-- 完整系統 JSON 備份與還原 -->
           <div class="bg-slate-900 border border-sky-500/30 rounded-2xl p-5 space-y-3">
-            <h2 class="text-lg font-extrabold text-white">💾 系統完整備份與還原 (.json)</h2>
-            <p class="text-xs text-slate-400">
-              備份涵蓋賽事設定、分組鳴槍、站點、作業員帳密、全部選手與感應紀錄；亦可將多支離線手機匯出的備份檔「合併彙整」進總部電腦！
-            </p>
+            <h2 class="text-lg font-extrabold text-white">💾 平台完整備份與離線合併 (.json)</h2>
+            <p class="text-xs text-slate-400">包含所有活動、共用晶片主檔、各場名單、作業員帳號與感應紀錄。</p>
             <div class="flex flex-wrap gap-2 pt-1">
-              <button id="btn-backup-download" type="button"
-                class="px-4 py-2.5 rounded-xl text-xs font-black bg-sky-500 hover:bg-sky-400 text-slate-950">
-                ⬇️ 下載完整系統備份 (.json)
+              <button id="btn-backup-download" type="button" class="px-3.5 py-2.5 rounded-xl text-xs font-black bg-sky-500 hover:bg-sky-400 text-slate-950">
+                ⬇️ 下載完整備份
               </button>
-              <label class="cursor-pointer px-4 py-2.5 rounded-xl text-xs font-black bg-indigo-600 hover:bg-indigo-500 text-white">
+              <label class="cursor-pointer px-3.5 py-2.5 rounded-xl text-xs font-black bg-indigo-600 hover:bg-indigo-500 text-white">
                 ➕ 合併離線備份檔
                 <input id="input-backup-merge" type="file" accept=".json" class="hidden" />
               </label>
-              <label class="cursor-pointer px-4 py-2.5 rounded-xl text-xs font-bold bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40">
-                ♻️ 覆蓋還原備份檔
+              <label class="cursor-pointer px-3.5 py-2.5 rounded-xl text-xs font-bold bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40">
+                ♻️ 覆蓋還原
                 <input id="input-backup-replace" type="file" accept=".json" class="hidden" />
               </label>
             </div>
           </div>
         </div>
 
-        <!-- 批次匯入選手名單 -->
-        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
-          <div class="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <h2 class="text-lg font-extrabold text-white">📥 批次匯入選手名單 (CSV / Excel)</h2>
-              <p class="text-xs text-slate-400">欄位順序：<code class="text-sky-300">參賽編號,姓名,身份證字號,分組代碼</code></p>
-            </div>
-            <label class="cursor-pointer px-4 py-2 rounded-xl text-xs font-black bg-sky-600 hover:bg-sky-500 text-white">
-              上傳 .csv / .xlsx 檔案
-              <input id="input-import-file" type="file" accept=".csv,.xlsx,.xls" class="hidden" />
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
+          <h2 class="text-lg font-extrabold text-white">☁️ Google 試算表多機即時同步設定</h2>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <label class="flex items-start gap-3 p-3.5 rounded-xl border border-slate-700 bg-slate-950 cursor-pointer">
+              <input type="radio" name="sync-mode" value="offline" class="mt-1 accent-emerald-500" />
+              <div>
+                <div class="font-bold text-white">單機離線模式 (Offline Mode)</div>
+                <div class="text-xs text-slate-400 mt-0.5">全部資料暫存本機 IndexedDB，事後可一鍵統一上傳同步。</div>
+              </div>
+            </label>
+            <label class="flex items-start gap-3 p-3.5 rounded-xl border border-slate-700 bg-slate-950 cursor-pointer">
+              <input type="radio" name="sync-mode" value="online" class="mt-1 accent-sky-500" />
+              <div>
+                <div class="font-bold text-white">多機即時連線模式 (Online Sync Mode)</div>
+                <div class="text-xs text-slate-400 mt-0.5">即時同步 Google 試算表；斷訊自動暫存，恢復網路後自動補傳。</div>
+              </div>
             </label>
           </div>
-          <textarea id="textarea-bulk-csv" rows="4" placeholder="A010,林小華,A123456780,42K&#10;B110,陳美玲,B223456781,21K"
-            class="w-full font-mono-num text-xs bg-slate-950 border border-slate-700 rounded-xl p-3 text-slate-200 focus:border-sky-500 focus:outline-none"></textarea>
-          <button id="btn-import-csv-text" type="button"
-            class="px-5 py-2.5 rounded-xl text-xs font-black bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white">
-            匯入上方文字名單
-          </button>
+
+          <div class="flex flex-col sm:flex-row gap-2">
+            <input id="input-gas-url" type="url" placeholder="https://script.google.com/macros/s/xxxxxx/exec"
+              class="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm font-mono-num text-white" />
+            <button id="btn-save-gas-url" type="button" class="px-4 py-2.5 rounded-xl text-sm font-bold bg-sky-600 hover:bg-sky-500 text-white">
+              儲存並測試連線
+            </button>
+          </div>
+
+          <div class="flex flex-wrap gap-2">
+            <button id="btn-sync-upload" type="button" class="px-4 py-2.5 rounded-xl text-xs font-black bg-emerald-500 hover:bg-emerald-400 text-slate-950">
+              ⬆️ 一鍵上傳全部待同步資料
+            </button>
+            <button id="btn-sync-pull" type="button" class="px-4 py-2.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-white border border-slate-700">
+              ⬇️ 從雲端拉取最新全平台資料
+            </button>
+            <button id="btn-sync-push-platform" type="button" class="px-4 py-2.5 rounded-xl text-xs font-bold bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40">
+              📤 強制推送所有活動與帳號至雲端
+            </button>
+            <button id="btn-copy-staff-link" type="button" class="px-4 py-2.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white">
+              📡 複製工作人員連線網址
+            </button>
+            <button id="btn-copy-public-link" type="button" class="px-4 py-2.5 rounded-xl text-xs font-bold bg-sky-600 hover:bg-sky-500 text-white">
+              🌐 複製本活動公開查詢連結
+            </button>
+          </div>
+          <div id="sync-status-info" class="text-xs text-slate-400 font-mono-num"></div>
         </div>
 
-        <!-- 測試與重置工具 -->
         <div class="bg-slate-900 border border-rose-500/30 rounded-2xl p-5 flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 class="text-base font-extrabold text-white">🧪 測試與資料庫維護</h2>
-            <p class="text-xs text-slate-400">快速載入 9 名模擬選手與多站感應紀錄測試，或清空本機 IndexedDB。</p>
+            <p class="text-xs text-slate-400">一鍵載入「雙場次共用晶片」完整模擬資料（展示同一選手持同一晶片跑兩場活動），或清空本機。</p>
           </div>
           <div class="flex flex-wrap gap-2">
             <button id="btn-load-demo-data" type="button" class="px-4 py-2.5 rounded-xl text-xs font-black bg-indigo-600 hover:bg-indigo-500 text-white">
-              ⚡ 載入模擬賽事資料
+              ⚡ 載入雙場次模擬資料
             </button>
             <button id="btn-clear-all-data" type="button" class="px-4 py-2.5 rounded-xl text-xs font-bold bg-rose-600/20 hover:bg-rose-600/40 text-rose-300 border border-rose-500/50">
               🗑️ 清空本機所有資料
@@ -779,74 +905,38 @@
           </div>
         </div>
       </div>
-
-      <!-- ==================== 後台分頁 5：雲端同步與多機連結 ==================== -->
-      <div id="admin-tab-sync" class="admin-panel hidden space-y-5">
-        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
-          <h2 class="text-lg font-extrabold text-white">☁️ 系統模式與 Google 試算表多機同步</h2>
-
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <label class="flex items-start gap-3 p-3.5 rounded-xl border border-slate-700 bg-slate-950 cursor-pointer">
-              <input type="radio" name="sync-mode" value="offline" class="mt-1 accent-emerald-500" />
-              <div>
-                <div class="font-bold text-white">單機離線模式 (Offline Mode)</div>
-                <div class="text-xs text-slate-400 mt-0.5">全部資料暫存於本機 IndexedDB，無網路照常作業，事後可一鍵統一上傳同步。</div>
-              </div>
-            </label>
-            <label class="flex items-start gap-3 p-3.5 rounded-xl border border-slate-700 bg-slate-950 cursor-pointer">
-              <input type="radio" name="sync-mode" value="online" class="mt-1 accent-sky-500" />
-              <div>
-                <div class="font-bold text-white">多機即時連線模式 (Online Sync Mode)</div>
-                <div class="text-xs text-slate-400 mt-0.5">即時同步 Google 試算表；若賽道中途斷訊自動暫存，恢復網路後自動/一鍵上傳。</div>
-              </div>
-            </label>
-          </div>
-
-          <div class="space-y-2">
-            <label class="block text-xs font-bold text-slate-400">Google Apps Script (GAS) 網頁應用程式 URL</label>
-            <div class="flex flex-col sm:flex-row gap-2">
-              <input id="input-gas-url" type="url" placeholder="https://script.google.com/macros/s/xxxxxx/exec"
-                class="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm font-mono-num text-white" />
-              <button id="btn-save-gas-url" type="button" class="px-4 py-2.5 rounded-xl text-sm font-bold bg-sky-600 hover:bg-sky-500 text-white">
-                儲存並測試連線
-              </button>
-            </div>
-          </div>
-
-          <div class="flex flex-wrap gap-2 pt-1">
-            <button id="btn-sync-upload" type="button" class="px-4 py-2.5 rounded-xl text-xs font-black bg-emerald-500 hover:bg-emerald-400 text-slate-950">
-              ⬆️ 一鍵上傳全部待同步資料
-            </button>
-            <button id="btn-sync-pull" type="button" class="px-4 py-2.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-white border border-slate-700">
-              ⬇️ 從雲端拉取最新賽事與感應
-            </button>
-            <button id="btn-sync-push-all-config" type="button" class="px-4 py-2.5 rounded-xl text-xs font-bold bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40">
-              📤 強制推送本機設定與作業員帳號至雲端
-            </button>
-          </div>
-          <div id="sync-status-info" class="text-xs text-slate-400 font-mono-num"></div>
-        </div>
-
-        <!-- 多機快速連線與公開查詢連結 -->
-        <div class="bg-slate-900 border border-indigo-500/30 rounded-2xl p-5 space-y-3">
-          <h2 class="text-base font-extrabold text-white">🔗 現場快速部署分享連結（自動帶入雲端 API）</h2>
-          <p class="text-xs text-slate-400">
-            將「工作人員端連線網址」傳給各站手機開啟一次，手機會自動記憶雲端 API 網址，登入後即快取帳號供無網路離線使用。
-          </p>
-          <div class="flex flex-wrap gap-2.5">
-            <button id="btn-copy-staff-link" type="button" class="px-4 py-2.5 rounded-xl text-xs font-black bg-emerald-600 hover:bg-emerald-500 text-white">
-              📡 複製工作人員端連線網址
-            </button>
-            <button id="btn-copy-public-link" type="button" class="px-4 py-2.5 rounded-xl text-xs font-black bg-sky-600 hover:bg-sky-500 text-white">
-              🌐 複製公開查詢頁分享連結
-            </button>
-          </div>
-        </div>
-      </div>
     </section>
   </main>
 
-  <!-- Modal 1：人工修正站點時間 / 罰時 -->
+  <!-- Modal 1：建立新路跑活動 -->
+  <div id="modal-new-event" class="hidden fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-5 space-y-4 shadow-2xl">
+      <div class="flex items-center justify-between">
+        <h3 class="text-lg font-black text-white">🏟️ 建立新路跑活動</h3>
+        <button id="btn-close-new-event" type="button" class="text-slate-400 hover:text-white text-xl">✕</button>
+      </div>
+      <form id="form-new-event" class="space-y-3">
+        <div>
+          <label class="block text-xs font-bold text-slate-400 mb-1">活動名稱 *</label>
+          <input id="new-evt-name" required type="text" placeholder="例如：2026 高雄港灣馬拉松" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm font-bold text-white" />
+        </div>
+        <div>
+          <label class="block text-xs font-bold text-slate-400 mb-1">活動日期 *</label>
+          <input id="new-evt-date" required type="date" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-white" />
+        </div>
+        <div>
+          <label class="block text-xs font-bold text-slate-400 mb-1">活動地點</label>
+          <input id="new-evt-location" type="text" placeholder="例如：高雄夢時代廣場" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-white" />
+        </div>
+        <div class="flex justify-end gap-2 pt-2">
+          <button id="btn-cancel-new-event" type="button" class="px-4 py-2 rounded-xl text-xs font-bold bg-slate-800 text-slate-300">取消</button>
+          <button type="submit" class="px-5 py-2 rounded-xl text-xs font-black bg-emerald-500 hover:bg-emerald-400 text-slate-950">建立並切換至此活動</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal 2：人工修正感應時間 / 罰時 -->
   <div id="modal-edit-scan" class="hidden fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
     <div class="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-5 space-y-4 shadow-2xl">
       <div class="flex items-center justify-between">
@@ -854,7 +944,9 @@
         <button id="btn-close-edit-modal" type="button" class="text-slate-400 hover:text-white text-xl">✕</button>
       </div>
       <form id="form-edit-scan" class="space-y-3.5">
+        <input type="hidden" id="edit-reg-id" />
         <input type="hidden" id="edit-bib" />
+        <input type="hidden" id="edit-idnumber" />
         <input type="hidden" id="edit-cp-id" />
         <input type="hidden" id="edit-scan-id" />
 
@@ -865,8 +957,8 @@
               class="w-full font-mono-num text-lg font-bold bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-white" />
           </div>
           <div>
-            <label class="block text-xs font-bold text-slate-400 mb-1">修正備註（稽核留存）</label>
-            <input id="edit-note" type="text" placeholder="例如：漏感應依終點攝影補登"
+            <label class="block text-xs font-bold text-slate-400 mb-1">修正備註</label>
+            <input id="edit-note" type="text" placeholder="例如：漏感應人工補登"
               class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white" />
           </div>
         </div>
@@ -884,56 +976,53 @@
             🗑️ 刪除此站紀錄
           </button>
           <div class="flex gap-2 ml-auto">
-            <button id="btn-cancel-edit-modal" type="button" class="px-4 py-2.5 rounded-xl text-xs font-bold bg-slate-800 text-slate-300">
-              取消
-            </button>
-            <button type="submit" class="px-5 py-2.5 rounded-xl text-xs font-black bg-emerald-500 hover:bg-emerald-400 text-slate-950">
-              儲存並重算名次
-            </button>
+            <button id="btn-cancel-edit-modal" type="button" class="px-4 py-2.5 rounded-xl text-xs font-bold bg-slate-800 text-slate-300">取消</button>
+            <button type="submit" class="px-5 py-2.5 rounded-xl text-xs font-black bg-emerald-500 hover:bg-emerald-400 text-slate-950">儲存並重算名次</button>
           </div>
         </div>
       </form>
     </div>
   </div>
 
-  <!-- Modal 2：最高管理員建立 / 編輯選手資料 -->
-  <div id="modal-edit-runner" class="hidden fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+  <!-- Modal 3：建立 / 編輯本活動選手明細 -->
+  <div id="modal-edit-reg" class="hidden fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
     <div class="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-5 space-y-4 shadow-2xl">
       <div class="flex items-center justify-between">
-        <h3 id="modal-runner-title" class="text-lg font-black text-white">建立 / 編輯選手</h3>
-        <button id="btn-close-runner-modal" type="button" class="text-slate-400 hover:text-white text-xl">✕</button>
+        <h3 id="modal-reg-title" class="text-lg font-black text-white">新增 / 編輯本活動選手</h3>
+        <button id="btn-close-reg-modal" type="button" class="text-slate-400 hover:text-white text-xl">✕</button>
       </div>
-      <form id="form-admin-runner" class="space-y-3">
+      <form id="form-admin-reg" class="space-y-3">
+        <input type="hidden" id="admin-reg-id" />
         <div>
-          <label class="block text-xs font-bold text-slate-400 mb-1">參賽編號 (Bib) *</label>
-          <input id="admin-runner-bib" required type="text" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm font-bold text-white" />
+          <label class="block text-xs font-bold text-slate-400 mb-1">本場參賽編號 (Bib) *</label>
+          <input id="admin-reg-bib" required type="text" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm font-bold text-white" />
         </div>
         <div>
           <label class="block text-xs font-bold text-slate-400 mb-1">選手姓名 *</label>
-          <input id="admin-runner-name" required type="text" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm font-bold text-white" />
+          <input id="admin-reg-name" required type="text" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm font-bold text-white" />
         </div>
         <div>
-          <label class="block text-xs font-bold text-slate-400 mb-1">身份證字號</label>
-          <input id="admin-runner-id" type="text" class="w-full uppercase bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm font-mono-num text-white" />
+          <label class="block text-xs font-bold text-slate-400 mb-1">身份證字號 *（用於比對共用晶片）</label>
+          <input id="admin-reg-idnumber" required type="text" class="w-full uppercase bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm font-mono-num text-white" />
         </div>
         <div>
-          <label class="block text-xs font-bold text-slate-400 mb-1">參賽分組 *</label>
-          <select id="admin-runner-cat" required class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm font-bold text-white"></select>
+          <label class="block text-xs font-bold text-slate-400 mb-1">本場參賽分組 *</label>
+          <select id="admin-reg-cat" required class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm font-bold text-white"></select>
         </div>
         <div class="flex justify-between gap-2 pt-2">
-          <button id="btn-admin-delete-runner" type="button" class="hidden px-3 py-2 rounded-xl text-xs font-bold bg-rose-600/20 text-rose-300 border border-rose-500/40">
-            🗑️ 刪除選手
+          <button id="btn-admin-delete-reg" type="button" class="hidden px-3 py-2 rounded-xl text-xs font-bold bg-rose-600/20 text-rose-300 border border-rose-500/40">
+            🗑️ 移除此筆報名
           </button>
           <div class="flex gap-2 ml-auto">
-            <button id="btn-cancel-runner-modal" type="button" class="px-4 py-2 rounded-xl text-xs font-bold bg-slate-800 text-slate-300">取消</button>
-            <button type="submit" class="px-5 py-2 rounded-xl text-xs font-black bg-sky-500 hover:bg-sky-400 text-slate-950">儲存選手</button>
+            <button id="btn-cancel-reg-modal" type="button" class="px-4 py-2 rounded-xl text-xs font-bold bg-slate-800 text-slate-300">取消</button>
+            <button type="submit" class="px-5 py-2 rounded-xl text-xs font-black bg-sky-500 hover:bg-sky-400 text-slate-950">儲存參賽明細</button>
           </div>
         </div>
       </form>
     </div>
   </div>
 
-  <!-- 核心模組載入 -->
+  <!-- 核心模組 -->
   <script src="./js/timing-engine.js"></script>
   <script src="./js/db.js"></script>
   <script src="./js/nfc.js"></script>

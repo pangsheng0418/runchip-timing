@@ -1,5 +1,5 @@
 /**
- * 智慧路跑 NFC 晶片計時系統 — Excel (.xlsx) 一鍵匯出模組 (SheetJS)
+ * 智慧路跑 NFC 晶片計時平台 v3.0 — 單一活動 Excel (.xlsx) 一鍵匯出模組 (SheetJS)
  */
 (function (global) {
   'use strict';
@@ -10,7 +10,7 @@
     not_started: '未出發'
   };
 
-  function exportResultsToExcel({ config, computed, scans, maskId = false }) {
+  function exportResultsToExcel({ event, computed, scans, maskId = false }) {
     if (typeof global.XLSX === 'undefined') {
       throw new Error('SheetJS (XLSX) 套件尚未載入，請確認網路連線或重新整理頁面');
     }
@@ -22,6 +22,7 @@
     /* ==================== 工作表 1：成績總表 ==================== */
     const resultRows = computed.rows.map((row) => {
       const obj = {
+        活動名稱: event?.name || '',
         總名次: row.overallRank ?? '',
         分組名次: row.categoryRank ?? '',
         參賽編號: row.bib,
@@ -32,13 +33,11 @@
         分組起跑時間: row.gunTimeMs ? TE.formatClockSec(row.gunTimeMs) : ''
       };
 
-      // 各站點感應時間
       checkpoints.forEach((cp) => {
         const s = row.cpScanMap[cp.id];
         obj[`[站點] ${cp.name}`] = s ? TE.formatClockMs(s.timestampMs) : '';
       });
 
-      // 各分段耗時與配速
       row.splits.forEach((sp, idx) => {
         obj[`[分段${idx + 1}] ${sp.fromName}→${sp.toName}`] =
           sp.durationMs !== null ? TE.formatDuration(sp.durationMs, false) : '';
@@ -49,18 +48,16 @@
       obj['大會時間 (Gun Time)'] = row.gunDurationMs !== null ? TE.formatDuration(row.gunDurationMs, true) : '';
       obj['個人淨時間 (Chip Time)'] = row.chipDurationMs !== null ? TE.formatDuration(row.chipDurationMs, true) : '';
       obj['平均配速'] = row.avgPace !== '--' ? row.avgPace : '';
-
       return obj;
     });
 
     const ws1 = global.XLSX.utils.json_to_sheet(resultRows);
-    ws1['!cols'] = Object.keys(resultRows[0] || { 參賽編號: '' }).map((k) => ({
-      wch: Math.max(14, k.length * 2 + 2)
-    }));
+    ws1['!cols'] = Object.keys(resultRows[0] || { 參賽編號: '' }).map((k) => ({ wch: Math.max(14, k.length * 2 + 2) }));
     global.XLSX.utils.book_append_sheet(wb, ws1, '成績總表');
 
     /* ==================== 工作表 2：各分組統計 ==================== */
     const statRows = (computed.summary.byCategory || []).map((c) => ({
+      活動名稱: event?.name || '',
       分組代碼: c.id,
       分組名稱: c.name,
       距離_km: c.distanceKm,
@@ -85,7 +82,9 @@
       .sort((a, b) => a.timestampMs - b.timestampMs)
       .map((s) => ({
         紀錄ID: s.id,
+        活動代碼: s.eventId || event?.eventId || '',
         參賽編號: s.bib,
+        身份證字號: maskId ? TE.maskIdNumber(s.idNumber) : (s.idNumber || ''),
         站點代碼: s.checkpointId,
         站點名稱: cpNameMap.get(s.checkpointId) || s.checkpointId,
         感應時間: TE.formatClockMs(s.timestampMs),
@@ -101,9 +100,10 @@
     ws3['!cols'] = Object.keys(rawRows[0] || { 紀錄ID: '' }).map(() => ({ wch: 18 }));
     global.XLSX.utils.book_append_sheet(wb, ws3, '原始感應紀錄');
 
-    const safeRaceName = (config?.raceName || '路跑成績').replace(/[\\/:*?"<>|]/g, '_');
-    const dateTag = config?.raceDate || new Date().toISOString().slice(0, 10);
-    const fileName = `${safeRaceName}_成績報表_${dateTag}.xlsx`;
+    const safeName = (event?.name || '路跑成績').replace(/[\\/:*?"<>|]/g, '_');
+    const dateTag = event?.date || new Date().toISOString().slice(0, 10);
+    const suffix = maskId ? '公開隱碼版' : '完整報表';
+    const fileName = `${safeName}_${suffix}_${dateTag}.xlsx`;
 
     global.XLSX.writeFile(wb, fileName);
     return fileName;

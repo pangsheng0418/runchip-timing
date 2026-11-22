@@ -4,38 +4,48 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#0f172a" />
-  <title>即時成績與選手動態查詢 — 智慧路跑 NFC 計時系統</title>
+  <title>多場次即時成績與選手動態查詢 — 智慧路跑 NFC 計時平台</title>
   <link rel="icon" type="image/svg+xml" href="./icon.svg" />
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="./css/style.css" />
 </head>
 <body class="min-h-screen bg-slate-950 text-slate-100 pb-12">
 
-  <!-- 頂部橫幅 -->
+  <!-- 頂部橫幅與活動切換列 -->
   <header class="bg-gradient-to-r from-slate-900 via-slate-900 to-sky-950 border-b border-slate-800">
-    <div class="max-w-6xl mx-auto px-4 py-5 flex flex-wrap items-center justify-between gap-3">
-      <div class="flex items-center gap-3">
-        <img src="./icon.svg" alt="Logo" class="w-11 h-11 rounded-xl shadow" />
-        <div>
-          <div class="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-400">
-            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-            <span id="pub-source-badge">即時連線中</span>
+    <div class="max-w-6xl mx-auto px-4 py-4 space-y-3">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div class="flex items-center gap-3">
+          <img src="./icon.svg" alt="Logo" class="w-11 h-11 rounded-xl shadow" />
+          <div>
+            <div class="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-400">
+              <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+              <span id="pub-source-badge">即時連線中</span>
+            </div>
+            <h1 id="pub-race-name" class="text-xl sm:text-2xl font-black text-white">智慧路跑即時成績查詢</h1>
+            <div id="pub-race-meta" class="text-xs text-slate-400">--</div>
           </div>
-          <h1 id="pub-race-name" class="text-xl sm:text-2xl font-black text-white">智慧路跑即時成績查詢</h1>
-          <div id="pub-race-date" class="text-xs text-slate-400">--</div>
+        </div>
+
+        <div class="flex items-center gap-2 flex-wrap">
+          <span id="pub-last-updated" class="text-xs text-slate-400 font-mono-num">更新中...</span>
+          <button id="btn-pub-refresh" type="button"
+            class="px-3.5 py-2 rounded-xl text-xs font-extrabold bg-sky-600 hover:bg-sky-500 text-white transition">
+            🔄 立即更新
+          </button>
+          <a href="./index.html"
+            class="px-3 py-2 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 transition">
+            🏠 系統入口
+          </a>
         </div>
       </div>
 
-      <div class="flex items-center gap-2 flex-wrap">
-        <span id="pub-last-updated" class="text-xs text-slate-400 font-mono-num">更新中...</span>
-        <button id="btn-pub-refresh" type="button"
-          class="px-3.5 py-2 rounded-xl text-xs font-extrabold bg-sky-600 hover:bg-sky-500 text-white transition">
-          🔄 立即更新
-        </button>
-        <a href="./index.html"
-          class="px-3 py-2 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 transition">
-          🏠 系統入口
-        </a>
+      <!-- 多場次路跑活動切換下拉選單 -->
+      <div class="flex flex-col sm:flex-row sm:items-center gap-2 bg-slate-950/70 border border-sky-500/30 rounded-2xl p-3">
+        <label for="pub-event-select" class="text-xs font-extrabold text-sky-300 shrink-0">🏟️ 選擇查詢路跑活動：</label>
+        <select id="pub-event-select"
+          class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-sm font-black text-white focus:border-sky-400 focus:outline-none">
+        </select>
       </div>
     </div>
   </header>
@@ -47,7 +57,7 @@
       <div>
         <h2 class="text-lg sm:text-xl font-black text-white">🔍 選手即時動態與成績查詢</h2>
         <p class="text-xs sm:text-sm text-slate-400 mt-1">
-          輸入「選手姓名」、「參賽編號」或「身份證字號」（系統全面採隱碼顯示如 <code class="text-sky-300">A123****89</code> 保護個資）
+          輸入「選手姓名」、「本場參賽編號」或「完整身份證字號」（系統全面採隱碼顯示如 <code class="text-sky-300">A123****89</code> 保護個資）
         </p>
       </div>
 
@@ -60,18 +70,16 @@
         </button>
       </form>
 
-      <!-- 查詢結果詳細卡片區 -->
       <div id="pub-search-results" class="hidden space-y-4 pt-2"></div>
     </section>
 
-    <!-- 2. 賽事即時總覽看板 -->
+    <!-- 2. 本場活動即時總覽看板 -->
     <section class="space-y-4">
-      <h2 class="text-base font-extrabold text-slate-200">📊 賽事即時總覽看板</h2>
+      <h2 class="text-base font-extrabold text-slate-200">📊 本場活動即時總覽看板</h2>
 
-      <!-- 總計 KPI -->
       <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4">
-          <div class="text-xs text-slate-400 font-bold">總選手數</div>
+          <div class="text-xs text-slate-400 font-bold">本場報名人數</div>
           <div id="pub-kpi-total" class="text-3xl font-black text-white font-mono-num mt-1">0</div>
         </div>
         <div class="bg-slate-900 border border-emerald-500/30 rounded-2xl p-4">
@@ -83,12 +91,11 @@
           <div id="pub-kpi-oncourse" class="text-3xl font-black text-amber-400 font-mono-num mt-1">0</div>
         </div>
         <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4">
-          <div class="text-xs text-slate-400 font-bold">未出發 / 報到中</div>
+          <div class="text-xs text-slate-400 font-bold">未出發</div>
           <div id="pub-kpi-notstarted" class="text-3xl font-black text-slate-300 font-mono-num mt-1">0</div>
         </div>
       </div>
 
-      <!-- 各分組統計 + 各站點通過人數 -->
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
           <h3 class="text-sm font-extrabold text-white">🏃 各分組完賽進度</h3>
@@ -102,10 +109,10 @@
       </div>
     </section>
 
-    <!-- 3. 即時成績排行榜 -->
+    <!-- 3. 本場即時成績排行榜 -->
     <section class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
       <div class="flex flex-wrap items-center justify-between gap-3">
-        <h2 class="text-base font-extrabold text-white">🏆 即時成績排行榜</h2>
+        <h2 class="text-base font-extrabold text-white">🏆 本場即時成績排行榜</h2>
         <div class="flex flex-wrap gap-2">
           <select id="pub-cat-filter" class="bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-white">
             <option value="ALL">全部組別</option>
@@ -138,9 +145,8 @@
       </div>
     </section>
 
-    <!-- 頁尾說明 -->
     <footer class="text-center text-xs text-slate-500 pt-2">
-      智慧路跑 NFC 晶片計時系統 • 每 20 秒自動更新最新賽道動態 • 所有身份證字號均採隱碼加密保護
+      智慧路跑 NFC 多場次共用晶片計時平台 • 每 20 秒自動刷新 • 所有身份證字號全面隱碼保護
     </footer>
   </main>
 

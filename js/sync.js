@@ -1,5 +1,5 @@
 /**
- * 智慧路跑 NFC 晶片計時系統 v2.0 — Google Apps Script (GAS) 雲端同步與帳密驗證模組
+ * 智慧路跑 NFC 晶片計時平台 v3.0 — 多場次雲端同步與帳密驗證模組
  */
 (function (global) {
   'use strict';
@@ -21,9 +21,7 @@
     async _get(url, params = {}) {
       const target = new URL(url);
       Object.entries(params).forEach(([k, v]) => {
-        if (v !== undefined && v !== null && v !== '') {
-          target.searchParams.set(k, String(v));
-        }
+        if (v !== undefined && v !== null && v !== '') target.searchParams.set(k, String(v));
       });
       const resp = await fetch(target.toString(), { method: 'GET', redirect: 'follow' });
       if (!resp.ok) throw new Error(`HTTP 錯誤 (${resp.status})`);
@@ -57,24 +55,12 @@
       return this._get(url, { action: 'publicData' });
     }
 
-    /**
-     * 線上帳密驗證並自動快取至本機 IndexedDB（讓後續離線登入無縫運作）
-     */
     async loginCloud(mode, username, password) {
       const url = this.getUrl();
       if (!url) throw new Error('尚未設定雲端 API 網址');
-      const res = await this._post(url, {
-        action: 'login',
-        mode,
-        username,
-        password
-      });
-      if (res.data) {
-        await global.RaceDB.mergeCloudData(res.data);
-      }
-      if (mode === 'staff' && res.account) {
-        await global.RaceDB.cacheStaffAccount(res.account);
-      }
+      const res = await this._post(url, { action: 'login', mode, username, password });
+      if (res.data) await global.RaceDB.mergeCloudData(res.data);
+      if (mode === 'staff' && res.account) await global.RaceDB.cacheStaffAccount(res.account);
       global.RaceDB.saveDeviceSettings({ lastSyncAt: Date.now() });
       return res;
     }
@@ -88,40 +74,37 @@
       return res;
     }
 
-    /**
-     * 統一將本機所有待同步的選手與感應紀錄批次上傳至 Google Sheets
-     */
     async syncPendingToCloud() {
       const url = this.getUrl();
       if (!url) throw new Error('請先設定 Google Apps Script 網址');
 
       const pending = await global.RaceDB.getPendingSyncCounts();
       if (pending.total === 0) {
-        return { uploadedRunners: 0, uploadedScans: 0, skippedDuplicate: 0 };
+        return { uploadedChips: 0, uploadedRegs: 0, uploadedScans: 0, skippedDuplicate: 0 };
       }
 
       const res = await this._post(url, {
         action: 'batchSync',
-        runners: pending.unsyncedRunners,
+        chips: pending.unsyncedChips,
+        registrations: pending.unsyncedRegs,
         scans: pending.unsyncedScans
       });
 
-      const syncedRunnerBibs = pending.unsyncedRunners.map((r) => r.bib);
-      if (syncedRunnerBibs.length) {
-        await global.RaceDB.markRunnersSynced(syncedRunnerBibs);
-      }
-
-      const acceptedIds = [
+      const scanDoneIds = [
         ...(res.result?.scans?.acceptedIds || []),
         ...(res.result?.scans?.duplicateIds || [])
       ];
-      if (acceptedIds.length) {
-        await global.RaceDB.markScansSynced(acceptedIds);
-      }
+
+      await global.RaceDB.markSynced({
+        chipIds: pending.unsyncedChips.map((c) => c.idNumber),
+        regIds: pending.unsyncedRegs.map((r) => r.regId),
+        scanIds: scanDoneIds
+      });
 
       global.RaceDB.saveDeviceSettings({ lastSyncAt: Date.now() });
       return {
-        uploadedRunners: syncedRunnerBibs.length,
+        uploadedChips: pending.unsyncedChips.length,
+        uploadedRegs: pending.unsyncedRegs.length,
         uploadedScans: res.result?.scans?.inserted || 0,
         skippedDuplicate: res.result?.scans?.skippedDuplicate || 0
       };
@@ -130,95 +113,64 @@
     async pushSingleScan(scan) {
       if (!this.isOnlineEnabled() || !navigator.onLine) return { queued: true };
       try {
-        const res = await this._post(this.getUrl(), {
-          action: 'pushScans',
-          scans: [scan]
-        });
+        const res = await this._post(this.getUrl(), { action: 'pushScans', scans: [scan] });
         const doneIds = [
           ...(res.result?.acceptedIds || []),
           ...(res.result?.duplicateIds || [])
         ];
-        if (doneIds.length) {
-          await global.RaceDB.markScansSynced(doneIds);
-        }
+        if (doneIds.length) await global.RaceDB.markSynced({ scanIds: doneIds });
         global.RaceDB.saveDeviceSettings({ lastSyncAt: Date.now() });
-        return {
-          queued: false,
-          serverDuplicate: (res.result?.duplicateIds || []).includes(scan.id)
-        };
+        return { queued: false };
       } catch (err) {
         console.warn('即時上傳失敗，已保留至離線佇列:', err);
         return { queued: true, error: err.message };
       }
     }
 
-    async pushRunners(runners) {
+    async pushChips(chips) {
       if (!this.isOnlineEnabled() || !navigator.onLine) return { queued: true };
       try {
-        await this._post(this.getUrl(), {
-          action: 'upsertRunners',
-          runners
-        });
-        await global.RaceDB.markRunnersSynced(runners.map((r) => r.bib));
+        await this._post(this.getUrl(), { action: 'upsertChips', chips });
+        await global.RaceDB.markSynced({ chipIds: chips.map((c) => c.idNumber) });
         global.RaceDB.saveDeviceSettings({ lastSyncAt: Date.now() });
         return { queued: false };
       } catch (err) {
-        console.warn('選手上傳失敗，已保留於離線佇列:', err);
         return { queued: true, error: err.message };
       }
     }
 
-    async pushConfig(config, auth) {
+    async pushRegistrations(registrations) {
+      if (!this.isOnlineEnabled() || !navigator.onLine) return { queued: true };
+      try {
+        await this._post(this.getUrl(), { action: 'upsertRegistrations', registrations });
+        await global.RaceDB.markSynced({ regIds: registrations.map((r) => r.regId) });
+        global.RaceDB.saveDeviceSettings({ lastSyncAt: Date.now() });
+        return { queued: false };
+      } catch (err) {
+        return { queued: true, error: err.message };
+      }
+    }
+
+    async pushPlatform(platform, auth) {
       if (!this.isOnlineEnabled() || !navigator.onLine) return { queued: true };
       return this._post(this.getUrl(), {
-        action: 'saveConfig',
+        action: 'savePlatform',
         auth,
-        config: {
-          raceName: config.raceName,
-          raceDate: config.raceDate,
-          debounceSeconds: config.debounceSeconds,
-          rankBy: config.rankBy,
-          adminUsername: config.adminUsername,
-          adminPassword: config.adminPassword
+        globalConfig: {
+          adminUsername: platform.adminUsername,
+          adminPassword: platform.adminPassword,
+          activeEventId: platform.activeEventId
         },
-        categories: config.categories,
-        checkpoints: config.checkpoints,
-        staffAccounts: config.staffAccounts
+        events: platform.events,
+        staffAccounts: platform.staffAccounts
       });
     }
 
     async pushAdminEditScan(scan, auth) {
       if (!this.isOnlineEnabled() || !navigator.onLine) return { queued: true };
-      const res = await this._post(this.getUrl(), {
-        action: 'editScan',
-        auth,
-        scan
-      });
-      await global.RaceDB.markScansSynced([scan.id]);
+      const res = await this._post(this.getUrl(), { action: 'editScan', auth, scan });
+      await global.RaceDB.markSynced({ scanIds: [scan.id] });
       return res;
-    }
-
-    async pushRestoreAll(backupObj, auth) {
-      const url = this.getUrl();
-      if (!url) throw new Error('請先設定 Google Apps Script 網址');
-      const cfg = backupObj.config || {};
-      return this._post(url, {
-        action: 'restoreAll',
-        auth,
-        config: {
-          raceName: cfg.raceName,
-          raceDate: cfg.raceDate,
-          debounceSeconds: cfg.debounceSeconds,
-          rankBy: cfg.rankBy,
-          adminUsername: cfg.adminUsername,
-          adminPassword: cfg.adminPassword
-        },
-        categories: cfg.categories,
-        checkpoints: cfg.checkpoints,
-        staffAccounts: cfg.staffAccounts,
-        runners: backupObj.runners || [],
-        scans: backupObj.scans || []
-      });
     }
   }
 

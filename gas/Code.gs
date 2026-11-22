@@ -1,113 +1,110 @@
 /**
  * ============================================================================
- * 智慧路跑 NFC 晶片計時系統 v2.0 — Google Apps Script (GAS) 後端 API
+ * 智慧路跑 NFC 晶片計時平台 v3.0 — 多場次共用晶片 Google Apps Script (GAS) 後端
  * ============================================================================
- * 支援三大權限分區：
- * 1. 公開查詢頁（免登入，自動隱碼身份證字號，絕不回傳帳密）
- * 2. 晶片計時作業（帳密管制登入，綁定晶片寫入或指定感應站點防呆，支援離線後統一上傳）
- * 3. 後台管理區（獨立管理員帳密，最高權限管理成績、作業員帳號、賽事設定與備份同步）
+ * 核心設計：
+ * - 平台支援建立多場次路跑活動 (Events)，每場擁有獨立分組、鳴槍時間、站點與參賽名單
+ * - 共用晶片主檔 (Chips)：晶片內僅存「姓名｜身份證字號」，同一晶片可重複參加不同場次與組別
+ * - 參賽明細 (Registrations)：事前匯入各活動選手名單與組別，感應時依晶片身份證自動比對
+ * - 三大權限分區：公開查詢（隱碼免登入）、作業員帳密鎖定站點、最高管理員獨立帳密
  *
  * 部署步驟：
- * 1. 建立一個新的 Google 試算表，點選「擴充功能」>「Apps Script」
- * 2. 將本檔案全部貼入 Code.gs 並儲存
- * 3. 在編輯器上方選擇函式「setupSheets」並點選「執行」，完成授權與 6 張工作表初始化
- * 4. 點選右上角「部署」>「新增部署作業」> 類型選「網頁應用程式」
- *    - 執行身分：我（試算表擁有者）
- *    - 誰可以存取：所有人（Anyone）
- * 5. 複製部署後的「網頁應用程式 URL」，貼入後台管理區即可多機即時同步！
+ * 1. 開啟 Google 試算表 →「擴充功能」→「Apps Script」
+ * 2. 貼入本檔案全部內容並儲存
+ * 3. 選擇函式「setupSheets」並點選「執行」（自動建立 6 張工作表）
+ * 4. 點選「部署」→「新增部署作業」（或「管理部署作業」→「建立新版本」）
+ *    - 類型：網頁應用程式 ｜ 執行身分：我 ｜ 誰可以存取：所有人 (Anyone)
  * ============================================================================
  */
 
 const SHEET_NAMES = {
-  CONFIG: 'Config',
-  CATEGORIES: 'Categories',
-  CHECKPOINTS: 'Checkpoints',
+  GLOBAL_CONFIG: 'GlobalConfig',
+  EVENTS: 'Events',
   STAFF: 'StaffAccounts',
-  RUNNERS: 'Runners',
+  CHIPS: 'Chips',
+  REGISTRATIONS: 'Registrations',
   SCANS: 'Scans'
 };
 
 /**
- * 首次初始化：自動建立 6 張工作表、標題列與預設資料
+ * 首次初始化：自動建立 6 張工作表與預設範例活動/帳號
  */
 function setupSheets() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  const now = Date.now();
 
-  // 1. Config 工作表 (Key-Value)
-  const configSheet = getOrCreateSheet_(ss, SHEET_NAMES.CONFIG, ['key', 'value', 'description']);
-  if (configSheet.getLastRow() <= 1) {
-    const today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
-    configSheet.getRange(2, 1, 6, 3).setValues([
-      ['raceName', '2026 智慧城市馬拉松', '賽事名稱'],
-      ['raceDate', today, '賽事日期 (YYYY-MM-DD)'],
-      ['debounceSeconds', '30', '防連點冷卻秒數（同一選手同站點）'],
+  // 1. GlobalConfig（平台管理員帳密與預設活動）
+  const cfgSheet = getOrCreateSheet_(ss, SHEET_NAMES.GLOBAL_CONFIG, ['key', 'value', 'description']);
+  if (cfgSheet.getLastRow() <= 1) {
+    cfgSheet.getRange(2, 1, 3, 3).setValues([
       ['adminUsername', 'admin', '後台最高管理員帳號'],
       ['adminPassword', 'admin1234', '後台最高管理員密碼'],
-      ['rankBy', 'gun', '預設排名依據 (gun=大會時間, chip=個人淨時間)']
+      ['activeEventId', 'EVT-2026-01', '預設顯示活動代碼']
     ]);
   }
 
-  // 2. Categories 工作表（組別與起跑時間）
-  const catSheet = getOrCreateSheet_(ss, SHEET_NAMES.CATEGORIES, [
-    'id', 'name', 'distanceKm', 'gunTimeMs', 'gunTimeIso', 'color'
+  // 2. Events（多場次路跑活動清單、各場分組鳴槍與站點）
+  const evtSheet = getOrCreateSheet_(ss, SHEET_NAMES.EVENTS, [
+    'eventId', 'name', 'date', 'location', 'status', 'debounceSeconds',
+    'rankBy', 'categoriesJson', 'checkpointsJson', 'updatedAt'
   ]);
-  if (catSheet.getLastRow() <= 1) {
-    catSheet.getRange(2, 1, 3, 6).setValues([
-      ['42K', '全馬組 42K', 42.195, '', '', '#ef4444'],
-      ['21K', '半馬組 21K', 21.0975, '', '', '#3b82f6'],
-      ['10K', '健康組 10K', 10, '', '', '#10b981']
+  if (evtSheet.getLastRow() <= 1) {
+    const defaultCats = JSON.stringify([
+      { id: '42K', name: '全馬組 42K', distanceKm: 42.195, gunTimeMs: null, gunTimeIso: '', color: '#ef4444' },
+      { id: '21K', name: '半馬組 21K', distanceKm: 21.0975, gunTimeMs: null, gunTimeIso: '', color: '#3b82f6' },
+      { id: '10K', name: '健康組 10K', distanceKm: 10, gunTimeMs: null, gunTimeIso: '', color: '#10b981' }
     ]);
+    const defaultCps = JSON.stringify([
+      { id: 'START', name: '起點感應門', order: 1, distanceKm: 0, type: 'start' },
+      { id: 'CP1', name: '補給站 1 (5K)', order: 2, distanceKm: 5, type: 'checkpoint' },
+      { id: 'CP2', name: '折返點 / 補給站 2 (10K)', order: 3, distanceKm: 10, type: 'checkpoint' },
+      { id: 'CP3', name: '補給站 3 (21K)', order: 4, distanceKm: 21.1, type: 'checkpoint' },
+      { id: 'FINISH', name: '終點衝線門', order: 5, distanceKm: 42.195, type: 'finish' }
+    ]);
+    evtSheet.getRange(2, 1, 1, 10).setValues([[
+      'EVT-2026-01', '2026 智慧城市馬拉松', today, '台北市政府廣場', 'active',
+      30, 'gun', defaultCats, defaultCps, now
+    ]]);
   }
 
-  // 3. Checkpoints 工作表（感應站點設定）
-  const cpSheet = getOrCreateSheet_(ss, SHEET_NAMES.CHECKPOINTS, [
-    'id', 'name', 'order', 'distanceKm', 'type'
-  ]);
-  if (cpSheet.getLastRow() <= 1) {
-    cpSheet.getRange(2, 1, 5, 5).setValues([
-      ['START', '起點感應門', 1, 0, 'start'],
-      ['CP1', '補給站 1 (5K)', 2, 5, 'checkpoint'],
-      ['CP2', '折返點 / 補給站 2 (10K)', 3, 10, 'checkpoint'],
-      ['CP3', '補給站 3 (21K)', 4, 21.1, 'checkpoint'],
-      ['FINISH', '終點衝線門', 5, 42.195, 'finish']
-    ]);
-  }
-
-  // 4. StaffAccounts 工作表（晶片計時作業人員帳號與指定鎖定站點）
+  // 3. StaffAccounts（作業人員帳密、權限與鎖定活動/站點）
   const staffSheet = getOrCreateSheet_(ss, SHEET_NAMES.STAFF, [
-    'username', 'password', 'displayName', 'role', 'checkpointId', 'enabled', 'updatedAt'
+    'username', 'password', 'displayName', 'role', 'eventId', 'checkpointId', 'enabled', 'updatedAt'
   ]);
   if (staffSheet.getLastRow() <= 1) {
-    const now = Date.now();
-    staffSheet.getRange(2, 1, 6, 7).setValues([
-      ['writer01', '1111', '報到晶片寫入組', 'writer', '', 1, now],
-      ['start01', '1111', '起點感應組', 'scanner', 'START', 1, now],
-      ['cp1', '1111', '補給站1感應組', 'scanner', 'CP1', 1, now],
-      ['cp2', '1111', '補給站2/折返點組', 'scanner', 'CP2', 1, now],
-      ['cp3', '1111', '補給站3感應組', 'scanner', 'CP3', 1, now],
-      ['finish01', '1111', '終點衝線感應組', 'scanner', 'FINISH', 1, now]
+    staffSheet.getRange(2, 1, 6, 8).setValues([
+      ['writer01', '1111', '晶片寫入報到組', 'writer', 'ALL', '', 1, now],
+      ['start01', '1111', '起點感應組', 'scanner', 'ALL', 'START', 1, now],
+      ['cp1', '1111', '補給站 1 感應組', 'scanner', 'ALL', 'CP1', 1, now],
+      ['cp2', '1111', '補給站 2 / 折返點組', 'scanner', 'ALL', 'CP2', 1, now],
+      ['cp3', '1111', '補給站 3 感應組', 'scanner', 'ALL', 'CP3', 1, now],
+      ['finish01', '1111', '終點衝線感應組', 'scanner', 'ALL', 'FINISH', 1, now]
     ]);
   }
 
-  // 5. Runners 工作表（選手名單與罰時）
-  getOrCreateSheet_(ss, SHEET_NAMES.RUNNERS, [
-    'bib', 'name', 'idNumber', 'categoryId', 'nfcUid', 'penaltySec', 'checkedInAt', 'updatedAt'
+  // 4. Chips（跨活動共用晶片主檔：僅存姓名、身份證字號與晶片硬體 UID）
+  getOrCreateSheet_(ss, SHEET_NAMES.CHIPS, [
+    'idNumber', 'name', 'nfcUid', 'writtenAt', 'updatedAt'
   ]);
 
-  // 6. Scans 工作表（晶片感應紀錄）
+  // 5. Registrations（各活動參賽選手明細與組別）
+  getOrCreateSheet_(ss, SHEET_NAMES.REGISTRATIONS, [
+    'regId', 'eventId', 'bib', 'name', 'idNumber', 'categoryId', 'penaltySec', 'updatedAt'
+  ]);
+
+  // 6. Scans（各活動晶片感應紀錄）
   getOrCreateSheet_(ss, SHEET_NAMES.SCANS, [
-    'id', 'bib', 'checkpointId', 'timestampMs', 'timeStr', 'isoTime',
+    'id', 'eventId', 'bib', 'idNumber', 'checkpointId', 'timestampMs', 'timeStr', 'isoTime',
     'source', 'deviceId', 'operator', 'deleted', 'note', 'updatedAt'
   ]);
 
-  Logger.log('所有 6 張工作表已初始化完成！');
+  Logger.log('v3.0 多場次共用晶片計時平台 6 張工作表已初始化完成！');
 }
 
 function getOrCreateSheet_(ss, name, headers) {
   let sheet = ss.getSheetByName(name);
-  if (!sheet) {
-    sheet = ss.insertSheet(name);
-  }
+  if (!sheet) sheet = ss.insertSheet(name);
   if (sheet.getLastRow() === 0) {
     sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
     sheet.getRange(1, 1, 1, headers.length)
@@ -120,9 +117,7 @@ function getOrCreateSheet_(ss, name, headers) {
 }
 
 /**
- * HTTP GET 入口（僅供公開讀取與連線測試，密碼驗證一律走 POST）
- * - action=ping       : 測試連線
- * - action=publicData : 公開查詢用（自動隱碼身份證字號，絕不回傳任何帳號密碼）
+ * HTTP GET 入口（公開查詢與連線測試，密碼驗證一律走 POST）
  */
 function doGet(e) {
   try {
@@ -133,7 +128,7 @@ function doGet(e) {
       return jsonResponse_({
         ok: true,
         serverTimeMs: Date.now(),
-        message: '智慧路跑計時 API v2.0 運作正常'
+        message: '智慧路跑多場次計時平台 API v3.0 運作正常'
       });
     }
 
@@ -153,16 +148,7 @@ function doGet(e) {
 }
 
 /**
- * HTTP POST 入口（使用 text/plain;charset=utf-8 避免 CORS preflight）
- * 支援 action：
- * - login        : 驗證作業人員或最高管理員帳密，並回傳對應資料供離線快取
- * - fullSync     : 驗證管理員或作業人員帳密後拉取最新完整資料
- * - pushScans    : 批次上傳感應紀錄（含伺服器端防連點去重）
- * - upsertRunners: 新增/更新選手（晶片寫入/報到/批次匯入）
- * - batchSync    : 離線恢復後一鍵統一上傳（runners + scans）
- * - saveConfig   : 更新賽事設定、組別起跑時間、站點、作業人員帳號與管理員帳密（需最高管理員驗證）
- * - editScan     : 最高管理員人工修正/補登/刪除感應紀錄
- * - restoreAll   : 最高管理員從完整備份檔還原同步至雲端
+ * HTTP POST 入口（使用 text/plain;charset=utf-8 避免 CORS 預檢）
  */
 function doPost(e) {
   const lock = LockService.getScriptLock();
@@ -172,16 +158,13 @@ function doPost(e) {
     const rawBody = e && e.postData && e.postData.contents ? e.postData.contents : '{}';
     const payload = JSON.parse(rawBody);
     const action = payload.action;
+    if (!action) return jsonResponse_({ ok: false, error: '缺少 action 參數' });
 
-    if (!action) {
-      return jsonResponse_({ ok: false, error: '缺少 action 參數' });
-    }
+    const gCfg = readGlobalConfigMap_();
+    const adminUser = String(gCfg.adminUsername || 'admin').trim();
+    const adminPass = String(gCfg.adminPassword || 'admin1234');
 
-    const config = readConfigMap_();
-    const adminUser = String(config.adminUsername || 'admin').trim();
-    const adminPass = String(config.adminPassword || config.adminPin || 'admin1234');
-
-    // 1. 登入驗證（支援 mode: 'staff' | 'admin'）
+    // 1. 登入驗證（作業人員或最高管理員）
     if (action === 'login') {
       const mode = payload.mode || 'staff';
       const u = String(payload.username || '').trim();
@@ -191,16 +174,14 @@ function doPost(e) {
         if (u !== adminUser || p !== adminPass) {
           return jsonResponse_({ ok: false, error: '管理員帳號或密碼錯誤' });
         }
-        const data = readAllData_(false, true);
         return jsonResponse_({
           ok: true,
           serverTimeMs: Date.now(),
           account: { username: adminUser, displayName: '最高系統管理員', role: 'admin' },
-          data: data
+          data: readAllData_(false, true)
         });
       }
 
-      // 作業人員登入驗證
       const staffList = readStaffList_();
       const matched = staffList.find(function (s) {
         return s.enabled && s.username === u && s.password === p;
@@ -208,13 +189,11 @@ function doPost(e) {
       if (!matched) {
         return jsonResponse_({ ok: false, error: '作業員帳號或密碼錯誤，或帳號已停用' });
       }
-      // 回傳該作業員權限 + 賽事與選手資料（不回傳其他人的密碼）
-      const data = readAllData_(false, false);
       return jsonResponse_({
         ok: true,
         serverTimeMs: Date.now(),
         account: matched,
-        data: data
+        data: readAllData_(false, false)
       });
     }
 
@@ -225,60 +204,54 @@ function doPost(e) {
       if (!isAdmin && !isStaff) {
         return jsonResponse_({ ok: false, error: '身分驗證失敗，請重新登入' });
       }
-      const data = readAllData_(false, isAdmin);
       return jsonResponse_({
         ok: true,
         serverTimeMs: Date.now(),
         isAdmin: isAdmin,
-        data: data
+        data: readAllData_(false, isAdmin)
       });
     }
 
-    // 3. 感應與選手資料上傳（作業員與管理員皆可使用）
+    // 3. 作業員與管理員均可上傳：感應紀錄、共用晶片主檔、批次離線同步
     if (action === 'pushScans') {
-      const result = handlePushScans_(payload.scans || [], Number(config.debounceSeconds || 30));
-      return jsonResponse_({ ok: true, serverTimeMs: Date.now(), result: result });
+      const res = handlePushScans_(payload.scans || []);
+      return jsonResponse_({ ok: true, serverTimeMs: Date.now(), result: res });
     }
 
-    if (action === 'upsertRunners') {
-      const result = handleUpsertRunners_(payload.runners || []);
-      return jsonResponse_({ ok: true, serverTimeMs: Date.now(), result: result });
+    if (action === 'upsertChips') {
+      const res = handleUpsertChips_(payload.chips || []);
+      return jsonResponse_({ ok: true, serverTimeMs: Date.now(), result: res });
+    }
+
+    if (action === 'upsertRegistrations') {
+      const res = handleUpsertRegistrations_(payload.registrations || []);
+      return jsonResponse_({ ok: true, serverTimeMs: Date.now(), result: res });
     }
 
     if (action === 'batchSync') {
-      const runnerRes = handleUpsertRunners_(payload.runners || []);
-      const scanRes = handlePushScans_(payload.scans || [], Number(config.debounceSeconds || 30));
+      const chipRes = handleUpsertChips_(payload.chips || []);
+      const regRes = handleUpsertRegistrations_(payload.registrations || []);
+      const scanRes = handlePushScans_(payload.scans || []);
       return jsonResponse_({
         ok: true,
         serverTimeMs: Date.now(),
-        result: { runners: runnerRes, scans: scanRes }
+        result: { chips: chipRes, registrations: regRes, scans: scanRes }
       });
     }
 
-    // 以下為最高管理員專屬寫入操作
+    // 以下需最高管理員驗證
     if (!verifyAdmin_(payload.auth, adminUser, adminPass)) {
       return jsonResponse_({ ok: false, error: '權限不足：需要最高管理員帳號密碼驗證' });
     }
 
-    if (action === 'saveConfig') {
-      handleSaveConfig_(payload);
-      return jsonResponse_({ ok: true, serverTimeMs: Date.now(), message: '後台設定已同步至雲端' });
+    if (action === 'savePlatform') {
+      handleSavePlatform_(payload);
+      return jsonResponse_({ ok: true, serverTimeMs: Date.now(), message: '平台設定、活動與帳號已同步至雲端' });
     }
 
     if (action === 'editScan') {
-      const result = handleEditScan_(payload.scan);
-      return jsonResponse_({ ok: true, serverTimeMs: Date.now(), result: result });
-    }
-
-    if (action === 'restoreAll') {
-      handleSaveConfig_(payload);
-      const rRes = handleUpsertRunners_(payload.runners || []);
-      const sRes = handlePushScans_(payload.scans || [], 0);
-      return jsonResponse_({
-        ok: true,
-        serverTimeMs: Date.now(),
-        result: { runners: rRes, scans: sRes }
-      });
+      const res = handleEditScan_(payload.scan);
+      return jsonResponse_({ ok: true, serverTimeMs: Date.now(), result: res });
     }
 
     return jsonResponse_({ ok: false, error: '不支援的 POST action: ' + action });
@@ -296,10 +269,20 @@ function verifyAdmin_(auth, adminUser, adminPass) {
 
 function verifyStaff_(auth) {
   if (!auth || !auth.username) return false;
-  const list = readStaffList_();
-  return list.some(function (s) {
+  return readStaffList_().some(function (s) {
     return s.enabled && s.username === String(auth.username).trim() && s.password === String(auth.password || '');
   });
+}
+
+function readGlobalConfigMap_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(SHEET_NAMES.GLOBAL_CONFIG);
+  const map = {};
+  if (!sheet || sheet.getLastRow() <= 1) return map;
+  sheet.getRange(2, 1, sheet.getLastRow() - 1, 2).getValues().forEach(function (r) {
+    if (r[0]) map[String(r[0]).trim()] = r[1];
+  });
+  return map;
 }
 
 function readStaffList_() {
@@ -310,7 +293,8 @@ function readStaffList_() {
       username: String(s.username || '').trim(),
       password: String(s.password || ''),
       displayName: String(s.displayName || '').trim(),
-      role: String(s.role || 'scanner').trim(), // 'writer' | 'scanner' | 'both'
+      role: String(s.role || 'scanner').trim(),
+      eventId: String(s.eventId || 'ALL').trim() || 'ALL',
       checkpointId: String(s.checkpointId || '').trim(),
       enabled: String(s.enabled) !== '0' && String(s.enabled).toLowerCase() !== 'false',
       updatedAt: s.updatedAt ? Number(s.updatedAt) : Date.now()
@@ -318,70 +302,63 @@ function readStaffList_() {
   }).filter(function (s) { return s.username; });
 }
 
-/**
- * 讀取賽事資料
- * @param {boolean} maskSensitive 公開查詢為 true（隱碼身份證字號）
- * @param {boolean} includeStaff  僅最高管理員為 true（回傳作業員帳號清單）
- */
-function readAllData_(maskSensitive, includeStaff) {
+function readEventsList_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const config = readConfigMap_();
+  const sheet = ss.getSheetByName(SHEET_NAMES.EVENTS);
+  return readTableObjects_(sheet).map(function (ev) {
+    let cats = [];
+    let cps = [];
+    try { cats = JSON.parse(ev.categoriesJson || '[]'); } catch (e) {}
+    try { cps = JSON.parse(ev.checkpointsJson || '[]'); } catch (e) {}
+    return {
+      eventId: String(ev.eventId || '').trim(),
+      name: String(ev.name || '').trim(),
+      date: String(ev.date || '').trim(),
+      location: String(ev.location || '').trim(),
+      status: String(ev.status || 'active').trim(),
+      debounceSeconds: Number(ev.debounceSeconds || 30),
+      rankBy: String(ev.rankBy || 'gun').trim(),
+      categories: Array.isArray(cats) ? cats : [],
+      checkpoints: Array.isArray(cps) ? cps : [],
+      updatedAt: ev.updatedAt ? Number(ev.updatedAt) : Date.now()
+    };
+  }).filter(function (ev) { return ev.eventId; });
+}
 
-  const safeConfig = {
-    raceName: config.raceName || '智慧路跑計時賽',
-    raceDate: config.raceDate || '',
-    debounceSeconds: Number(config.debounceSeconds || 30),
-    rankBy: config.rankBy || 'gun'
+function readAllData_(maskSensitive, includeAdminSecrets) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const gCfg = readGlobalConfigMap_();
+  const events = readEventsList_();
+
+  const globalConfig = {
+    activeEventId: String(gCfg.activeEventId || (events[0] ? events[0].eventId : '')).trim()
   };
-  if (includeStaff) {
-    safeConfig.adminUsername = String(config.adminUsername || 'admin');
-    safeConfig.adminPassword = String(config.adminPassword || config.adminPin || 'admin1234');
+  if (includeAdminSecrets) {
+    globalConfig.adminUsername = String(gCfg.adminUsername || 'admin');
+    globalConfig.adminPassword = String(gCfg.adminPassword || 'admin1234');
   }
 
-  const categories = readTableObjects_(ss.getSheetByName(SHEET_NAMES.CATEGORIES)).map(function (c) {
-    return {
-      id: String(c.id || ''),
-      name: String(c.name || ''),
-      distanceKm: Number(c.distanceKm || 0),
-      gunTimeMs: c.gunTimeMs !== '' && c.gunTimeMs !== null ? Number(c.gunTimeMs) : null,
-      gunTimeIso: String(c.gunTimeIso || ''),
-      color: String(c.color || '#3b82f6')
-    };
-  }).filter(function (c) { return c.id; });
-
-  const checkpoints = readTableObjects_(ss.getSheetByName(SHEET_NAMES.CHECKPOINTS)).map(function (cp) {
-    return {
-      id: String(cp.id || ''),
-      name: String(cp.name || ''),
-      order: Number(cp.order || 0),
-      distanceKm: Number(cp.distanceKm || 0),
-      type: String(cp.type || 'checkpoint')
-    };
-  }).filter(function (cp) { return cp.id; })
-    .sort(function (a, b) { return a.order - b.order; });
-
-  const runners = readTableObjects_(ss.getSheetByName(SHEET_NAMES.RUNNERS)).map(function (r) {
+  const registrations = readTableObjects_(ss.getSheetByName(SHEET_NAMES.REGISTRATIONS)).map(function (r) {
     const rawId = String(r.idNumber || '').trim().toUpperCase();
     const obj = {
+      regId: String(r.regId || (String(r.eventId).trim() + '__' + (rawId || String(r.bib).trim()))),
+      eventId: String(r.eventId || '').trim(),
       bib: String(r.bib || '').trim(),
       name: String(r.name || '').trim(),
       idMasked: maskIdNumber_(rawId),
       idHash: rawId ? sha256Hex_(rawId) : '',
       categoryId: String(r.categoryId || '').trim(),
-      nfcUid: String(r.nfcUid || ''),
       penaltySec: Number(r.penaltySec || 0),
-      checkedInAt: r.checkedInAt ? Number(r.checkedInAt) : null,
-      updatedAt: r.updatedAt ? Number(r.updatedAt) : null
+      updatedAt: r.updatedAt ? Number(r.updatedAt) : Date.now()
     };
-    if (!maskSensitive) {
-      obj.idNumber = rawId;
-    }
+    if (!maskSensitive) obj.idNumber = rawId;
     return obj;
-  }).filter(function (r) { return r.bib; });
+  }).filter(function (r) { return r.eventId && r.bib; });
 
   const scans = readTableObjects_(ss.getSheetByName(SHEET_NAMES.SCANS)).map(function (s) {
-    return {
+    const obj = {
       id: String(s.id || ''),
+      eventId: String(s.eventId || '').trim(),
       bib: String(s.bib || '').trim(),
       checkpointId: String(s.checkpointId || '').trim(),
       timestampMs: Number(s.timestampMs || 0),
@@ -394,32 +371,143 @@ function readAllData_(maskSensitive, includeStaff) {
       note: String(s.note || ''),
       updatedAt: s.updatedAt ? Number(s.updatedAt) : Number(s.timestampMs || 0)
     };
-  }).filter(function (s) { return s.id && s.bib && !s.deleted; });
+    if (!maskSensitive) obj.idNumber = String(s.idNumber || '').trim().toUpperCase();
+    return obj;
+  }).filter(function (s) { return s.id && s.eventId && s.bib && !s.deleted; });
 
   const result = {
-    config: safeConfig,
-    categories: categories,
-    checkpoints: checkpoints,
-    runners: runners,
+    globalConfig: globalConfig,
+    events: events,
+    registrations: registrations,
     scans: scans
   };
 
-  if (includeStaff) {
+  if (!maskSensitive) {
+    result.chips = readTableObjects_(ss.getSheetByName(SHEET_NAMES.CHIPS)).map(function (c) {
+      return {
+        idNumber: String(c.idNumber || '').trim().toUpperCase(),
+        name: String(c.name || '').trim(),
+        nfcUid: String(c.nfcUid || '').trim().toUpperCase(),
+        writtenAt: c.writtenAt ? Number(c.writtenAt) : null,
+        updatedAt: c.updatedAt ? Number(c.updatedAt) : Date.now()
+      };
+    }).filter(function (c) { return c.idNumber; });
+  }
+
+  if (includeAdminSecrets) {
     result.staffAccounts = readStaffList_();
   }
+
   return result;
 }
 
-function handlePushScans_(incomingScans, debounceSec) {
+function handleUpsertChips_(incomingChips) {
+  if (!incomingChips || !incomingChips.length) return { inserted: 0, updated: 0 };
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = getOrCreateSheet_(ss, SHEET_NAMES.CHIPS, ['idNumber', 'name', 'nfcUid', 'writtenAt', 'updatedAt']);
+
+  const values = sheet.getDataRange().getValues();
+  const rowById = {};
+  for (let i = 1; i < values.length; i++) {
+    const id = String(values[i][0] || '').trim().toUpperCase();
+    if (id) rowById[id] = i + 1;
+  }
+
+  let inserted = 0, updated = 0;
+  const toAppend = [];
+
+  incomingChips.forEach(function (c) {
+    const id = String(c.idNumber || '').trim().toUpperCase();
+    if (!id) return;
+    const row = [
+      id,
+      String(c.name || '').trim(),
+      String(c.nfcUid || '').trim().toUpperCase(),
+      c.writtenAt ? Number(c.writtenAt) : Date.now(),
+      Number(c.updatedAt || Date.now())
+    ];
+    if (rowById[id]) {
+      sheet.getRange(rowById[id], 1, 1, 5).setValues([row]);
+      updated++;
+    } else {
+      toAppend.push(row);
+      rowById[id] = values.length + toAppend.length;
+      inserted++;
+    }
+  });
+
+  if (toAppend.length > 0) {
+    sheet.getRange(sheet.getLastRow() + 1, 1, toAppend.length, 5).setValues(toAppend);
+  }
+  return { inserted: inserted, updated: updated };
+}
+
+function handleUpsertRegistrations_(incomingRegs) {
+  if (!incomingRegs || !incomingRegs.length) return { inserted: 0, updated: 0 };
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = getOrCreateSheet_(ss, SHEET_NAMES.REGISTRATIONS, [
+    'regId', 'eventId', 'bib', 'name', 'idNumber', 'categoryId', 'penaltySec', 'updatedAt'
+  ]);
+
+  const values = sheet.getDataRange().getValues();
+  const rowByKey = {};
+  for (let i = 1; i < values.length; i++) {
+    const rk = String(values[i][0] || '').trim();
+    if (rk) rowByKey[rk] = i + 1;
+  }
+
+  let inserted = 0, updated = 0;
+  const toAppend = [];
+
+  incomingRegs.forEach(function (r) {
+    const eventId = String(r.eventId || '').trim();
+    const bib = String(r.bib || '').trim();
+    const idNumber = String(r.idNumber || '').trim().toUpperCase();
+    if (!eventId || !bib) return;
+    const regId = String(r.regId || (eventId + '__' + (idNumber || bib))).trim();
+
+    const row = [
+      regId,
+      eventId,
+      bib,
+      String(r.name || '').trim(),
+      idNumber,
+      String(r.categoryId || '').trim(),
+      Number(r.penaltySec || 0),
+      Number(r.updatedAt || Date.now())
+    ];
+
+    if (rowByKey[regId]) {
+      sheet.getRange(rowByKey[regId], 1, 1, 8).setValues([row]);
+      updated++;
+    } else {
+      toAppend.push(row);
+      rowByKey[regId] = values.length + toAppend.length;
+      inserted++;
+    }
+  });
+
+  if (toAppend.length > 0) {
+    sheet.getRange(sheet.getLastRow() + 1, 1, toAppend.length, 8).setValues(toAppend);
+  }
+  return { inserted: inserted, updated: updated };
+}
+
+function handlePushScans_(incomingScans) {
   if (!incomingScans || !incomingScans.length) {
     return { inserted: 0, skippedDuplicate: 0, acceptedIds: [], duplicateIds: [] };
   }
 
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = getOrCreateSheet_(ss, SHEET_NAMES.SCANS, [
-    'id', 'bib', 'checkpointId', 'timestampMs', 'timeStr', 'isoTime',
+    'id', 'eventId', 'bib', 'idNumber', 'checkpointId', 'timestampMs', 'timeStr', 'isoTime',
     'source', 'deviceId', 'operator', 'deleted', 'note', 'updatedAt'
   ]);
+
+  const eventDebounceMap = {};
+  readEventsList_().forEach(function (ev) {
+    eventDebounceMap[ev.eventId] = Number(ev.debounceSeconds || 30) * 1000;
+  });
 
   const existing = readTableObjects_(sheet);
   const existingIdSet = {};
@@ -429,15 +517,14 @@ function handlePushScans_(incomingScans, debounceSec) {
     const id = String(row.id || '');
     if (id) existingIdSet[id] = true;
     const isDeleted = String(row.deleted) === 'true' || Number(row.deleted) === 1;
-    if (!isDeleted && row.bib && row.checkpointId && row.timestampMs) {
-      const key = String(row.bib).trim() + '::' + String(row.checkpointId).trim();
+    if (!isDeleted && row.eventId && row.bib && row.checkpointId && row.timestampMs) {
+      const key = String(row.eventId).trim() + '::' + String(row.bib).trim() + '::' + String(row.checkpointId).trim();
       if (!recentMap[key]) recentMap[key] = [];
       recentMap[key].push(Number(row.timestampMs));
     }
   });
 
-  const debounceMs = Math.max(0, Number(debounceSec || 0)) * 1000;
-  const rowsToAppend = [];
+  const toAppend = [];
   const acceptedIds = [];
   const duplicateIds = [];
 
@@ -447,19 +534,21 @@ function handlePushScans_(incomingScans, debounceSec) {
 
   sorted.forEach(function (scan) {
     const id = String(scan.id || Utilities.getUuid());
+    const eventId = String(scan.eventId || '').trim();
     const bib = String(scan.bib || '').trim();
     const cpId = String(scan.checkpointId || '').trim();
     const ts = Number(scan.timestampMs || Date.now());
     const isManual = scan.source === 'manual' || scan.source === 'admin';
 
-    if (!bib || !cpId) return;
+    if (!eventId || !bib || !cpId) return;
 
     if (existingIdSet[id]) {
       acceptedIds.push(id);
       return;
     }
 
-    const key = bib + '::' + cpId;
+    const debounceMs = eventDebounceMap[eventId] !== undefined ? eventDebounceMap[eventId] : 30000;
+    const key = eventId + '::' + bib + '::' + cpId;
     if (!isManual && debounceMs > 0 && recentMap[key]) {
       const tooClose = recentMap[key].some(function (prevTs) {
         return Math.abs(ts - prevTs) < debounceMs;
@@ -474,9 +563,11 @@ function handlePushScans_(incomingScans, debounceSec) {
     if (!recentMap[key]) recentMap[key] = [];
     recentMap[key].push(ts);
 
-    rowsToAppend.push([
+    toAppend.push([
       id,
+      eventId,
       bib,
+      String(scan.idNumber || '').trim().toUpperCase(),
       cpId,
       ts,
       String(scan.timeStr || ''),
@@ -491,174 +582,91 @@ function handlePushScans_(incomingScans, debounceSec) {
     acceptedIds.push(id);
   });
 
-  if (rowsToAppend.length > 0) {
-    sheet.getRange(sheet.getLastRow() + 1, 1, rowsToAppend.length, 12).setValues(rowsToAppend);
+  if (toAppend.length > 0) {
+    sheet.getRange(sheet.getLastRow() + 1, 1, toAppend.length, 14).setValues(toAppend);
   }
-
   return {
-    inserted: rowsToAppend.length,
+    inserted: toAppend.length,
     skippedDuplicate: duplicateIds.length,
     acceptedIds: acceptedIds,
     duplicateIds: duplicateIds
   };
 }
 
-function handleUpsertRunners_(incomingRunners) {
-  if (!incomingRunners || !incomingRunners.length) {
-    return { inserted: 0, updated: 0 };
-  }
-
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = getOrCreateSheet_(ss, SHEET_NAMES.RUNNERS, [
-    'bib', 'name', 'idNumber', 'categoryId', 'nfcUid', 'penaltySec', 'checkedInAt', 'updatedAt'
-  ]);
-
-  const values = sheet.getDataRange().getValues();
-  const rowIndexByBib = {};
-  for (let i = 1; i < values.length; i++) {
-    const bib = String(values[i][0] || '').trim();
-    if (bib) rowIndexByBib[bib] = i + 1;
-  }
-
-  let inserted = 0;
-  let updated = 0;
-  const rowsToAppend = [];
-
-  incomingRunners.forEach(function (r) {
-    const bib = String(r.bib || '').trim();
-    if (!bib) return;
-
-    const rowData = [
-      bib,
-      String(r.name || '').trim(),
-      String(r.idNumber || '').trim().toUpperCase(),
-      String(r.categoryId || '').trim(),
-      String(r.nfcUid || ''),
-      Number(r.penaltySec || 0),
-      r.checkedInAt ? Number(r.checkedInAt) : '',
-      Number(r.updatedAt || Date.now())
-    ];
-
-    if (rowIndexByBib[bib]) {
-      sheet.getRange(rowIndexByBib[bib], 1, 1, 8).setValues([rowData]);
-      updated++;
-    } else {
-      rowsToAppend.push(rowData);
-      rowIndexByBib[bib] = values.length + rowsToAppend.length;
-      inserted++;
-    }
-  });
-
-  if (rowsToAppend.length > 0) {
-    sheet.getRange(sheet.getLastRow() + 1, 1, rowsToAppend.length, 8).setValues(rowsToAppend);
-  }
-
-  return { inserted: inserted, updated: updated };
-}
-
-function handleSaveConfig_(payload) {
+function handleSavePlatform_(payload) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
 
-  if (payload.config) {
-    const configSheet = getOrCreateSheet_(ss, SHEET_NAMES.CONFIG, ['key', 'value', 'description']);
-    const existing = readConfigMap_();
+  if (payload.globalConfig) {
+    const cfgSheet = getOrCreateSheet_(ss, SHEET_NAMES.GLOBAL_CONFIG, ['key', 'value', 'description']);
+    const existing = readGlobalConfigMap_();
     const merged = {
-      raceName: payload.config.raceName !== undefined ? payload.config.raceName : existing.raceName,
-      raceDate: payload.config.raceDate !== undefined ? payload.config.raceDate : existing.raceDate,
-      debounceSeconds: payload.config.debounceSeconds !== undefined ? payload.config.debounceSeconds : existing.debounceSeconds,
-      adminUsername: payload.config.adminUsername || existing.adminUsername || 'admin',
-      adminPassword: payload.config.adminPassword || existing.adminPassword || existing.adminPin || 'admin1234',
-      rankBy: payload.config.rankBy !== undefined ? payload.config.rankBy : (existing.rankBy || 'gun')
+      adminUsername: payload.globalConfig.adminUsername || existing.adminUsername || 'admin',
+      adminPassword: payload.globalConfig.adminPassword || existing.adminPassword || 'admin1234',
+      activeEventId: payload.globalConfig.activeEventId || existing.activeEventId || ''
     };
-
-    if (configSheet.getLastRow() > 1) {
-      configSheet.getRange(2, 1, configSheet.getLastRow() - 1, 3).clearContent();
-    }
-    configSheet.getRange(2, 1, 6, 3).setValues([
-      ['raceName', String(merged.raceName || ''), '賽事名稱'],
-      ['raceDate', String(merged.raceDate || ''), '賽事日期'],
-      ['debounceSeconds', String(merged.debounceSeconds || 30), '防連點冷卻秒數'],
-      ['adminUsername', String(merged.adminUsername || 'admin'), '後台最高管理員帳號'],
-      ['adminPassword', String(merged.adminPassword || 'admin1234'), '後台最高管理員密碼'],
-      ['rankBy', String(merged.rankBy || 'gun'), '預設排名依據']
+    if (cfgSheet.getLastRow() > 1) cfgSheet.getRange(2, 1, cfgSheet.getLastRow() - 1, 3).clearContent();
+    cfgSheet.getRange(2, 1, 3, 3).setValues([
+      ['adminUsername', String(merged.adminUsername), '後台最高管理員帳號'],
+      ['adminPassword', String(merged.adminPassword), '後台最高管理員密碼'],
+      ['activeEventId', String(merged.activeEventId), '預設顯示活動代碼']
     ]);
   }
 
-  if (Array.isArray(payload.categories)) {
-    const catSheet = getOrCreateSheet_(ss, SHEET_NAMES.CATEGORIES, [
-      'id', 'name', 'distanceKm', 'gunTimeMs', 'gunTimeIso', 'color'
+  if (Array.isArray(payload.events)) {
+    const evtSheet = getOrCreateSheet_(ss, SHEET_NAMES.EVENTS, [
+      'eventId', 'name', 'date', 'location', 'status', 'debounceSeconds',
+      'rankBy', 'categoriesJson', 'checkpointsJson', 'updatedAt'
     ]);
-    if (catSheet.getLastRow() > 1) {
-      catSheet.getRange(2, 1, catSheet.getLastRow() - 1, 6).clearContent();
-    }
-    if (payload.categories.length > 0) {
-      const catRows = payload.categories.map(function (c) {
+    if (evtSheet.getLastRow() > 1) evtSheet.getRange(2, 1, evtSheet.getLastRow() - 1, 10).clearContent();
+    if (payload.events.length > 0) {
+      const rows = payload.events.map(function (ev) {
         return [
-          String(c.id || ''),
-          String(c.name || ''),
-          Number(c.distanceKm || 0),
-          c.gunTimeMs ? Number(c.gunTimeMs) : '',
-          c.gunTimeIso ? String(c.gunTimeIso) : '',
-          String(c.color || '#3b82f6')
+          String(ev.eventId || '').trim(),
+          String(ev.name || '').trim(),
+          String(ev.date || '').trim(),
+          String(ev.location || '').trim(),
+          String(ev.status || 'active').trim(),
+          Number(ev.debounceSeconds || 30),
+          String(ev.rankBy || 'gun').trim(),
+          JSON.stringify(ev.categories || []),
+          JSON.stringify(ev.checkpoints || []),
+          Number(ev.updatedAt || Date.now())
         ];
       });
-      catSheet.getRange(2, 1, catRows.length, 6).setValues(catRows);
-    }
-  }
-
-  if (Array.isArray(payload.checkpoints)) {
-    const cpSheet = getOrCreateSheet_(ss, SHEET_NAMES.CHECKPOINTS, [
-      'id', 'name', 'order', 'distanceKm', 'type'
-    ]);
-    if (cpSheet.getLastRow() > 1) {
-      cpSheet.getRange(2, 1, cpSheet.getLastRow() - 1, 5).clearContent();
-    }
-    if (payload.checkpoints.length > 0) {
-      const cpRows = payload.checkpoints.map(function (cp) {
-        return [
-          String(cp.id || ''),
-          String(cp.name || ''),
-          Number(cp.order || 0),
-          Number(cp.distanceKm || 0),
-          String(cp.type || 'checkpoint')
-        ];
-      });
-      cpSheet.getRange(2, 1, cpRows.length, 5).setValues(cpRows);
+      evtSheet.getRange(2, 1, rows.length, 10).setValues(rows);
     }
   }
 
   if (Array.isArray(payload.staffAccounts)) {
     const staffSheet = getOrCreateSheet_(ss, SHEET_NAMES.STAFF, [
-      'username', 'password', 'displayName', 'role', 'checkpointId', 'enabled', 'updatedAt'
+      'username', 'password', 'displayName', 'role', 'eventId', 'checkpointId', 'enabled', 'updatedAt'
     ]);
-    if (staffSheet.getLastRow() > 1) {
-      staffSheet.getRange(2, 1, staffSheet.getLastRow() - 1, 7).clearContent();
-    }
+    if (staffSheet.getLastRow() > 1) staffSheet.getRange(2, 1, staffSheet.getLastRow() - 1, 8).clearContent();
     if (payload.staffAccounts.length > 0) {
-      const staffRows = payload.staffAccounts.map(function (s) {
+      const rows = payload.staffAccounts.map(function (s) {
         return [
           String(s.username || '').trim(),
           String(s.password || ''),
           String(s.displayName || '').trim(),
           String(s.role || 'scanner').trim(),
+          String(s.eventId || 'ALL').trim() || 'ALL',
           String(s.checkpointId || '').trim(),
           s.enabled === false ? 0 : 1,
           Number(s.updatedAt || Date.now())
         ];
       });
-      staffSheet.getRange(2, 1, staffRows.length, 7).setValues(staffRows);
+      staffSheet.getRange(2, 1, rows.length, 8).setValues(rows);
     }
   }
 }
 
 function handleEditScan_(scan) {
-  if (!scan || !scan.bib || !scan.checkpointId) {
-    throw new Error('缺少必要的感應修正欄位 (bib, checkpointId)');
+  if (!scan || !scan.eventId || !scan.bib || !scan.checkpointId) {
+    throw new Error('缺少必要的感應修正欄位 (eventId, bib, checkpointId)');
   }
-
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = getOrCreateSheet_(ss, SHEET_NAMES.SCANS, [
-    'id', 'bib', 'checkpointId', 'timestampMs', 'timeStr', 'isoTime',
+    'id', 'eventId', 'bib', 'idNumber', 'checkpointId', 'timestampMs', 'timeStr', 'isoTime',
     'source', 'deviceId', 'operator', 'deleted', 'note', 'updatedAt'
   ]);
 
@@ -677,7 +685,9 @@ function handleEditScan_(scan) {
   const ts = Number(scan.timestampMs || Date.now());
   const rowData = [
     id,
+    String(scan.eventId).trim(),
     String(scan.bib).trim(),
+    String(scan.idNumber || '').trim().toUpperCase(),
     String(scan.checkpointId).trim(),
     ts,
     String(scan.timeStr || ''),
@@ -691,27 +701,15 @@ function handleEditScan_(scan) {
   ];
 
   if (targetRow > 0) {
-    sheet.getRange(targetRow, 1, 1, 12).setValues([rowData]);
+    sheet.getRange(targetRow, 1, 1, 14).setValues([rowData]);
     return { action: 'updated', id: id };
   } else {
-    sheet.getRange(sheet.getLastRow() + 1, 1, 1, 12).setValues([rowData]);
+    sheet.getRange(sheet.getLastRow() + 1, 1, 1, 14).setValues([rowData]);
     return { action: 'inserted', id: id };
   }
 }
 
 /* ========================= 內部工具函式 ========================= */
-
-function readConfigMap_() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName(SHEET_NAMES.CONFIG);
-  const map = {};
-  if (!sheet || sheet.getLastRow() <= 1) return map;
-  const rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 2).getValues();
-  rows.forEach(function (r) {
-    if (r[0]) map[String(r[0]).trim()] = r[1];
-  });
-  return map;
-}
 
 function readTableObjects_(sheet) {
   if (!sheet || sheet.getLastRow() <= 1) return [];
@@ -720,12 +718,9 @@ function readTableObjects_(sheet) {
   const result = [];
   for (let i = 1; i < data.length; i++) {
     const row = data[i];
-    const hasValue = row.some(function (cell) { return cell !== '' && cell !== null; });
-    if (!hasValue) continue;
+    if (!row.some(function (cell) { return cell !== '' && cell !== null; })) continue;
     const obj = {};
-    for (let j = 0; j < headers.length; j++) {
-      obj[headers[j]] = row[j];
-    }
+    for (let j = 0; j < headers.length; j++) obj[headers[j]] = row[j];
     result.push(obj);
   }
   return result;
