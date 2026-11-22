@@ -79,6 +79,9 @@
             style="background-color:#0f172a; color:#f8fafc;"
             class="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-base font-black text-white focus:border-sky-400 focus:outline-none">
           </select>
+          <span id="portal-event-select-empty" class="hidden flex-1 text-sm font-bold text-slate-400 px-3 py-2 rounded-xl bg-slate-950/70 border border-slate-800">
+            🔒 目前無進行中／籌備中活動（已結束活動已隱藏）
+          </span>
           <button id="btn-portal-sync-now" type="button"
             class="px-4 py-2.5 rounded-xl text-xs font-black bg-sky-600 hover:bg-sky-500 text-white shrink-0 transition">
             🔄 同步雲端資料
@@ -223,6 +226,9 @@
             <select id="staff-login-event"
               class="w-full bg-slate-950 border border-sky-500/50 rounded-xl px-3.5 py-3 text-sm font-black text-white focus:border-sky-400 focus:outline-none">
             </select>
+            <div id="staff-login-event-empty" class="hidden rounded-xl border border-slate-700 bg-slate-950 px-3.5 py-3 text-xs font-bold text-slate-400">
+              🔒 目前無進行中／籌備中的路跑活動（已結束活動已鎖定）
+            </div>
           </div>
           <div>
             <label class="block text-xs font-bold text-slate-400 mb-1">作業人員帳號</label>
@@ -580,6 +586,9 @@
           <select id="admin-event-select"
             class="flex-1 max-w-md bg-slate-950 border border-amber-500/50 rounded-xl px-3.5 py-2 text-sm font-black text-white focus:outline-none">
           </select>
+          <span id="admin-event-select-empty" class="hidden text-xs sm:text-sm font-bold text-slate-400 px-3 py-1.5 rounded-xl bg-slate-950/80 border border-slate-800">
+            🔒 目前無進行中／籌備中活動（已結束活動已隱藏）
+          </span>
         </div>
         <button id="btn-open-new-event-modal" type="button"
           class="px-4 py-2 rounded-xl text-xs font-black bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow">
@@ -716,6 +725,14 @@
 
       <!-- ==================== 後台分頁 2：本活動選手名單與組別匯入 ==================== -->
       <div id="admin-tab-roster" class="admin-panel hidden space-y-5">
+        <div id="admin-roster-empty" class="hidden bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center space-y-2">
+          <div class="text-3xl">🔒</div>
+          <div id="admin-roster-empty-title" class="text-base font-black text-white">目前沒有可管理的活動</div>
+          <p id="admin-roster-empty-desc" class="text-xs text-slate-400">
+            已結束的活動資料已自動隱藏以避免遭修改；請先於「活動管理與帳密」建立新活動，或將活動重新開啟。
+          </p>
+        </div>
+        <div id="admin-roster-content" class="space-y-5">
         <div class="bg-slate-900 border border-sky-500/30 rounded-2xl p-5 space-y-3">
           <div class="flex flex-wrap items-center justify-between gap-2">
             <div>
@@ -777,10 +794,19 @@
             </table>
           </div>
         </div>
+        </div>
       </div>
 
       <!-- ==================== 後台分頁 3：本活動成績管理與人工修正 ==================== -->
       <div id="admin-tab-results" class="admin-panel hidden space-y-4">
+        <div id="admin-results-empty" class="hidden bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center space-y-2">
+          <div class="text-3xl">🔒</div>
+          <div id="admin-results-empty-title" class="text-base font-black text-white">目前沒有可管理的活動</div>
+          <p id="admin-results-empty-desc" class="text-xs text-slate-400">
+            已結束的活動成績資料已自動隱藏以避免遭修改；請先於「活動管理與帳密」建立新活動，或將活動重新開啟。
+          </p>
+        </div>
+        <div id="admin-results-content" class="space-y-4">
         <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
           <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4">
             <div id="kpi-label-1" class="text-xs font-bold text-slate-400">本場報名人數</div>
@@ -830,10 +856,19 @@
             </table>
           </div>
         </div>
+        </div>
       </div>
 
       <!-- ==================== 後台分頁 4：本活動統一開跑時間、分組與站點設定 ==================== -->
       <div id="admin-tab-race" class="admin-panel hidden space-y-5">
+        <div id="admin-race-empty" class="hidden bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center space-y-2">
+          <div class="text-3xl">🔒</div>
+          <div id="admin-race-empty-title" class="text-base font-black text-white">目前沒有可管理的活動</div>
+          <p id="admin-race-empty-desc" class="text-xs text-slate-400">
+            已結束的活動開跑時間與站點設定已自動隱藏以避免遭修改；請先於「活動管理與帳密」建立新活動，或將活動重新開啟。
+          </p>
+        </div>
+        <div id="admin-race-content" class="space-y-5">
         <!-- 統一律定起跑時間設定卡 -->
         <div class="bg-slate-900 border-2 border-emerald-500/40 rounded-2xl p-5 space-y-3.5">
           <div class="flex flex-wrap items-center justify-between gap-2">
@@ -900,6 +935,7 @@
             </button>
           </div>
         </div>
+        </div>
       </div>
 
       <!-- ==================== 後台分頁 5：作業人員帳號與站點管制 ==================== -->
@@ -928,7 +964,7 @@
       <!-- ==================== 後台分頁 6：備份匯出與雲端同步 ==================== -->
       <div id="admin-tab-sync" class="admin-panel hidden space-y-5">
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
-          <div class="bg-slate-900 border border-emerald-500/30 rounded-2xl p-5 space-y-3">
+          <div id="admin-sync-excel-card" class="bg-slate-900 border border-emerald-500/30 rounded-2xl p-5 space-y-3">
             <h2 class="text-lg font-extrabold text-white">📊 本場活動 Excel 報表匯出 (.xlsx)</h2>
             <p class="text-xs text-slate-400">匯出目前選取活動之「成績總表」、「各分組統計」與「原始感應紀錄」。</p>
             <div class="flex flex-wrap gap-2 pt-1">

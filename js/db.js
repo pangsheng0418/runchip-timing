@@ -629,6 +629,51 @@
       return record;
     }
 
+    /**
+     * 刪除指定活動的所有本機明細資料（參賽明細 Registrations 與 感應紀錄 Scans）
+     * 跨活動共用晶片主檔 (Chips) 與其他活動資料均維持不變
+     */
+    async deleteEventData(eventId) {
+      await this.init();
+      const targetId = String(eventId || '').trim();
+      if (!targetId) return { deletedRegistrations: 0, deletedScans: 0 };
+
+      const [regs, scans] = await Promise.all([
+        this.getEventRegistrations(targetId),
+        this.getEventScans(targetId)
+      ]);
+
+      let deletedRegistrations = 0;
+      if (regs.length > 0) {
+        const tx = this.db.transaction('registrations', 'readwrite');
+        const store = tx.objectStore('registrations');
+        for (const r of regs) {
+          store.delete(r.regId);
+          deletedRegistrations++;
+        }
+        await new Promise((resolve, reject) => {
+          tx.oncomplete = resolve;
+          tx.onerror = () => reject(tx.error);
+        });
+      }
+
+      let deletedScans = 0;
+      if (scans.length > 0) {
+        const tx = this.db.transaction('scans', 'readwrite');
+        const store = tx.objectStore('scans');
+        for (const s of scans) {
+          store.delete(s.id);
+          deletedScans++;
+        }
+        await new Promise((resolve, reject) => {
+          tx.oncomplete = resolve;
+          tx.onerror = () => reject(tx.error);
+        });
+      }
+
+      return { deletedRegistrations, deletedScans };
+    }
+
     /* ---------------- 待同步狀態與批次標記 ---------------- */
 
     async getPendingSyncCounts() {
@@ -705,16 +750,30 @@
 
       // 1. 合併活動清單
       let mergedEvents = cur.events || [];
+      const removedScopedEventIds = new Set();
       if (Array.isArray(cloudData.events)) {
         const normalizedCloudEvents = cloudData.events.map((ev) => ({
           ...ev,
           ownerAdmin: String(ev.ownerAdmin || '').trim() || localEventMap.get(ev.eventId)?.ownerAdmin || scopedOwnerAdmin || defaultOwner
         }));
         if (scopedOwnerAdmin) {
-          // 僅更新此管理員名下的活動，保留其他管理員的本機活動
+          // 僅更新此管理員名下的活動，保留其他管理員的本機活動，並記錄已被刪除的活動以便清除本機明細快取
+          const nextOwnSet = new Set(normalizedCloudEvents.map((e) => e.eventId));
+          (cur.events || []).forEach((e) => {
+            if ((e.ownerAdmin || defaultOwner) === scopedOwnerAdmin && !nextOwnSet.has(e.eventId)) {
+              removedScopedEventIds.add(e.eventId);
+            }
+          });
           const otherEvents = (cur.events || []).filter((e) => (e.ownerAdmin || defaultOwner) !== scopedOwnerAdmin);
           mergedEvents = [...otherEvents, ...normalizedCloudEvents];
-        } else if (normalizedCloudEvents.length > 0) {
+        } else if (
+          normalizedCloudEvents.length > 0 ||
+          (Array.isArray(cloudData.registrations) && cloudData.registrations.length === 0 && Array.isArray(cloudData.scans) && cloudData.scans.length === 0)
+        ) {
+          const nextAllSet = new Set(normalizedCloudEvents.map((e) => e.eventId));
+          (cur.events || []).forEach((e) => {
+            if (!nextAllSet.has(e.eventId)) removedScopedEventIds.add(e.eventId);
+          });
           mergedEvents = normalizedCloudEvents;
         }
       }
@@ -772,9 +831,12 @@
       };
       await this.savePlatform(mergedPlatform, true);
 
-      // 計算目前受此雲端同步管轄的活動集合（避免刪除其他管理員的報名與感應快取）
+      // 計算目前受此雲端同步管轄的活動集合（包含已被雲端刪除的本人活動，確保對應本機明細快取一併清除）
       const scopedEventIds = scopedOwnerAdmin
-        ? new Set(mergedEvents.filter((e) => (e.ownerAdmin || defaultOwner) === scopedOwnerAdmin).map((e) => e.eventId))
+        ? new Set([
+            ...mergedEvents.filter((e) => (e.ownerAdmin || defaultOwner) === scopedOwnerAdmin).map((e) => e.eventId),
+            ...removedScopedEventIds
+          ])
         : null;
 
       if (Array.isArray(cloudData.chips)) {
@@ -798,7 +860,7 @@
         const cloudRegSet = new Set(cloudData.registrations.map((r) => r.regId));
         for (const lr of localAll) {
           if (scopedEventIds && !scopedEventIds.has(lr.eventId)) continue;
-          if (lr.synced && !cloudRegSet.has(lr.regId)) {
+          if ((lr.synced || removedScopedEventIds.has(lr.eventId)) && !cloudRegSet.has(lr.regId)) {
             await this.deleteRegistration(lr.regId);
           }
         }
@@ -815,7 +877,7 @@
         const cloudScanSet = new Set(cloudData.scans.map((s) => s.id));
         for (const ls of localAll) {
           if (scopedEventIds && !scopedEventIds.has(ls.eventId)) continue;
-          if (ls.synced && !cloudScanSet.has(ls.id)) {
+          if ((ls.synced || removedScopedEventIds.has(ls.eventId)) && !cloudScanSet.has(ls.id)) {
             await this._req(this._tx('scans', 'readwrite').delete(ls.id));
           }
         }

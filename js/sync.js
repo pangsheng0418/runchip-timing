@@ -213,6 +213,8 @@
       global.RaceDB.saveDeviceSettings({ lastSyncAt: Date.now() });
       return {
         platformSynced: Boolean(res.result?.platformSynced),
+        purgedRegistrations: res.result?.purge?.deletedRegistrations || 0,
+        purgedScans: res.result?.purge?.deletedScans || 0,
         uploadedChips: pending.unsyncedChips.length,
         uploadedRegs: regsToUpload.length,
         uploadedScans: res.result?.scans?.inserted || 0,

@@ -145,10 +145,10 @@ function doGet(e) {
     if (action === 'ping') {
       return jsonResponse_({
         ok: true,
-        apiVersion: '3.4',
+        apiVersion: '3.5',
         multiAdmin: true,
         serverTimeMs: Date.now(),
-        message: '智慧路跑多場次計時平台 API v3.4 (多管理者活動隔離) 運作正常'
+        message: '智慧路跑多場次計時平台 API v3.5 (多管理者活動隔離・刪除活動連動清理明細) 運作正常'
       });
     }
 
@@ -156,7 +156,7 @@ function doGet(e) {
       const data = readAllData_(true, null);
       return jsonResponse_({
         ok: true,
-        apiVersion: '3.4',
+        apiVersion: '3.5',
         multiAdmin: true,
         serverTimeMs: Date.now(),
         data: data
@@ -197,7 +197,7 @@ function doPost(e) {
         }
         return jsonResponse_({
           ok: true,
-          apiVersion: '3.4',
+          apiVersion: '3.5',
           multiAdmin: true,
           serverTimeMs: Date.now(),
           account: {
@@ -219,7 +219,7 @@ function doPost(e) {
       }
       return jsonResponse_({
         ok: true,
-        apiVersion: '3.4',
+        apiVersion: '3.5',
         multiAdmin: true,
         serverTimeMs: Date.now(),
         account: matched,
@@ -236,7 +236,7 @@ function doPost(e) {
       }
       return jsonResponse_({
         ok: true,
-        apiVersion: '3.4',
+        apiVersion: '3.5',
         multiAdmin: true,
         serverTimeMs: Date.now(),
         isAdmin: Boolean(callerAdmin),
@@ -272,10 +272,12 @@ function doPost(e) {
 
     if (action === 'batchSync') {
       let platformSynced = false;
+      let purgeRes = { eventIds: [], deletedRegistrations: 0, deletedScans: 0 };
       const callerAdmin = payload.auth ? verifyAdminAccount_(payload.auth, gCfg) : null;
       if (payload.platform && callerAdmin) {
-        handleSavePlatform_(payload.platform, callerAdmin, gCfg);
+        const saveRes = handleSavePlatform_(payload.platform, callerAdmin, gCfg);
         platformSynced = true;
+        if (saveRes && saveRes.purge) purgeRes = saveRes.purge;
       }
       const chipRes = handleUpsertChips_(payload.chips || []);
       const regs = payload.registrations || [];
@@ -288,7 +290,7 @@ function doPost(e) {
         ok: true,
         multiAdmin: true,
         serverTimeMs: Date.now(),
-        result: { platformSynced: platformSynced, chips: chipRes, registrations: regRes, scans: scanRes }
+        result: { platformSynced: platformSynced, purge: purgeRes, chips: chipRes, registrations: regRes, scans: scanRes }
       });
     }
 
@@ -299,8 +301,14 @@ function doPost(e) {
     }
 
     if (action === 'savePlatform') {
-      handleSavePlatform_(payload, callerAdmin, gCfg);
-      return jsonResponse_({ ok: true, multiAdmin: true, serverTimeMs: Date.now(), message: '您的活動設定與帳號已同步至雲端' });
+      const saveRes = handleSavePlatform_(payload, callerAdmin, gCfg);
+      return jsonResponse_({
+        ok: true,
+        multiAdmin: true,
+        serverTimeMs: Date.now(),
+        message: '您的活動設定與帳號已同步至雲端',
+        purge: saveRes && saveRes.purge ? saveRes.purge : { eventIds: [], deletedRegistrations: 0, deletedScans: 0 }
+      });
     }
 
     if (action === 'editScan') {
@@ -842,6 +850,7 @@ function handleSavePlatform_(payload, callerAdmin, gCfg) {
     ev.ownerAdmin = renameOwner_(ev.ownerAdmin);
     return ev;
   });
+  let purgeResult = { eventIds: [], deletedRegistrations: 0, deletedScans: 0 };
 
   if (Array.isArray(payload.events) || Object.keys(renamedAdmins).length > 0) {
     const evtHeaders = [
@@ -856,14 +865,19 @@ function handleSavePlatform_(payload, callerAdmin, gCfg) {
     }
 
     if (Array.isArray(payload.events)) {
+      const prevCallerEventIds = finalAllEvents
+        .filter(function (ev) { return ev.ownerAdmin === effectiveCaller; })
+        .map(function (ev) { return ev.eventId; });
       const otherEvents = finalAllEvents.filter(function (ev) { return ev.ownerAdmin !== effectiveCaller; });
       const otherIdSet = {};
       otherEvents.forEach(function (ev) { otherIdSet[ev.eventId] = true; });
 
       const callerEvents = [];
+      const nextCallerIdSet = {};
       payload.events.forEach(function (ev) {
         const eid = String(ev.eventId || '').trim();
         if (!eid || otherIdSet[eid]) return; // 嚴禁寫入/篡改其他管理員的活動 ID
+        nextCallerIdSet[eid] = true;
         callerEvents.push({
           eventId: eid,
           name: String(ev.name || '').trim(),
@@ -882,11 +896,28 @@ function handleSavePlatform_(payload, callerAdmin, gCfg) {
       });
 
       finalAllEvents = otherEvents.concat(callerEvents);
+
+      // 偵測本次被刪除的活動 ID，並連動清除 Registrations 與 Scans 中該活動的明細資料以減輕資料庫負荷
+      const removedIdSet = {};
+      prevCallerEventIds.forEach(function (eid) {
+        if (!nextCallerIdSet[eid]) removedIdSet[eid] = true;
+      });
+      if (Array.isArray(payload.deletedEventIds)) {
+        payload.deletedEventIds.forEach(function (rawId) {
+          const eid = String(rawId || '').trim();
+          if (eid && !otherIdSet[eid] && !nextCallerIdSet[eid]) {
+            removedIdSet[eid] = true;
+          }
+        });
+      }
+      const removedEventIds = Object.keys(removedIdSet);
+      if (removedEventIds.length > 0) {
+        purgeResult = purgeEventsDetailData_(ss, removedEventIds);
+      }
     }
 
-    if (evtSheet.getLastRow() > 1) {
-      evtSheet.getRange(2, 1, evtSheet.getLastRow() - 1, Math.max(13, evtSheet.getLastColumn())).clearContent();
-    }
+    const prevEvtLastRow = evtSheet.getLastRow();
+    const evtCols = Math.max(13, evtSheet.getLastColumn());
     if (finalAllEvents.length > 0) {
       const rows = finalAllEvents.map(function (ev) {
         return [
@@ -908,6 +939,15 @@ function handleSavePlatform_(payload, callerAdmin, gCfg) {
       const range = evtSheet.getRange(2, 1, rows.length, 13);
       evtSheet.getRange(2, 3, rows.length, 1).setNumberFormat('@');
       range.setValues(rows);
+    }
+    const newEvtLastRow = finalAllEvents.length + 1;
+    if (prevEvtLastRow > newEvtLastRow) {
+      evtSheet.getRange(newEvtLastRow + 1, 1, prevEvtLastRow - newEvtLastRow, evtCols).clearContent();
+      const maxDeletable = Math.max(0, evtSheet.getMaxRows() - Math.max(newEvtLastRow + 1, 2));
+      const rowsToDelete = Math.min(prevEvtLastRow - newEvtLastRow, maxDeletable);
+      if (rowsToDelete > 0) {
+        evtSheet.deleteRows(newEvtLastRow + 1, rowsToDelete);
+      }
     }
   }
 
@@ -994,6 +1034,9 @@ function handleSavePlatform_(payload, callerAdmin, gCfg) {
         nextActiveEvt = reqActiveEvt;
       }
     }
+    if (nextActiveEvt && !finalAllEvents.some(function (ev) { return ev.eventId === nextActiveEvt; })) {
+      nextActiveEvt = finalAllEvents[0] ? finalAllEvents[0].eventId : '';
+    }
     const merged = {
       adminUsername: primarySuper ? primarySuper.username : (existing.adminUsername || 'admin'),
       adminPassword: primarySuper ? primarySuper.password : (existing.adminPassword || 'admin1234'),
@@ -1006,6 +1049,78 @@ function handleSavePlatform_(payload, callerAdmin, gCfg) {
       ['activeEventId', String(merged.activeEventId), '預設顯示活動代碼']
     ]);
   }
+
+  return { purge: purgeResult };
+}
+
+/**
+ * 批次刪除指定工作表中符合 eventId 的所有資料列，並收縮多餘空白列以減輕資料庫負荷
+ */
+function deleteSheetRowsByEventIds_(sheet, eventIdSet) {
+  if (!sheet || sheet.getLastRow() <= 1) return 0;
+  const lastRow = sheet.getLastRow();
+  const lastCol = sheet.getLastColumn();
+  if (lastCol <= 0) return 0;
+
+  const values = sheet.getRange(1, 1, lastRow, lastCol).getValues();
+  const headers = values[0].map(function (h) { return String(h || '').trim(); });
+  const evtCol = headers.indexOf('eventId');
+  if (evtCol < 0) return 0;
+
+  const keptRows = [];
+  let deletedCount = 0;
+
+  for (let i = 1; i < values.length; i++) {
+    const row = values[i];
+    const hasData = row.some(function (cell) { return cell !== '' && cell !== null; });
+    if (!hasData) continue;
+    const rowEvtId = String(row[evtCol] || '').trim();
+    if (rowEvtId && eventIdSet[rowEvtId]) {
+      deletedCount++;
+    } else {
+      keptRows.push(row);
+    }
+  }
+
+  if (deletedCount === 0) return 0;
+
+  if (keptRows.length > 0) {
+    sheet.getRange(2, 1, keptRows.length, lastCol).setValues(keptRows);
+  }
+  const newLastRow = keptRows.length + 1;
+  if (lastRow > newLastRow) {
+    sheet.getRange(newLastRow + 1, 1, lastRow - newLastRow, lastCol).clearContent();
+    const maxDeletable = Math.max(0, sheet.getMaxRows() - Math.max(newLastRow + 1, 2));
+    const rowsToDelete = Math.min(lastRow - newLastRow, maxDeletable);
+    if (rowsToDelete > 0) {
+      sheet.deleteRows(newLastRow + 1, rowsToDelete);
+    }
+  }
+  return deletedCount;
+}
+
+/**
+ * 連動清除已刪除活動的明細資料（參賽明細 Registrations ＋ 感應紀錄 Scans）
+ * 跨活動共用晶片主檔 Chips 不受影響
+ */
+function purgeEventsDetailData_(ss, eventIds) {
+  const cleanIds = (eventIds || [])
+    .map(function (id) { return String(id || '').trim(); })
+    .filter(function (id) { return Boolean(id); });
+  if (!cleanIds.length) {
+    return { eventIds: [], deletedRegistrations: 0, deletedScans: 0 };
+  }
+  const idSet = {};
+  cleanIds.forEach(function (id) { idSet[id] = true; });
+
+  const deletedRegistrations = deleteSheetRowsByEventIds_(ss.getSheetByName(SHEET_NAMES.REGISTRATIONS), idSet);
+  const deletedScans = deleteSheetRowsByEventIds_(ss.getSheetByName(SHEET_NAMES.SCANS), idSet);
+
+  return {
+    eventIds: cleanIds,
+    deletedRegistrations: deletedRegistrations,
+    deletedScans: deletedScans
+  };
 }
 
 function handleEditScan_(scan, callerAdmin, gCfg) {

@@ -81,10 +81,22 @@
     return String(ev?.ownerAdmin || state.platform?.adminUsername || 'admin').trim() || 'admin';
   }
 
+  function isEventFinished(ev) {
+    return Boolean(ev && ev.status === 'finished');
+  }
+
+  function getOpenEvents() {
+    return (state.platform?.events || []).filter((e) => !isEventFinished(e));
+  }
+
   function getAdminOwnEvents() {
     const adminUser = getCurrentAdminUsername();
     if (!adminUser) return [];
     return (state.platform?.events || []).filter((e) => getEventOwner(e) === adminUser);
+  }
+
+  function getAdminOpenOwnEvents() {
+    return getAdminOwnEvents().filter((e) => !isEventFinished(e));
   }
 
   function isEventOwnedByCurrentAdmin(ev) {
@@ -116,15 +128,18 @@
 
   function getActiveEvent() {
     if (state.session?.mode === 'admin') {
-      const ownEvents = getAdminOwnEvents();
-      return ownEvents.find((e) => e.eventId === state.selectedEventId) || ownEvents[0] || null;
+      const openOwnEvents = getAdminOpenOwnEvents();
+      return openOwnEvents.find((e) => e.eventId === state.selectedEventId) || openOwnEvents[0] || null;
     }
-    const events = state.platform?.events || [];
+    const openEvents = getOpenEvents();
     const targetId =
       state.view === 'staff-workspace' && state.session?.lockedEventId
         ? state.session.lockedEventId
         : state.selectedEventId;
-    return events.find((e) => e.eventId === targetId) || events[0] || null;
+    if (state.view === 'staff-workspace' && state.session?.lockedEventId) {
+      return openEvents.find((e) => e.eventId === targetId) || null;
+    }
+    return openEvents.find((e) => e.eventId === targetId) || openEvents[0] || null;
   }
 
   /* ========================================================================
@@ -260,18 +275,18 @@
         };
         DB.saveSession(state.session);
       }
-      const ownEvents = getAdminOwnEvents();
-      if (!state.selectedEventId || !ownEvents.some((e) => e.eventId === state.selectedEventId)) {
+      const openOwnEvents = getAdminOpenOwnEvents();
+      if (!state.selectedEventId || !openOwnEvents.some((e) => e.eventId === state.selectedEventId)) {
         const defaultId = platform.activeEventId;
-        const validDefault = defaultId && ownEvents.some((e) => e.eventId === defaultId);
-        state.selectedEventId = validDefault ? defaultId : (ownEvents[0]?.eventId || '');
+        const validDefault = defaultId && openOwnEvents.some((e) => e.eventId === defaultId);
+        state.selectedEventId = validDefault ? defaultId : (openOwnEvents[0]?.eventId || '');
       }
     } else {
-      const events = platform.events || [];
-      if (!state.selectedEventId || !events.some((e) => e.eventId === state.selectedEventId)) {
+      const openEvents = getOpenEvents();
+      if (!state.selectedEventId || !openEvents.some((e) => e.eventId === state.selectedEventId)) {
         const defaultId = platform.activeEventId;
-        const validDefault = defaultId && events.some((e) => e.eventId === defaultId);
-        state.selectedEventId = validDefault ? defaultId : (events[0]?.eventId || '');
+        const validDefault = defaultId && openEvents.some((e) => e.eventId === defaultId);
+        state.selectedEventId = validDefault ? defaultId : (openEvents[0]?.eventId || '');
         DB.saveDeviceSettings({ selectedEventId: state.selectedEventId });
       }
     }
@@ -369,7 +384,10 @@
   function renderHeader() {
     const settings = DB.getDeviceSettings();
     const evt = getActiveEvent();
-    $('header-event-badge').textContent = evt ? `${evt.name} (${evt.date || ''})` : '尚無活動';
+    const totalEvents = (state.platform?.events || []).length;
+    $('header-event-badge').textContent = evt
+      ? `${evt.name} (${evt.date || ''})`
+      : (totalEvents > 0 ? '無進行中活動' : '尚無活動');
     $('header-device-id').textContent = settings.deviceId;
 
     const pubLink = $('portal-link-public');
@@ -399,42 +417,83 @@
   }
 
   function renderEventDropdowns() {
-    const allEvents = state.platform?.events || [];
+    // 狀態為「已結束 (finished)」的活動一律不出現在下拉選單，避免資料遭誤選或修改
+    const openEvents = getOpenEvents();
+    const allCount = (state.platform?.events || []).length;
     const statusLabel = { active: '進行中', upcoming: '籌備中', finished: '已結束' };
-    const buildOptionsHtml = (list, emptyLabel) => (
-      list.length
-        ? list.map((ev) => {
-            const typeTag = ev.eventType === 'lap_timed' ? `🔁繞圈(${ev.lapDistanceKm}K/圈)` : '🏃距離賽';
-            return `<option value="${esc(ev.eventId)}" style="background-color:#0f172a;color:#f8fafc;">${typeTag} ${esc(ev.name)} (${esc(ev.date || '')}) [${statusLabel[ev.status] || ev.status}]</option>`;
-          }).join('')
-        : `<option value="" style="background-color:#0f172a;color:#f8fafc;">${emptyLabel}</option>`
+    const buildOptionsHtml = (list) => (
+      list.map((ev) => {
+        const typeTag = ev.eventType === 'lap_timed' ? `🔁繞圈(${ev.lapDistanceKm}K/圈)` : '🏃距離賽';
+        return `<option value="${esc(ev.eventId)}" style="background-color:#0f172a;color:#f8fafc;">${typeTag} ${esc(ev.name)} (${esc(ev.date || '')}) [${statusLabel[ev.status] || ev.status}]</option>`;
+      }).join('')
     );
 
-    const allOptionsHtml = buildOptionsHtml(allEvents, '尚無活動');
-    ['portal-event-select', 'staff-login-event'].forEach((id) => {
-      const el = $(id);
-      if (!el) return;
-      el.innerHTML = allOptionsHtml;
-      if (allEvents.some((e) => e.eventId === state.selectedEventId)) {
-        el.value = state.selectedEventId;
-      }
-    });
+    const openOptionsHtml = buildOptionsHtml(openEvents);
+    const hasOpen = openEvents.length > 0;
 
-    // 後台管理區下拉選單：嚴格僅顯示目前登入管理者本人建立的活動！
+    // 大廳選取活動下拉
+    const portalSel = $('portal-event-select');
+    const portalEmpty = $('portal-event-select-empty');
+    if (portalSel) {
+      portalSel.innerHTML = openOptionsHtml;
+      portalSel.classList.toggle('hidden', !hasOpen);
+      if (hasOpen && openEvents.some((e) => e.eventId === state.selectedEventId)) {
+        portalSel.value = state.selectedEventId;
+      }
+    }
+    if (portalEmpty) {
+      portalEmpty.classList.toggle('hidden', hasOpen);
+      portalEmpty.textContent = allCount > 0
+        ? '🔒 目前無進行中／籌備中活動（已結束活動已隱藏）'
+        : '尚無路跑活動（請由後台管理區建立）';
+    }
+
+    // 作業員登入選取活動下拉
+    const staffSel = $('staff-login-event');
+    const staffEmpty = $('staff-login-event-empty');
+    if (staffSel) {
+      staffSel.innerHTML = openOptionsHtml;
+      staffSel.classList.toggle('hidden', !hasOpen);
+      if (hasOpen && openEvents.some((e) => e.eventId === state.selectedEventId)) {
+        staffSel.value = state.selectedEventId;
+      }
+    }
+    if (staffEmpty) {
+      staffEmpty.classList.toggle('hidden', hasOpen);
+      staffEmpty.textContent = allCount > 0
+        ? '🔒 目前無進行中／籌備中的路跑活動（已結束活動已鎖定）'
+        : '尚無路跑活動';
+    }
+
+    // 後台管理區下拉選單：僅顯示目前登入管理者本人建立且「非已結束」的活動
     const adminSel = $('admin-event-select');
+    const adminEmpty = $('admin-event-select-empty');
     if (adminSel) {
-      const ownEvents = getAdminOwnEvents();
-      adminSel.innerHTML = buildOptionsHtml(ownEvents, '尚無您建立的活動（請點右側「＋ 建立新路跑活動」）');
-      if (ownEvents.some((e) => e.eventId === state.selectedEventId)) {
+      const ownTotal = getAdminOwnEvents().length;
+      const openOwnEvents = getAdminOpenOwnEvents();
+      const hasOpenOwn = openOwnEvents.length > 0;
+      adminSel.innerHTML = buildOptionsHtml(openOwnEvents);
+      adminSel.classList.toggle('hidden', !hasOpenOwn);
+      if (hasOpenOwn && openOwnEvents.some((e) => e.eventId === state.selectedEventId)) {
         adminSel.value = state.selectedEventId;
+      }
+      if (adminEmpty) {
+        adminEmpty.classList.toggle('hidden', hasOpenOwn);
+        adminEmpty.textContent = ownTotal > 0
+          ? '🔒 目前無進行中／籌備中活動（已結束活動已隱藏）'
+          : '尚無您建立的活動（請點右側「＋ 建立新路跑活動」）';
       }
     }
 
+    // 共用晶片寫入區活動篩選下拉：不顯示已結束活動
     const wf = $('writer-event-filter');
     if (wf) {
       const prev = state.writerEventFilter;
-      wf.innerHTML = '<option value="ALL">所有活動名單</option>' + allOptionsHtml;
-      wf.value = (prev === 'ALL' || allEvents.some((e) => e.eventId === prev)) ? prev : 'ALL';
+      wf.innerHTML = '<option value="ALL">所有進行中活動名單</option>' + openOptionsHtml;
+      wf.classList.toggle('hidden', !hasOpen);
+      const nextVal = (prev === 'ALL' || openEvents.some((e) => e.eventId === prev)) ? prev : 'ALL';
+      state.writerEventFilter = nextVal;
+      wf.value = nextVal;
     }
   }
 
@@ -568,18 +627,32 @@
     // 決定作業員鎖定的活動：若帳號本身有綁定特定 eventId（非 ALL）則強制鎖定該活動；否則鎖定登入時選取的活動
     const platform = await DB.getPlatform();
     const events = platform.events || [];
+    const openEventsList = events.filter((e) => !isEventFinished(e));
     let lockedEventId = '';
     if (mode === 'staff') {
+      const isWriterOnly = account.role === 'writer';
       if (account.eventId && account.eventId !== 'ALL') {
         lockedEventId = account.eventId;
+        const boundEvt = events.find((e) => e.eventId === lockedEventId);
+        if (!isWriterOnly && isEventFinished(boundEvt)) {
+          NFC.sound.beepError();
+          showToast(`活動「${boundEvt.name}」狀態為「已結束」，已鎖定禁止作業員登入感應以避免資料遭修改`, 'error');
+          return;
+        }
       } else {
-        lockedEventId = chosenEventId || state.selectedEventId || events[0]?.eventId || '';
+        const candidateId = chosenEventId || state.selectedEventId || openEventsList[0]?.eventId || '';
+        const targetEvt = openEventsList.find((e) => e.eventId === candidateId) || null;
+        if (!isWriterOnly && !targetEvt) {
+          NFC.sound.beepError();
+          showToast('目前無進行中或籌備中的路跑活動可供作業（已結束活動已鎖定）', 'error');
+          return;
+        }
+        lockedEventId = targetEvt ? targetEvt.eventId : '';
         // 若該作業員隸屬於特定管理者，檢查所選活動是否為該管理者建立（防止誤感應至他人活動）
         const staffOwner = String(account.ownerAdmin || '').trim();
-        if (staffOwner && lockedEventId) {
-          const targetEvt = events.find((e) => e.eventId === lockedEventId);
-          const targetOwner = String(targetEvt?.ownerAdmin || platform.adminUsername || 'admin').trim();
-          if (targetEvt && targetOwner !== staffOwner) {
+        if (staffOwner && lockedEventId && targetEvt) {
+          const targetOwner = String(targetEvt.ownerAdmin || platform.adminUsername || 'admin').trim();
+          if (targetOwner !== staffOwner) {
             NFC.sound.beepError();
             showToast(`此作業員帳號僅限操作管理者「${staffOwner}」建立的活動，請重新選擇活動`, 'error');
             return;
@@ -589,11 +662,11 @@
       state.selectedEventId = lockedEventId;
       DB.saveDeviceSettings({ selectedEventId: lockedEventId });
     } else if (mode === 'admin') {
-      // 登入管理員時清除非本人建立的 selectedEventId
+      // 登入管理員時僅選取本人建立且「非已結束」的活動
       const defaultOwner = String(platform.adminUsername || 'admin').trim();
-      const ownEvents = events.filter((e) => (String(e.ownerAdmin || '').trim() || defaultOwner) === account.username);
-      if (!ownEvents.some((e) => e.eventId === state.selectedEventId)) {
-        state.selectedEventId = ownEvents[0]?.eventId || '';
+      const openOwnEvents = openEventsList.filter((e) => (String(e.ownerAdmin || '').trim() || defaultOwner) === account.username);
+      if (!openOwnEvents.some((e) => e.eventId === state.selectedEventId)) {
+        state.selectedEventId = openOwnEvents[0]?.eventId || '';
       }
     }
 
@@ -772,10 +845,12 @@
     const mockSel = $('mock-chip-select');
     const prevVal = mockSel.value;
 
-    // 合併共用晶片主檔 + 本場已報名人員（即使還沒寫卡也能模擬刷過測試）
+    // 合併共用晶片主檔 + 進行中／籌備中活動已報名人員（排除已結束活動名單）
+    const openEventIdSet = new Set(getOpenEvents().map((e) => e.eventId));
     const chipPoolMap = new Map();
     state.chips.forEach((c) => chipPoolMap.set(c.idNumber, { name: c.name, idNumber: c.idNumber, nfcUid: c.nfcUid }));
     state.allRegistrations.forEach((r) => {
+      if (!openEventIdSet.has(r.eventId)) return;
       if (r.idNumber && !chipPoolMap.has(r.idNumber)) {
         chipPoolMap.set(r.idNumber, { name: r.name, idNumber: r.idNumber, nfcUid: '' });
       }
@@ -853,9 +928,9 @@
   async function processIncomingScan(tagData, { bypassDebounce = false } = {}) {
     const evt = getActiveEvent();
     const lockedCp = getLockedCheckpoint();
-    if (!evt || !lockedCp || !lockedCp.id) {
+    if (!evt || isEventFinished(evt) || !lockedCp || !lockedCp.id) {
       NFC.sound.beepError();
-      showToast('尚未鎖定活動或站點，無法執行感應', 'error');
+      showToast('活動已結束或尚未鎖定站點，無法執行感應', 'error');
       return;
     }
 
@@ -1041,8 +1116,10 @@
     const chipMap = new Map(state.chips.map((c) => [c.idNumber, c]));
     const peopleMap = new Map();
 
-    // 彙整所有已匯入活動名單的選手（依身份證去重，計算報名幾場活動）
+    // 彙整所有進行中／籌備中活動名單的選手（排除「已結束」活動名單以避免誤操作）
+    const openEventIdSet = new Set(getOpenEvents().map((e) => e.eventId));
     for (const r of state.allRegistrations) {
+      if (!openEventIdSet.has(r.eventId)) continue;
       if (state.writerEventFilter !== 'ALL' && r.eventId !== state.writerEventFilter) continue;
       const id = String(r.idNumber || '').trim().toUpperCase();
       if (!id) continue;
@@ -1293,12 +1370,16 @@
     const statusBadge = {
       active: '<span class="px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500/20 text-emerald-300">進行中</span>',
       upcoming: '<span class="px-2 py-0.5 rounded-full text-[11px] font-bold bg-sky-500/20 text-sky-300">籌備中</span>',
-      finished: '<span class="px-2 py-0.5 rounded-full text-[11px] font-bold bg-slate-700 text-slate-300">已結束</span>'
+      finished: '<span class="px-2 py-0.5 rounded-full text-[11px] font-bold bg-slate-700 text-slate-300">🔒 已結束（已鎖定）</span>'
     };
 
     const ownerBadge = $('admin-events-owner-badge');
     if (ownerBadge) {
-      ownerBadge.textContent = `🔒 目前登入：${adminUser}（僅顯示本人建立的 ${events.length} 場活動）`;
+      const openOwnCount = getAdminOpenOwnEvents().length;
+      const finishedCount = events.length - openOwnCount;
+      ownerBadge.textContent = finishedCount > 0
+        ? `🔒 目前登入：${adminUser}（共 ${events.length} 場活動，其中 ${finishedCount} 場已結束鎖定）`
+        : `🔒 目前登入：${adminUser}（僅顯示本人建立的 ${events.length} 場活動）`;
     }
 
     if (events.length === 0) {
@@ -1316,14 +1397,15 @@
         .map((ev) => {
           const regCount = state.allRegistrations.filter((r) => r.eventId === ev.eventId).length;
           const scanCount = state.allScans.filter((s) => !s.deleted && s.eventId === ev.eventId).length;
-          const isSelected = currentEvt && ev.eventId === currentEvt.eventId;
+          const finished = isEventFinished(ev);
+          const isSelected = !finished && currentEvt && ev.eventId === currentEvt.eventId;
           const isDefault = ev.eventId === state.platform.activeEventId;
           return `
-            <div class="p-4 rounded-2xl border ${isSelected ? 'border-amber-400 bg-amber-950/20' : 'border-slate-800 bg-slate-950'} space-y-2.5">
+            <div class="p-4 rounded-2xl border ${finished ? 'border-slate-800/80 bg-slate-950/60 opacity-85' : (isSelected ? 'border-amber-400 bg-amber-950/20' : 'border-slate-800 bg-slate-950')} space-y-2.5">
               <div class="flex items-start justify-between gap-2">
                 <div>
                   <div class="flex items-center gap-2 flex-wrap">
-                    <span class="font-black text-white text-base">${esc(ev.name)}</span>
+                    <span class="font-black ${finished ? 'text-slate-300' : 'text-white'} text-base">${esc(ev.name)}</span>
                     ${ev.eventType === 'lap_timed'
                       ? `<span class="px-2 py-0.5 rounded-full text-[11px] font-black bg-purple-500/20 text-purple-300 border border-purple-500/40">🔁 繞圈計時 (${ev.lapDistanceKm}km/圈)</span>`
                       : '<span class="px-2 py-0.5 rounded-full text-[11px] font-bold bg-sky-500/20 text-sky-300">🏃 距離賽</span>'}
@@ -1337,14 +1419,17 @@
               </div>
               <div class="text-xs text-slate-300 font-mono-num">
                 報名人數：<strong>${regCount}</strong> 人 ｜ 分組：<strong>${(ev.categories || []).length}</strong> 組 ｜ 感應：<strong>${scanCount}</strong> 筆
+                ${finished ? '<span class="ml-2 text-slate-400 font-sans">（已自其他選項隱藏，防止修改）</span>' : ''}
               </div>
               <div class="flex flex-wrap gap-1.5 pt-1">
-                <button type="button" data-select-event="${esc(ev.eventId)}" class="px-3 py-1.5 rounded-lg text-xs font-bold ${isSelected ? 'bg-amber-500 text-slate-950' : 'bg-slate-800 hover:bg-slate-700 text-white'}">
-                  ${isSelected ? '✓ 管理中' : '切換管理'}
-                </button>
-                <button type="button" data-default-event="${esc(ev.eventId)}" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 text-sky-300">
-                  設為公開預設
-                </button>
+                ${finished
+                  ? `<button type="button" data-reopen-event="${esc(ev.eventId)}" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-500/20 hover:bg-amber-500/35 text-amber-300 border border-amber-500/40">🔓 重新開啟</button>`
+                  : `<button type="button" data-select-event="${esc(ev.eventId)}" class="px-3 py-1.5 rounded-lg text-xs font-bold ${isSelected ? 'bg-amber-500 text-slate-950' : 'bg-slate-800 hover:bg-slate-700 text-white'}">
+                      ${isSelected ? '✓ 管理中' : '切換管理'}
+                    </button>
+                    <button type="button" data-default-event="${esc(ev.eventId)}" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 text-sky-300">
+                      設為公開預設
+                    </button>`}
                 <button type="button" data-delete-event="${esc(ev.eventId)}" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-rose-600/20 hover:bg-rose-600/40 text-rose-300">刪除</button>
               </div>
             </div>
@@ -1354,7 +1439,13 @@
     }
 
     $('form-event-basic').classList.toggle('hidden', !currentEvt);
-    $('admin-no-event-basic-hint').classList.toggle('hidden', Boolean(currentEvt));
+    const noBasicHint = $('admin-no-event-basic-hint');
+    noBasicHint.classList.toggle('hidden', Boolean(currentEvt));
+    if (!currentEvt) {
+      noBasicHint.textContent = events.length > 0
+        ? '🔒 您名下的活動皆為「已結束」狀態，已鎖定保護並從下拉選單與其他選項隱藏，避免資料遭修改。如需編輯，請先於上方活動清單點擊「🔓 重新開啟」或建立新活動。'
+        : '您目前尚未建立任何活動，請先點擊上方「＋ 建立新路跑活動」後即可編輯活動資訊。';
+    }
 
     if (currentEvt) {
       $('cfg-evt-name').value = currentEvt.name || '';
@@ -1436,11 +1527,24 @@
   function renderAdminRosterTab() {
     const evt = getActiveEvent();
     const tbody = $('admin-reg-tbody');
+    const contentEl = $('admin-roster-content');
+    const emptyEl = $('admin-roster-empty');
+    if (contentEl) contentEl.classList.toggle('hidden', !evt);
+    if (emptyEl) emptyEl.classList.toggle('hidden', Boolean(evt));
     if (!evt) {
-      $('roster-import-event-name').textContent = '尚未建立活動';
+      const ownTotal = getAdminOwnEvents().length;
+      if ($('admin-roster-empty-title')) {
+        $('admin-roster-empty-title').textContent = ownTotal > 0 ? '目前沒有進行中／籌備中的活動' : '尚未建立任何路跑活動';
+      }
+      if ($('admin-roster-empty-desc')) {
+        $('admin-roster-empty-desc').textContent = ownTotal > 0
+          ? '已結束活動的選手名單資料已自動隱藏以避免遭修改；如需編輯請至「活動管理與帳密」重新開啟活動或建立新活動。'
+          : '請先點擊上方「＋ 建立新路跑活動」後再匯入選手名單。';
+      }
+      $('roster-import-event-name').textContent = '';
       $('admin-reg-count').textContent = '0';
       $('admin-roster-checkin-summary').textContent = '✅ 已報到 0 / 0 人';
-      tbody.innerHTML = '<tr><td colspan="7" class="py-6 text-center text-slate-500">您尚未建立任何活動，請先點擊上方「＋ 建立新路跑活動」後再匯入選手名單</td></tr>';
+      tbody.innerHTML = '';
       return;
     }
     $('roster-import-event-name').textContent = evt.name;
@@ -1512,15 +1616,29 @@
     const evt = getActiveEvent();
     const computed = state.computed;
     const tbody = $('results-tbody');
-    if (!evt || !computed) {
+    const contentEl = $('admin-results-content');
+    const emptyEl = $('admin-results-empty');
+    const hasData = Boolean(evt && computed);
+    if (contentEl) contentEl.classList.toggle('hidden', !hasData);
+    if (emptyEl) emptyEl.classList.toggle('hidden', hasData);
+    if (!hasData) {
+      const ownTotal = getAdminOwnEvents().length;
+      if ($('admin-results-empty-title')) {
+        $('admin-results-empty-title').textContent = ownTotal > 0 ? '目前沒有進行中／籌備中的活動' : '尚未建立任何路跑活動';
+      }
+      if ($('admin-results-empty-desc')) {
+        $('admin-results-empty-desc').textContent = ownTotal > 0
+          ? '已結束活動的成績與感應明細已自動隱藏以避免遭修改；如需修正請至「活動管理與帳密」重新開啟活動。'
+          : '請先點擊上方「＋ 建立新路跑活動」。';
+      }
       $('kpi-total').textContent = '0';
       $('kpi-checkin').textContent = '0';
       $('kpi-finished').textContent = '0';
       $('kpi-oncourse').textContent = '0';
       $('kpi-notstarted').textContent = '0';
-      $('results-category-filter').innerHTML = '<option value="ALL">全部組別</option>';
+      $('results-category-filter').innerHTML = '';
       $('results-thead').innerHTML = '';
-      tbody.innerHTML = '<tr><td class="py-8 text-center text-slate-500">您尚未建立任何活動，請先點擊上方「＋ 建立新路跑活動」</td></tr>';
+      tbody.innerHTML = '';
       return;
     }
 
@@ -1748,13 +1866,26 @@
 
   function renderAdminRaceTab() {
     const evt = getActiveEvent();
+    const contentEl = $('admin-race-content');
+    const emptyEl = $('admin-race-empty');
+    if (contentEl) contentEl.classList.toggle('hidden', !evt);
+    if (emptyEl) emptyEl.classList.toggle('hidden', Boolean(evt));
     if (!evt) {
-      $('unified-gun-display').textContent = '尚未建立活動';
+      const ownTotal = getAdminOwnEvents().length;
+      if ($('admin-race-empty-title')) {
+        $('admin-race-empty-title').textContent = ownTotal > 0 ? '目前沒有進行中／籌備中的活動' : '尚未建立任何路跑活動';
+      }
+      if ($('admin-race-empty-desc')) {
+        $('admin-race-empty-desc').textContent = ownTotal > 0
+          ? '已結束活動的開跑時間、分組與站點設定已自動隱藏以避免遭修改；如需修改請至「活動管理與帳密」重新開啟活動。'
+          : '請先點擊上方「＋ 建立新路跑活動」後再設定起跑時間與分組。';
+      }
+      $('unified-gun-display').textContent = '尚未設定';
       $('unified-gun-input').value = '';
       $('admin-lap-no-cp-banner').classList.add('hidden');
       $('admin-checkpoints-card').classList.remove('hidden');
-      $('categories-list').innerHTML = '<div class="p-4 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-500 text-center">請先點擊上方「＋ 建立新路跑活動」後再設定起跑時間與分組</div>';
-      $('checkpoints-list').innerHTML = '<div class="p-4 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-500 text-center">尚無活動站點</div>';
+      $('categories-list').innerHTML = '';
+      $('checkpoints-list').innerHTML = '';
       return;
     }
     const isLap = evt.eventType === 'lap_timed';
@@ -1842,7 +1973,8 @@
   function renderAdminStaffTab() {
     const isSuper = isCurrentSuperAdmin();
     const list = getAdminOwnStaffAccounts();
-    const events = getAdminOwnEvents();
+    // 限定活動下拉選單僅列出非「已結束」的本人活動
+    const events = getAdminOpenOwnEvents();
     const evt = getActiveEvent();
     const cps = [...(evt?.checkpoints || [])].sort((a, b) => a.order - b.order);
 
@@ -1902,6 +2034,8 @@
   function renderAdminSyncTab() {
     const settings = DB.getDeviceSettings();
     const isSuper = isCurrentSuperAdmin();
+    const excelCard = $('admin-sync-excel-card');
+    if (excelCard) excelCard.classList.toggle('hidden', !getActiveEvent());
     document.querySelectorAll('input[name="sync-mode"]').forEach((radio) => {
       radio.checked = radio.value === settings.mode;
     });
@@ -1924,6 +2058,10 @@
     }
     if (!isEventOwnedByCurrentAdmin(events[idx])) {
       showToast('權限不足：不可修改其他管理者建立的活動', 'error');
+      return;
+    }
+    if (isEventFinished(events[idx])) {
+      showToast('此活動狀態為「已結束」，已鎖定禁止修改資料', 'error');
       return;
     }
     events[idx] = {
@@ -1952,9 +2090,12 @@
       const evtCount = state.session?.mode === 'admin'
         ? getAdminOwnEvents().length
         : (state.platform?.events || []).length;
-      if (!silent || res.platformSynced || res.uploadedScans > 0 || res.uploadedChips > 0 || res.uploadedRegs > 0) {
+      if (!silent || res.platformSynced || res.uploadedScans > 0 || res.uploadedChips > 0 || res.uploadedRegs > 0 || res.purgedRegistrations > 0 || res.purgedScans > 0) {
+        const purgeText = (res.purgedRegistrations || res.purgedScans)
+          ? `、雲端清理已刪活動明細（報名 ${res.purgedRegistrations || 0}、感應 ${res.purgedScans || 0} 筆）`
+          : '';
         showToast(
-          `☁️ 雙向同步完成！${res.platformSynced ? '活動設定已上傳、' : ''}晶片 ${res.uploadedChips}、報名 ${res.uploadedRegs}、感應 ${res.uploadedScans} 筆（共 ${evtCount} 場活動）` +
+          `☁️ 雙向同步完成！${res.platformSynced ? '活動設定已上傳、' : ''}晶片 ${res.uploadedChips}、報名 ${res.uploadedRegs}、感應 ${res.uploadedScans} 筆${purgeText}（共 ${evtCount} 場活動）` +
             (res.skippedDuplicate ? `（略過重複 ${res.skippedDuplicate} 筆）` : ''),
           'success'
         );
@@ -2070,6 +2211,10 @@
   function bindEvents() {
     // 活動切換（大廳 & 後台）
     const onEventChange = async (eventId) => {
+      const target = (state.platform?.events || []).find((x) => x.eventId === eventId);
+      if (isEventFinished(target)) {
+        return showToast('已結束活動已鎖定保護，不可切換編輯', 'warn');
+      }
       state.selectedEventId = eventId;
       state.resultsCatFilter = 'ALL';
       DB.saveDeviceSettings({ selectedEventId: eventId });
@@ -2298,10 +2443,31 @@
 
     // 活動卡片操作（嚴格檢查僅可操作本人建立的活動）
     $('admin-events-list').addEventListener('click', async (e) => {
+      const reopenBtn = e.target.closest('[data-reopen-event]');
+      if (reopenBtn) {
+        const eid = reopenBtn.dataset.reopenEvent;
+        const target = (state.platform.events || []).find((x) => x.eventId === eid);
+        if (!isEventOwnedByCurrentAdmin(target)) return showToast('無權限操作其他管理者的活動', 'error');
+        if (!confirm(`確定要將已結束活動「${target?.name || eid}」重新開啟為「進行中」嗎？\n（重新開啟後將恢復顯示於下拉選單與其他管理分頁，可進行編輯）`)) return;
+        const nextEvents = (state.platform.events || []).map((x) =>
+          x.eventId === eid ? { ...x, status: 'active', updatedAt: Date.now() } : x
+        );
+        const updated = await DB.savePlatform({ ...state.platform, events: nextEvents });
+        state.selectedEventId = eid;
+        DB.saveDeviceSettings({ selectedEventId: eid });
+        if (Sync.isOnlineEnabled() && navigator.onLine) {
+          try { await Sync.pushPlatform(updated, state.session.auth); } catch (err) { showToast(`本機已更新，雲端同步待重試：${err.message}`, 'warn'); }
+        }
+        await reloadState();
+        showToast(`🔓 已將活動「${target?.name || eid}」改回「進行中」`, 'success');
+        return;
+      }
+
       const selBtn = e.target.closest('[data-select-event]');
       if (selBtn) {
         const target = (state.platform.events || []).find((x) => x.eventId === selBtn.dataset.selectEvent);
         if (!isEventOwnedByCurrentAdmin(target)) return showToast('無權限切換至其他管理者的活動', 'error');
+        if (isEventFinished(target)) return showToast('已結束活動已鎖定保護，請先點擊「重新開啟」再管理', 'warn');
         await onEventChange(selBtn.dataset.selectEvent);
         return;
       }
@@ -2322,7 +2488,19 @@
         const eid = delBtn.dataset.deleteEvent;
         const target = (state.platform.events || []).find((x) => x.eventId === eid);
         if (!isEventOwnedByCurrentAdmin(target)) return showToast('無權限刪除其他管理者的活動', 'error');
-        if (!confirm(`確定要刪除活動「${target?.name || eid}」嗎？`)) return;
+
+        const regCount = state.allRegistrations.filter((r) => r.eventId === eid).length;
+        const scanCount = state.allScans.filter((s) => s.eventId === eid).length;
+        const confirmMsg =
+          `確定要刪除活動「${target?.name || eid}」嗎？\n\n` +
+          `⚠️ 將一併永久刪除資料庫中該活動的明細資料（報名名單 ${regCount} 筆、感應資料 ${scanCount} 筆），以減輕資料庫負荷。\n` +
+          `（跨活動共用晶片主檔不會受到影響，此操作無法復原）`;
+        if (!confirm(confirmMsg)) return;
+
+        // 1. 刪除本機 IndexedDB 中該活動的所有參賽明細與感應資料
+        const localPurge = await DB.deleteEventData(eid);
+
+        // 2. 更新活動清單與預設顯示活動
         const remain = (state.platform.events || []).filter((x) => x.eventId !== eid);
         const remainOwn = remain.filter((x) => isEventOwnedByCurrentAdmin(x));
         const updated = await DB.savePlatform({
@@ -2330,21 +2508,46 @@
           events: remain,
           activeEventId: state.platform.activeEventId === eid ? (remainOwn[0]?.eventId || remain[0]?.eventId || '') : state.platform.activeEventId
         });
-        if (state.selectedEventId === eid) state.selectedEventId = remainOwn[0]?.eventId || '';
-        if (Sync.isOnlineEnabled() && navigator.onLine) Sync.pushPlatform(updated, state.session.auth);
+        if (state.selectedEventId === eid) {
+          state.selectedEventId = remainOwn[0]?.eventId || '';
+          DB.saveDeviceSettings({ selectedEventId: state.selectedEventId });
+        }
+
+        // 3. 若有連網，立即同步至雲端 GAS 並連動清除試算表中該活動的 Registrations 與 Scans 明細列
+        let cloudMsg = '';
+        if (Sync.isOnlineEnabled() && navigator.onLine) {
+          try {
+            const res = await Sync.pushPlatform(updated, state.session.auth, { deletedEventIds: [eid] });
+            if (res && res.purge) {
+              cloudMsg = `；雲端已同步清除（報名 ${res.purge.deletedRegistrations} 筆、感應 ${res.purge.deletedScans} 筆）`;
+            } else {
+              cloudMsg = '；雲端活動已移除（請重新部署新版 gas/Code.gs 以連動清除雲端明細）';
+            }
+          } catch (err) {
+            cloudMsg = `；雲端清理待同步重試（${err.message}）`;
+          }
+        } else if (Sync.isOnlineEnabled()) {
+          cloudMsg = '（目前離線，恢復連線同步後將一併清除雲端明細）';
+        }
+
         await reloadState();
-        showToast('已刪除該場路跑活動', 'info');
+        showToast(
+          `已刪除活動「${target?.name || eid}」及明細資料（本機清除報名 ${localPurge.deletedRegistrations} 筆、感應 ${localPurge.deletedScans} 筆${cloudMsg}）`,
+          'info'
+        );
       }
     });
 
     $('form-event-basic').addEventListener('submit', async (e) => {
       e.preventDefault();
+      const newStatus = $('cfg-evt-status').value;
+      const newName = $('cfg-evt-name').value.trim();
       await updateCurrentEvent((ev) => {
         const patch = {
-          name: $('cfg-evt-name').value.trim(),
+          name: newName,
           date: $('cfg-evt-date').value,
           location: $('cfg-evt-location').value.trim(),
-          status: $('cfg-evt-status').value,
+          status: newStatus,
           debounceSeconds: Number($('cfg-evt-debounce').value || 30)
         };
         if (ev.eventType === 'lap_timed') {
@@ -2356,7 +2559,12 @@
         }
         return patch;
       });
-      showToast('本活動基本資訊已更新', 'success');
+      showToast(
+        newStatus === 'finished'
+          ? `🔒 活動「${newName}」已設為「已結束」，已自下拉選單與其他管理選項隱藏以防資料遭修改`
+          : '本活動基本資訊已更新',
+        newStatus === 'finished' ? 'info' : 'success'
+      );
     });
 
     $('form-admin-credentials').addEventListener('submit', async (e) => {
