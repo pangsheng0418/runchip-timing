@@ -37,14 +37,75 @@
     const params = new URLSearchParams(location.search);
     const paramApi = (params.get('api') || '').trim();
     const paramEvent = (params.get('event') || '').trim();
+    const cfgApi = (window.APP_CONFIG && window.APP_CONFIG.DEFAULT_GAS_URL ? String(window.APP_CONFIG.DEFAULT_GAS_URL).trim() : '');
     const saved = DB.getDeviceSettings();
 
-    state.gasUrl = paramApi || (saved.gasUrl || '').trim();
+    // 優先順序：URL ?api= 參數 > js/config.js 共用網址 > 本機記憶網址
+    state.gasUrl = paramApi || cfgApi || (saved.gasUrl || '').trim();
     state.selectedEventId = paramEvent || (saved.selectedEventId || '');
 
     bindEvents();
     await loadData(false);
     setInterval(() => loadData(true), 20000);
+  }
+
+  /**
+   * 確保無論 GAS 回傳 v3 多活動格式、或舊版 v1/v2 單活動格式，都能正確轉換成標準活動清單
+   */
+  function normalizeCloudPayload(d) {
+    if (!d) return { events: [], registrations: [], scans: [], activeEventId: '', isLegacy: false };
+    if (Array.isArray(d.events) && d.events.length > 0) {
+      return {
+        events: d.events,
+        registrations: Array.isArray(d.registrations) ? d.registrations : [],
+        scans: Array.isArray(d.scans) ? d.scans : [],
+        activeEventId: d.globalConfig?.activeEventId || d.events[0].eventId,
+        isLegacy: false
+      };
+    }
+    // 相容尚未升級至 v3 的舊版 GAS (v1/v2 回傳 config + categories + checkpoints + runners)
+    if (d.config && (Array.isArray(d.categories) || Array.isArray(d.runners))) {
+      const legacyId = 'EVT-LEGACY-01';
+      return {
+        events: [{
+          eventId: legacyId,
+          name: d.config.raceName || '路跑活動',
+          date: d.config.raceDate || '',
+          location: '',
+          status: 'active',
+          eventType: 'distance',
+          lapDistanceKm: 0,
+          categories: d.categories || [],
+          checkpoints: d.checkpoints || []
+        }],
+        registrations: (d.runners || []).map((r) => ({ ...r, eventId: legacyId, regId: `${legacyId}__${r.bib}` })),
+        scans: (d.scans || []).map((s) => ({ ...s, eventId: legacyId })),
+        activeEventId: legacyId,
+        isLegacy: true
+      };
+    }
+    return {
+      events: [],
+      registrations: Array.isArray(d.registrations) ? d.registrations : [],
+      scans: Array.isArray(d.scans) ? d.scans : [],
+      activeEventId: '',
+      isLegacy: false
+    };
+  }
+
+  function ensureValidSelectedEvent(preferredDefaultId = '') {
+    if (!state.events.length) {
+      state.selectedEventId = '';
+      return;
+    }
+    if (state.selectedEventId && state.events.some((e) => e.eventId === state.selectedEventId)) {
+      return;
+    }
+    if (preferredDefaultId && state.events.some((e) => e.eventId === preferredDefaultId)) {
+      state.selectedEventId = preferredDefaultId;
+      return;
+    }
+    state.selectedEventId = state.events[0].eventId;
   }
 
   async function loadData(silent = false) {
@@ -54,14 +115,28 @@
     try {
       if (state.gasUrl) {
         const res = await Sync.fetchPublicData(state.gasUrl);
-        const d = res.data;
-        state.events = d.events || [];
-        state.allRegistrations = d.registrations || [];
-        state.allScans = d.scans || [];
-        if (!state.selectedEventId || !state.events.some((e) => e.eventId === state.selectedEventId)) {
-          state.selectedEventId = d.globalConfig?.activeEventId || state.events[0]?.eventId || '';
+        const norm = normalizeCloudPayload(res.data);
+
+        if (norm.events.length > 0) {
+          state.events = norm.events;
+          state.allRegistrations = norm.registrations;
+          state.allScans = norm.scans;
+          ensureValidSelectedEvent(norm.activeEventId);
+          badge.textContent = norm.isLegacy
+            ? 'Google 雲端試算表即時同步（舊版 GAS 相容模式）'
+            : `Google 雲端試算表即時同步（共 ${state.events.length} 場活動）`;
+
+          // 背景快取至本機 IndexedDB，確保手機 PWA 斷網也能看到最新活動清單
+          if (!norm.isLegacy && res.data) {
+            DB.mergeCloudData(res.data).catch(() => {});
+          }
+        } else {
+          // 雲端 Events 工作表目前無資料列 -> 回退本機快取並提示管理者同步
+          await loadFromLocalIndexedDB();
+          badge.textContent = state.events.length
+            ? '雲端 Events 工作表尚無資料，顯示本機快取（請由後台點「一鍵完整雙向同步」）'
+            : '雲端與本機尚無路跑活動（請由後台建立活動並同步）';
         }
-        badge.textContent = 'Google 雲端試算表即時同步';
       } else {
         await loadFromLocalIndexedDB();
         badge.textContent = '本機預覽模式（未指定雲端 API）';
@@ -86,9 +161,7 @@
     ]);
 
     state.events = platform.events || [];
-    if (!state.selectedEventId || !state.events.some((e) => e.eventId === state.selectedEventId)) {
-      state.selectedEventId = platform.activeEventId || state.events[0]?.eventId || '';
-    }
+    ensureValidSelectedEvent(platform.activeEventId || '');
 
     state.allRegistrations = await Promise.all(
       regs.map(async (r) => ({
@@ -111,18 +184,38 @@
 
   function renderEventSelector() {
     const sel = $('pub-event-select');
+    const pills = $('pub-event-pills');
     if (state.events.length === 0) {
-      sel.innerHTML = '<option value="">尚無路跑活動</option>';
+      sel.innerHTML = '<option value="">尚無路跑活動（請確認後台已建立並同步）</option>';
+      if (pills) pills.innerHTML = '';
       return;
     }
+
+    ensureValidSelectedEvent();
     const statusTag = { active: '進行中', upcoming: '籌備中', finished: '已結束' };
     sel.innerHTML = state.events
       .map((ev) => {
         const typeTag = ev.eventType === 'lap_timed' ? `🔁繞圈(${ev.lapDistanceKm}K/圈)` : '🏃距離賽';
-        return `<option value="${esc(ev.eventId)}">${typeTag} ${esc(ev.name)} (${esc(ev.date || '')}) [${statusTag[ev.status] || ev.status}]</option>`;
+        return `<option value="${esc(ev.eventId)}" style="background-color:#0f172a;color:#f8fafc;">${typeTag} ${esc(ev.name)} (${esc(ev.date || '')}) [${statusTag[ev.status] || ev.status}]</option>`;
       })
       .join('');
     sel.value = state.selectedEventId;
+
+    // 同步顯示一鍵活動快捷按鈕，解決部分手機原生下拉選單不易辨識的問題
+    if (pills) {
+      pills.innerHTML = state.events
+        .map((ev) => {
+          const active = ev.eventId === state.selectedEventId;
+          const icon = ev.eventType === 'lap_timed' ? '🔁' : '🏃';
+          return `<button type="button" data-pill-event="${esc(ev.eventId)}"
+            class="px-3 py-1.5 rounded-xl text-xs font-black transition ${
+              active
+                ? 'bg-sky-500 text-slate-950 shadow'
+                : 'bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300'
+            }">${icon} ${esc(ev.name)}</button>`;
+        })
+        .join('');
+    }
   }
 
   function recomputeAndRender() {
@@ -654,6 +747,16 @@
     $('pub-event-select').addEventListener('change', (e) => {
       state.selectedEventId = e.target.value;
       state.catFilter = 'ALL';
+      renderEventSelector();
+      recomputeAndRender();
+    });
+
+    $('pub-event-pills').addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-pill-event]');
+      if (!btn) return;
+      state.selectedEventId = btn.dataset.pillEvent;
+      state.catFilter = 'ALL';
+      renderEventSelector();
       recomputeAndRender();
     });
 
@@ -688,8 +791,8 @@
       const btn = e.target.closest('[data-switch-pub-event]');
       if (!btn) return;
       state.selectedEventId = btn.dataset.switchPubEvent;
-      $('pub-event-select').value = state.selectedEventId;
       state.catFilter = 'ALL';
+      renderEventSelector();
       recomputeAndRender();
     });
   }

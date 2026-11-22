@@ -40,12 +40,17 @@
         </div>
       </div>
 
-      <!-- 多場次路跑活動切換下拉選單 -->
-      <div class="flex flex-col sm:flex-row sm:items-center gap-2 bg-slate-950/70 border border-sky-500/30 rounded-2xl p-3">
-        <label for="pub-event-select" class="text-xs font-extrabold text-sky-300 shrink-0">🏟️ 選擇查詢路跑活動：</label>
-        <select id="pub-event-select"
-          class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-sm font-black text-white focus:border-sky-400 focus:outline-none">
-        </select>
+      <!-- 多場次路跑活動切換下拉選單與快捷按鈕 -->
+      <div class="bg-slate-950/70 border border-sky-500/30 rounded-2xl p-3 space-y-2.5">
+        <div class="flex flex-col sm:flex-row sm:items-center gap-2">
+          <label for="pub-event-select" class="text-xs font-extrabold text-sky-300 shrink-0">🏟️ 選擇查詢路跑活動：</label>
+          <select id="pub-event-select"
+            style="background-color:#0f172a; color:#f8fafc;"
+            class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm font-black text-white focus:border-sky-400 focus:outline-none">
+            <option value="">載入路跑活動中...</option>
+          </select>
+        </div>
+        <div id="pub-event-pills" class="flex flex-wrap gap-1.5"></div>
       </div>
     </div>
   </header>

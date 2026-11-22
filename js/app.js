@@ -195,7 +195,9 @@
 
     const events = platform.events || [];
     if (!state.selectedEventId || !events.some((e) => e.eventId === state.selectedEventId)) {
-      state.selectedEventId = platform.activeEventId || events[0]?.eventId || '';
+      const defaultId = platform.activeEventId;
+      const validDefault = defaultId && events.some((e) => e.eventId === defaultId);
+      state.selectedEventId = validDefault ? defaultId : (events[0]?.eventId || '');
       DB.saveDeviceSettings({ selectedEventId: state.selectedEventId });
     }
 
@@ -328,9 +330,9 @@
     const optionsHtml = events.length
       ? events.map((ev) => {
           const typeTag = ev.eventType === 'lap_timed' ? `🔁繞圈(${ev.lapDistanceKm}K/圈)` : '🏃距離賽';
-          return `<option value="${esc(ev.eventId)}">${typeTag} ${esc(ev.name)} (${esc(ev.date || '')}) [${statusLabel[ev.status] || ev.status}]</option>`;
+          return `<option value="${esc(ev.eventId)}" style="background-color:#0f172a;color:#f8fafc;">${typeTag} ${esc(ev.name)} (${esc(ev.date || '')}) [${statusLabel[ev.status] || ev.status}]</option>`;
         }).join('')
-      : '<option value="">尚無活動</option>';
+      : '<option value="" style="background-color:#0f172a;color:#f8fafc;">尚無活動</option>';
 
     ['portal-event-select', 'staff-login-event', 'admin-event-select'].forEach((id) => {
       const el = $(id);

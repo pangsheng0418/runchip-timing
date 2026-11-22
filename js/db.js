@@ -171,6 +171,7 @@
       const defaults = {
         mode: cfgGasUrl ? 'online' : 'offline',
         gasUrl: cfgGasUrl,
+        configAppliedUrl: cfgGasUrl,
         deviceId: generateDeviceId(),
         highContrast: false,
         soundEnabled: true,
@@ -188,10 +189,12 @@
         }
         const parsed = JSON.parse(raw);
         const merged = { ...defaults, ...parsed };
-        // 若本機尚未設定網址但 js/config.js 已設定預設網址，自動套用並開啟連線
-        if (!merged.gasUrl && cfgGasUrl) {
+        // 若 js/config.js 設定了共用雲端網址，且與上次套用過的不同（或本機尚未設定），自動更新並開啟連線
+        if (cfgGasUrl && (!merged.gasUrl || merged.configAppliedUrl !== cfgGasUrl)) {
           merged.gasUrl = cfgGasUrl;
+          merged.configAppliedUrl = cfgGasUrl;
           merged.mode = 'online';
+          try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(merged)); } catch {}
         }
         return merged;
       } catch {
