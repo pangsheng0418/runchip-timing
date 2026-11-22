@@ -1,0 +1,102 @@
+/* 智慧路跑 NFC 晶片計時系統 — 高對比戶外強光友善樣式 */
+
+:root {
+  color-scheme: dark;
+}
+
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Noto Sans TC", "Microsoft JhengHei", "Segoe UI", Roboto, sans-serif;
+  background-color: #020617;
+  color: #f8fafc;
+}
+
+.font-mono-num {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 感應脈衝動畫 */
+@keyframes nfcPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+  }
+  70% {
+    box-shadow: 0 0 0 26px rgba(16, 185, 129, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+  }
+}
+
+.nfc-active-pulse {
+  animation: nfcPulse 1.8s infinite;
+}
+
+@keyframes flashSuccess {
+  0% { background-color: rgba(16, 185, 129, 0.45); }
+  100% { background-color: rgba(15, 23, 42, 1); }
+}
+
+@keyframes flashWarn {
+  0% { background-color: rgba(245, 158, 11, 0.45); }
+  100% { background-color: rgba(15, 23, 42, 1); }
+}
+
+@keyframes flashError {
+  0% { background-color: rgba(239, 68, 68, 0.45); }
+  100% { background-color: rgba(15, 23, 42, 1); }
+}
+
+.flash-success {
+  animation: flashSuccess 0.8s ease-out;
+}
+
+.flash-warn {
+  animation: flashWarn 0.8s ease-out;
+}
+
+.flash-error {
+  animation: flashError 0.8s ease-out;
+}
+
+/* 高對比戶外模式 */
+body.high-contrast {
+  background-color: #000000 !important;
+  color: #ffffff !important;
+}
+
+body.high-contrast .hc-card {
+  background-color: #000000 !important;
+  border: 3px solid #facc15 !important;
+}
+
+/* 表格自訂捲軸 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #0f172a;
+}
+::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}
+
+/* 防止 iOS/Android 按鈕誤選文字 */
+.no-select {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* 底部安全區域 */
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 12px);
+}

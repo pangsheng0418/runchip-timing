@@ -1,0 +1,18 @@
+{
+  "name": "智慧路跑 NFC 晶片計時系統",
+  "short_name": "NFC路跑計時",
+  "description": "支援離線與多機即時雲端同步的 Web NFC 路跑晶片計時系統",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
