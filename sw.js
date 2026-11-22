@@ -1,7 +1,7 @@
 /**
  * Service Worker — 支援賽道無網路環境離線快取 (PWA Offline-First)
  */
-const CACHE_NAME = 'nfc-race-timing-v3.10';
+const CACHE_NAME = 'nfc-race-timing-v3.10.2';
 
 const CORE_ASSETS = [
   './',

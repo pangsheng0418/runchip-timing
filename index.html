@@ -63,14 +63,8 @@
     <!-- ================================================================== -->
     <!-- VIEW 1：大廳入口 -->
     <!-- ================================================================== -->
-    <section id="view-portal" class="app-view space-y-6 py-2 sm:py-6">
-      <div class="text-center max-w-2xl mx-auto space-y-3.5">
-        <div class="flex justify-center">
-          <div class="bg-white px-5 py-3 rounded-2xl shadow-xl ring-2 ring-lime-500/40 inline-flex items-center">
-            <img src="./tur-logo.jpg" alt="TUR Taiwan Ultra Runners" class="h-12 sm:h-16 w-auto object-contain" />
-          </div>
-        </div>
-        <h2 class="text-2xl sm:text-4xl font-black text-white tracking-tight">路跑晶片計時平台</h2>
+    <section id="view-portal" class="app-view space-y-5 py-2 sm:py-4">
+      <div class="text-center">
         <div id="portal-net-banner" class="inline-flex items-center gap-2 px-3.5 py-1 rounded-full text-xs font-bold bg-emerald-950/70 border border-emerald-500/40 text-emerald-300">
           🟢 就緒
         </div>
@@ -100,52 +94,22 @@
         </div>
       </div>
 
-      <!-- 三大作業區 -->
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-5 max-w-5xl mx-auto">
-        <div class="bg-slate-900 border border-sky-500/40 hover:border-sky-400 rounded-3xl p-6 flex flex-col justify-between space-y-6 transition shadow-xl">
-          <div class="space-y-2.5">
-            <div class="flex items-center justify-between">
-              <span class="text-4xl">🌐</span>
-              <span class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-sky-500/15 text-sky-300">免登入</span>
-            </div>
-            <h3 class="text-2xl font-black text-white">公開查詢</h3>
-            <p class="text-sm text-slate-400">即時賽事、歷年成績與八百壯士英雄榜</p>
-          </div>
-          <a id="portal-link-public" href="./public.html"
-            class="block w-full text-center py-3.5 px-5 rounded-2xl text-base font-black bg-sky-500 hover:bg-sky-400 text-slate-950 transition shadow">
-            進入查詢 →
-          </a>
-        </div>
+      <!-- 三大作業區（精簡文字方框入口） -->
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-5 max-w-4xl mx-auto">
+        <a id="portal-link-public" href="./public.html"
+          class="bg-slate-900 border border-sky-500/50 hover:border-sky-400 hover:bg-sky-500/10 rounded-3xl py-9 px-6 flex items-center justify-center text-center text-2xl font-black text-sky-300 hover:text-white transition shadow-xl">
+          公開查詢
+        </a>
 
-        <div class="bg-slate-900 border border-emerald-500/40 hover:border-emerald-400 rounded-3xl p-6 flex flex-col justify-between space-y-6 transition shadow-xl">
-          <div class="space-y-2.5">
-            <div class="flex items-center justify-between">
-              <span class="text-4xl">📡</span>
-              <span class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-500/15 text-emerald-300">作業員</span>
-            </div>
-            <h3 class="text-2xl font-black text-white">晶片作業</h3>
-            <p class="text-sm text-slate-400">製卡寫入、現場報到與站點感應</p>
-          </div>
-          <button id="btn-portal-staff" type="button"
-            class="w-full py-3.5 px-5 rounded-2xl text-base font-black bg-emerald-500 hover:bg-emerald-400 text-slate-950 transition shadow">
-            作業員登入 →
-          </button>
-        </div>
+        <button id="btn-portal-staff" type="button"
+          class="bg-slate-900 border border-emerald-500/50 hover:border-emerald-400 hover:bg-emerald-500/10 rounded-3xl py-9 px-6 flex items-center justify-center text-center text-2xl font-black text-emerald-300 hover:text-white transition shadow-xl">
+          晶片作業
+        </button>
 
-        <div class="bg-slate-900 border border-amber-500/40 hover:border-amber-400 rounded-3xl p-6 flex flex-col justify-between space-y-6 transition shadow-xl">
-          <div class="space-y-2.5">
-            <div class="flex items-center justify-between">
-              <span class="text-4xl">🛡️</span>
-              <span class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-500/15 text-amber-300">管理者</span>
-            </div>
-            <h3 class="text-2xl font-black text-white">後台管理</h3>
-            <p class="text-sm text-slate-400">活動、名單、起跑、成績與帳號</p>
-          </div>
-          <button id="btn-portal-admin" type="button"
-            class="w-full py-3.5 px-5 rounded-2xl text-base font-black bg-amber-500 hover:bg-amber-400 text-slate-950 transition shadow">
-            管理者登入 →
-          </button>
-        </div>
+        <button id="btn-portal-admin" type="button"
+          class="bg-slate-900 border border-amber-500/50 hover:border-amber-400 hover:bg-amber-500/10 rounded-3xl py-9 px-6 flex items-center justify-center text-center text-2xl font-black text-amber-300 hover:text-white transition shadow-xl">
+          後台管理
+        </button>
       </div>
     </section>
 
