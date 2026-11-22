@@ -1,15 +1,14 @@
 /**
- * 智慧路跑 NFC 晶片計時系統 v3.0 — 共用晶片 Web NFC 讀寫與 UID 雙模核心
- * 晶片寫入格式（跨場次共用）：僅寫入「姓名|身份證字號」（約 22 bytes）
- * 優點：
- * 1. 選手持同一張晶片即可參加不同活動與不同組別，不需每次活動重新寫卡
- * 2. 體積極小，連小容量 NTAG203 / Ultralight / NTAG213/215/216 均可穩定寫入
- * 3. 亦相容「僅綁定晶片 UID」模式（唯讀貼紙/手環/MIFARE 卡亦可使用）
+ * 智慧路跑 NFC 晶片計時平台 v3.1 — 共用晶片 Web NFC 讀寫與 UID 雙模核心
+ * 修正重點 (v3.1)：
+ * 1. 徹底分離寫入 (ndef.write) 與掃描 (ndef.scan)，消除 Android Chrome 同實例 scan+write 衝突與點擊手勢失效問題
+ * 2. 點擊寫入鈕當下零前置 await，直接同步呼叫 ndef.write({ records: [{ recordType: 'text', encoding: 'utf-8', lang: 'zh', data }] }, { overwrite: true })
+ * 3. 寫入內容僅存「姓名|身份證字號」（約 20 bytes），並於錯誤訊息附上瀏覽器原始錯誤碼以便精準排錯
+ * 4. 支援獨立一步點擊「回讀驗證」與「僅綁定晶片 UID」（適用唯讀卡 / MIFARE Classic）
  */
 (function (global) {
   'use strict';
 
-  /* ---------------- Web Audio API 提示音合成 ---------------- */
   class SoundFX {
     constructor() {
       this.ctx = null;
@@ -80,28 +79,29 @@
 
   function translateNfcError(err) {
     if (!err) return '未知的 NFC 錯誤';
-    const name = err.name || '';
-    const msg = err.message || String(err);
+    const name = err.name || 'Error';
+    const rawMsg = err.message || String(err);
+    const rawTag = ` [原始訊息: ${name} - ${rawMsg}]`;
 
     if (name === 'NotAllowedError') {
-      return 'NFC 權限遭拒或未開啟：請點選 Chrome 網址列左側圖示允許「NFC 裝置」權限，並確認手機系統已開啟 NFC 開關。';
+      return 'NFC 權限遭拒或未開啟：請點選 Chrome 網址列左側圖示 → 權限 → 允許「NFC 裝置」，並確認手機系統 NFC 開關已開啟。' + rawTag;
     }
     if (name === 'NotSupportedError') {
-      return '此晶片不支援 NDEF 寫入（可能為唯讀卡、MIFARE Classic 或未格式化晶片）。建議改點「🔗 僅綁定晶片 UID」免寫入直接綁定，或更換 NTAG213/215/216 晶片。';
+      return '此晶片不支援標準 NDEF 寫入（可能為 MIFARE Classic、悠遊卡/門禁卡、未格式化或唯讀鎖定晶片）。請改點「🔗 僅綁定晶片 UID」免寫入直接綁定，或更換 NTAG213/215/216 晶片。' + rawTag;
     }
     if (name === 'NetworkError' || name === 'IOError') {
-      return '晶片通訊中斷或容量不足：寫入時請將晶片緊貼手機背面 NFC 天線並保持靜止 1～2 秒（勿過早移開）；若晶片為唯讀請改用「UID 綁定模式」。';
+      return '晶片傳輸中斷：請將晶片緊貼手機背面 NFC 天線並保持靜止 1～2 秒（勿過早移開）；若反覆出現代表此晶片可能為唯讀或非 NTAG 晶片，請改用「🔗 僅綁定晶片 UID」。' + rawTag;
     }
     if (name === 'NotReadableError') {
-      return '無法讀取此 NFC 晶片（晶片可能損壞、已鎖定或距離過遠），請重新緊貼感應區。';
+      return '無法讀取此 NFC 晶片（距離過遠、移開太快或晶片損壞），請緊貼背面 NFC 天線停留 1 秒重試。' + rawTag;
     }
     if (name === 'AbortError') {
-      return '已取消或等待感應逾時，請重新點擊按鈕後再靠近晶片。';
+      return '已取消或等待感應逾時（30 秒內未感應到晶片），請重新點擊按鈕後再靠近晶片。';
     }
     if (name === 'InvalidStateError') {
-      return '手機 NFC 正在執行其他感應作業中，請稍候 1 秒再試。';
+      return '手機 NFC 正忙線中，請稍候 1 秒後重試。' + rawTag;
     }
-    return `${msg}${name ? ` (${name})` : ''}`;
+    return rawMsg + rawTag;
   }
 
   class NFCManager {
@@ -121,13 +121,13 @@
       const isAndroid = /Android/i.test(ua);
       const isChrome = /Chrome/i.test(ua) && !/Edg|OPR|SamsungBrowser/i.test(ua);
 
-      let statusMessage = '✅ 支援 Web NFC（共用晶片格式：僅寫入「姓名｜身份證字號」，跨場次通用）';
+      let statusMessage = '✅ Web NFC 就緒 (v3.1) — 共用晶片僅寫入「姓名｜身份證字號」，跨場次通用';
       if (!isSecure) {
-        statusMessage = '❌ 目前非 HTTPS 安全連線，瀏覽器會停用 Web NFC（請使用 HTTPS 網址開啟）';
+        statusMessage = '❌ 目前非 HTTPS 安全連線，瀏覽器會停用 Web NFC（請透過 GitHub Pages 等 HTTPS 網址開啟）';
       } else if (!hasNDEF) {
         statusMessage = isAndroid
-          ? '⚠️ 目前瀏覽器不支援 Web NFC（請改用 Android 版 Google Chrome v89+，勿用 LINE/FB 內建瀏覽器）'
-          : '⚠️ 目前為非 Android Chrome 裝置（電腦或 iPhone 不支援 Web NFC，可使用內建「模擬感應/寫入」測試）';
+          ? '⚠️ 目前瀏覽器不支援 Web NFC（請改用 Android 版 Google Chrome v89+，不可用 LINE/FB 內建瀏覽器）'
+          : '⚠️ 目前為非 Android Chrome 裝置（電腦或 iPhone 不支援 Web NFC，請改用 Android Chrome 或使用模擬測試）';
       }
       return { supported: isSecure && hasNDEF, isSecure, hasNDEF, isAndroid, isChrome, statusMessage };
     }
@@ -143,7 +143,7 @@
     }
 
     /**
-     * 編碼共用晶片內容：僅包含「姓名|身份證字號」（約 22 bytes，跨場次重複使用）
+     * 編碼共用晶片內容：僅「姓名|身份證字號」（約 20 bytes）
      */
     encodeChipPayload({ name, idNumber }) {
       const cleanName = String(name || '').replace(/\|/g, ' ').trim();
@@ -151,11 +151,6 @@
       return `${cleanName}|${cleanId}`;
     }
 
-    /**
-     * 解析 NFC 標籤內容：
-     * - v3.0 預設 2 欄格式：NAME|IDNUMBER（例如：林志明|A123456789）
-     * - 亦向下相容 JSON {"name":"...","id":"..."} 與舊版 4 欄格式 BIB|NAME|ID|CAT
-     */
     decodeNdefMessage(message) {
       const records = (message && message.records) || [];
       for (const record of records) {
@@ -173,7 +168,6 @@
         }
         if (!text) continue;
 
-        // 1. JSON 格式相容
         if (text.startsWith('{')) {
           try {
             const obj = JSON.parse(text);
@@ -185,32 +179,16 @@
           } catch {}
         }
 
-        // 2. 管線分隔格式
         if (text.includes('|')) {
           const parts = text.split('|').map((s) => s.trim());
-          // v3.0 標準格式：姓名|身份證字號 (2 欄)
           if (parts.length === 2) {
-            return {
-              name: parts[0],
-              idNumber: parts[1].toUpperCase(),
-              bib: '',
-              raw: text,
-              recordType: record.recordType
-            };
+            return { name: parts[0], idNumber: parts[1].toUpperCase(), bib: '', raw: text, recordType: record.recordType };
           }
-          // 向下相容舊版 4 欄格式：BIB|NAME|ID|CAT
           if (parts.length >= 3) {
-            return {
-              bib: parts[0],
-              name: parts[1],
-              idNumber: parts[2].toUpperCase(),
-              raw: text,
-              recordType: record.recordType
-            };
+            return { bib: parts[0], name: parts[1], idNumber: parts[2].toUpperCase(), raw: text, recordType: record.recordType };
           }
         }
 
-        // 3. 純文字（視為身份證字號或姓名）
         if (record.recordType === 'text' || record.recordType === 'mime' || record.recordType === 'unknown') {
           const looksLikeId = /^[A-Z][0-9A-Z]{6,12}$/i.test(text);
           return {
@@ -233,6 +211,9 @@
       this.isBusy = false;
     }
 
+    /**
+     * 賽道連續感應監聽（同時支援讀取「姓名|身份證」與「硬體 UID」）
+     */
     async startScanning(onTagRead, onError) {
       const diag = this.getDiagnostics();
       if (!diag.supported) throw new Error(diag.statusMessage);
@@ -256,30 +237,15 @@
         const parsed = this.decodeNdefMessage(event.message);
 
         if (parsed && (parsed.idNumber || parsed.name || parsed.bib)) {
-          onTagRead({
-            ...parsed,
-            nfcUid: uid,
-            uidOnly: false,
-            source: 'nfc'
-          });
+          onTagRead({ ...parsed, nfcUid: uid, uidOnly: false, source: 'nfc' });
           return;
         }
-
         if (uid) {
-          onTagRead({
-            name: '',
-            idNumber: '',
-            bib: '',
-            raw: '',
-            nfcUid: uid,
-            uidOnly: true,
-            source: 'nfc'
-          });
+          onTagRead({ name: '', idNumber: '', bib: '', raw: '', nfcUid: uid, uidOnly: true, source: 'nfc' });
           return;
         }
-
         this.sound.beepError();
-        if (onError) onError(new Error('感應到空白晶片且無可辨識 UID，請先進行晶片寫入或 UID 綁定'));
+        if (onError) onError(new Error('感應到空白晶片且無可辨識 UID，請先寫入晶片或綁定 UID'));
       });
 
       try {
@@ -300,6 +266,78 @@
       this.isScanning = false;
     }
 
+    /**
+     * 純淨寫入共用晶片（僅寫入「姓名|身份證字號」）
+     * 重要：零前置 await、零 scan() 並發衝突，使用獨立全新 NDEFReader 直接呼叫 write()！
+     */
+    async writeChip({ name, idNumber }, { onStep } = {}) {
+      const diag = this.getDiagnostics();
+      if (!diag.supported) throw new Error(diag.statusMessage);
+
+      // 先同步關閉任何背景掃描與舊作業，避免 Android Chrome NFC 硬體資源衝突
+      this.stopScanning();
+      this.cancelActiveOperation();
+
+      const targetId = String(idNumber || '').trim().toUpperCase();
+      const targetName = String(name || '').trim();
+      const payloadStr = this.encodeChipPayload({ name: targetName, idNumber: targetId });
+
+      const ac = new AbortController();
+      this.opAbortController = ac;
+      this.isBusy = true;
+
+      const ndef = new global.NDEFReader();
+      this.reader = ndef;
+
+      if (onStep) {
+        onStep(`📡 請將 NFC 晶片緊貼手機背面感應區並靜止停留 1～2 秒...（寫入內容：${payloadStr}）`);
+      }
+
+      const timer = setTimeout(() => ac.abort(), 30000);
+
+      try {
+        // 同步進入 ndef.write()，完整保留使用者點擊手勢 (Transient User Activation)
+        await ndef.write(
+          {
+            records: [
+              {
+                recordType: 'text',
+                encoding: 'utf-8',
+                lang: 'zh',
+                data: payloadStr
+              }
+            ]
+          },
+          { overwrite: true, signal: ac.signal }
+        );
+
+        clearTimeout(timer);
+        this.opAbortController = null;
+        this.reader = null;
+        this.isBusy = false;
+        this.sound.beepWriteVerified();
+
+        return {
+          written: true,
+          name: targetName,
+          idNumber: targetId,
+          raw: payloadStr
+        };
+      } catch (err) {
+        clearTimeout(timer);
+        this.opAbortController = null;
+        this.reader = null;
+        this.isBusy = false;
+        const translated = new Error(translateNfcError(err));
+        translated.originalName = err?.name || '';
+        throw translated;
+      }
+    }
+
+    /**
+     * 獨立單次讀取晶片（用於「讀取驗證」、「測試晶片」與「UID 綁定」）
+     * 全新獨立點擊手勢，絕無 scan/write 衝突！
+     */
     async readSingleTag(onStep, timeoutMs = 25000) {
       const diag = this.getDiagnostics();
       if (!diag.supported) throw new Error(diag.statusMessage);
@@ -316,11 +354,10 @@
       const ndef = new global.NDEFReader();
       this.reader = ndef;
 
-      return new Promise(async (resolve, reject) => {
+      return new Promise((resolve, reject) => {
         const timer = setTimeout(() => {
-          ac.abort();
-          this.isBusy = false;
-          reject(new Error('等待讀取逾時（25 秒），請重新點擊並將晶片緊貼手機背面 NFC 天線。'));
+          cleanup();
+          reject(new Error('等待讀取逾時（25 秒），請確認手機已開啟 NFC 並將晶片貼近背面感應天線。'));
         }, timeoutMs);
 
         const cleanup = () => {
@@ -348,163 +385,31 @@
         ndef.addEventListener('readingerror', () => {
           cleanup();
           this.sound.beepError();
-          reject(new Error('讀取晶片失敗：請將晶片貼緊手機背面 NFC 天線停留 1 秒，或確認此晶片非加密門禁卡。'));
+          reject(new Error('讀取晶片失敗：請將晶片貼緊手機背面 NFC 天線停留 1 秒；若為加密門禁卡/悠遊卡則無法讀取 NDEF。'));
         }, { once: true });
 
-        try {
-          await ndef.scan({ signal: ac.signal });
-        } catch (err) {
+        // 直接於點擊手勢內同步呼叫 scan()
+        ndef.scan({ signal: ac.signal }).catch((err) => {
           cleanup();
           reject(new Error(translateNfcError(err)));
-        }
+        });
       });
     }
 
-    /**
-     * 寫入共用晶片（僅寫入「姓名|身份證字號」）並自動引導回讀驗證
-     */
-    async writeChipAndVerify({ name, idNumber }, { onStep, onWriteDone, skipVerify = false } = {}) {
-      const diag = this.getDiagnostics();
-      if (!diag.supported) throw new Error(diag.statusMessage);
-
-      this.stopScanning();
-      this.cancelActiveOperation();
-
-      const ac = new AbortController();
-      this.opAbortController = ac;
-      this.isBusy = true;
-
+    async mockWriteChip({ name, idNumber }, { onStep } = {}) {
       const targetId = String(idNumber || '').trim().toUpperCase();
       const targetName = String(name || '').trim();
       const payloadStr = this.encodeChipPayload({ name: targetName, idNumber: targetId });
-      const ndef = new global.NDEFReader();
-      this.reader = ndef;
-
-      const writeTimer = setTimeout(() => ac.abort(), 30000);
-
-      try {
-        let writeCompleted = false;
-        let verifyResolve = null;
-        let verifyReject = null;
-
-        const verifyPromise = new Promise((res, rej) => {
-          verifyResolve = res;
-          verifyReject = rej;
-        });
-
-        if (!skipVerify) {
-          ndef.addEventListener('reading', (event) => {
-            if (!writeCompleted) return;
-            const uid = String(event.serialNumber || '').trim().toUpperCase();
-            const readData = this.decodeNdefMessage(event.message);
-            if (!readData || readData.idNumber !== targetId) {
-              verifyReject(new Error(`回讀驗證不符：讀回身份證「${readData?.idNumber || '空'}」，預期「${targetId}」`));
-              return;
-            }
-            verifyResolve({ verified: true, nfcUid: uid, data: readData });
-          });
-
-          ndef.addEventListener('readingerror', () => {
-            if (!writeCompleted) return;
-            verifyReject(new Error('回讀驗證感應失敗，請再重新貼近一次'));
-          });
-
-          try {
-            await ndef.scan({ signal: ac.signal });
-          } catch (scanErr) {
-            console.warn('預啟 scan 略過:', scanErr);
-          }
-        }
-
-        if (onStep) {
-          onStep(`📡 請將 NFC 晶片緊貼手機背面感應區並停留 1～2 秒...（寫入內容：${payloadStr}）`);
-        }
-
-        await ndef.write(payloadStr, { overwrite: true, signal: ac.signal });
-        clearTimeout(writeTimer);
-        writeCompleted = true;
-
-        this.sound.beepSuccess();
-        if (onWriteDone) await onWriteDone({ written: true, raw: payloadStr });
-
-        if (skipVerify) {
-          ac.abort();
-          this.opAbortController = null;
-          this.reader = null;
-          this.isBusy = false;
-          this.sound.beepWriteVerified();
-          return { verified: false, written: true, nfcUid: '', data: { name: targetName, idNumber: targetId, raw: payloadStr } };
-        }
-
-        if (onStep) {
-          onStep('✅ 晶片已寫入成功！請將晶片【移開手機 1 秒後，再重新貼近一次】進行自動讀取驗證...');
-        }
-
-        const verifyTimer = setTimeout(() => {
-          verifyResolve({
-            verified: false,
-            written: true,
-            verifyTimeout: true,
-            nfcUid: '',
-            data: { name: targetName, idNumber: targetId, raw: payloadStr }
-          });
-        }, 20000);
-
-        const onVerifyAbort = () => {
-          clearTimeout(verifyTimer);
-          verifyResolve({
-            verified: false,
-            written: true,
-            verifySkipped: true,
-            nfcUid: '',
-            data: { name: targetName, idNumber: targetId, raw: payloadStr }
-          });
-        };
-        ac.signal.addEventListener('abort', onVerifyAbort, { once: true });
-
-        try {
-          const vRes = await verifyPromise;
-          clearTimeout(verifyTimer);
-          ac.signal.removeEventListener('abort', onVerifyAbort);
-          if (!ac.signal.aborted) ac.abort();
-          this.opAbortController = null;
-          this.reader = null;
-          this.isBusy = false;
-          this.sound.beepWriteVerified();
-          return { ...vRes, written: true };
-        } catch (vErr) {
-          clearTimeout(verifyTimer);
-          ac.signal.removeEventListener('abort', onVerifyAbort);
-          if (!ac.signal.aborted) ac.abort();
-          this.opAbortController = null;
-          this.reader = null;
-          this.isBusy = false;
-          throw vErr;
-        }
-      } catch (err) {
-        clearTimeout(writeTimer);
-        if (!ac.signal.aborted) ac.abort();
-        this.opAbortController = null;
-        this.reader = null;
-        this.isBusy = false;
-        throw new Error(translateNfcError(err));
-      }
-    }
-
-    async mockWriteChipAndVerify({ name, idNumber }, { onStep } = {}) {
-      const targetId = String(idNumber || '').trim().toUpperCase();
-      const targetName = String(name || '').trim();
-      const payloadStr = this.encodeChipPayload({ name: targetName, idNumber: targetId });
-      if (onStep) onStep(`[模擬模式] 正在寫入共用晶片資料（${payloadStr}）...`);
-      await new Promise((r) => setTimeout(r, 380));
-      if (onStep) onStep('[模擬模式] 寫入完成，正在模擬移開重刷讀取驗證...');
+      if (onStep) onStep(`[模擬模式] 正在寫入共用晶片（${payloadStr}）...`);
       await new Promise((r) => setTimeout(r, 380));
       this.sound.beepWriteVerified();
       return {
         written: true,
         verified: true,
         nfcUid: 'MOCK-' + Math.random().toString(16).slice(2, 10).toUpperCase(),
-        data: { name: targetName, idNumber: targetId, raw: payloadStr }
+        name: targetName,
+        idNumber: targetId,
+        raw: payloadStr
       };
     }
   }

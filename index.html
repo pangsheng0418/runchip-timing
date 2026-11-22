@@ -477,7 +477,7 @@
               <div class="pt-2 flex flex-col sm:flex-row gap-2.5">
                 <button id="btn-write-nfc" type="submit"
                   class="flex-1 py-3.5 px-4 rounded-xl text-base font-black bg-emerald-500 hover:bg-emerald-400 text-slate-950 transition shadow">
-                  📡 寫入共用晶片並驗證
+                  📡 寫入共用 NFC 晶片
                 </button>
                 <button id="btn-bind-uid-nfc" type="button"
                   class="py-3.5 px-4 rounded-xl text-sm font-black bg-sky-500 hover:bg-sky-400 text-slate-950 transition shadow"
@@ -501,15 +501,25 @@
               </div>
             </form>
 
-            <div id="writer-verify-box" class="hidden rounded-xl border p-4 text-sm space-y-2">
+            <div id="writer-verify-box" class="hidden rounded-xl border p-4 text-sm space-y-2.5">
               <div class="flex items-start justify-between gap-2">
                 <div id="writer-verify-title" class="font-extrabold"></div>
                 <button id="btn-cancel-nfc-op" type="button"
                   class="hidden shrink-0 px-2.5 py-1 rounded-lg text-xs font-black bg-rose-600 hover:bg-rose-500 text-white">
-                  取消 / 略過
+                  取消等待
                 </button>
               </div>
               <div id="writer-verify-detail" class="text-xs font-mono-num break-all opacity-90"></div>
+              <div class="flex flex-wrap gap-2 pt-1">
+                <button id="btn-verify-just-written" type="button"
+                  class="hidden px-4 py-2 rounded-xl text-xs font-black bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow">
+                  🔍 點此回讀驗證晶片（請先移開 1 秒再貼近）
+                </button>
+                <button id="btn-fallback-bind-uid" type="button"
+                  class="hidden px-4 py-2 rounded-xl text-xs font-black bg-sky-500 hover:bg-sky-400 text-slate-950 shadow">
+                  🔗 改用「僅綁定晶片 UID」免寫入直接綁定
+                </button>
+              </div>
             </div>
           </div>
 

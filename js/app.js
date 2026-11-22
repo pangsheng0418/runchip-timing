@@ -805,18 +805,20 @@
     };
   }
 
-  function setWriterVerifyBox(status, title, detail, showCancel = false) {
+  function setWriterVerifyBox(status, title, detail, { showCancel = false, showVerifyBtn = false, showFallbackUid = false } = {}) {
     const box = $('writer-verify-box');
     const styles = {
-      working: 'rounded-xl border border-sky-500/50 bg-sky-950/40 p-4 text-sm text-sky-200 space-y-2',
-      success: 'rounded-xl border border-emerald-500/50 bg-emerald-950/40 p-4 text-sm text-emerald-200 space-y-2',
-      warn: 'rounded-xl border border-amber-500/50 bg-amber-950/40 p-4 text-sm text-amber-200 space-y-2',
-      error: 'rounded-xl border border-rose-500/50 bg-rose-950/40 p-4 text-sm text-rose-200 space-y-2'
+      working: 'rounded-xl border border-sky-500/50 bg-sky-950/40 p-4 text-sm text-sky-200 space-y-2.5',
+      success: 'rounded-xl border border-emerald-500/50 bg-emerald-950/40 p-4 text-sm text-emerald-200 space-y-2.5',
+      warn: 'rounded-xl border border-amber-500/50 bg-amber-950/40 p-4 text-sm text-amber-200 space-y-2.5',
+      error: 'rounded-xl border border-rose-500/50 bg-rose-950/40 p-4 text-sm text-rose-200 space-y-2.5'
     };
     box.className = styles[status] || styles.working;
     $('writer-verify-title').textContent = title;
     $('writer-verify-detail').textContent = detail;
     $('btn-cancel-nfc-op').classList.toggle('hidden', !showCancel);
+    $('btn-verify-just-written').classList.toggle('hidden', !showVerifyBtn);
+    $('btn-fallback-bind-uid').classList.toggle('hidden', !showFallbackUid);
   }
 
   async function executeNfcWrite(isMock = false) {
@@ -827,52 +829,85 @@
 
     setWriterVerifyBox(
       'working',
-      isMock ? '🧪 模擬寫入共用晶片...' : '📡 等待貼近 NFC 晶片...',
-      `寫入內容（僅姓名｜身份證）：${NFC.encodeChipPayload(person)}`,
-      !isMock
+      isMock ? '🧪 模擬寫入共用晶片...' : '📡 等待貼近 NFC 晶片寫入...',
+      `準備寫入（僅姓名｜身份證）：${NFC.encodeChipPayload(person)} ｜ 請將晶片緊貼手機背面 NFC 天線並保持靜止 1～2 秒`,
+      { showCancel: !isMock }
     );
 
     try {
-      const fn = isMock ? NFC.mockWriteChipAndVerify.bind(NFC) : NFC.writeChipAndVerify.bind(NFC);
-      let savedChip = null;
-
+      const fn = isMock ? NFC.mockWriteChip.bind(NFC) : NFC.writeChip.bind(NFC);
       const result = await fn(person, {
-        onStep: (step) => setWriterVerifyBox('working', '⏳ 共用晶片寫入與自動驗證', step, !isMock),
-        onWriteDone: async () => {
-          savedChip = await DB.upsertChip({ ...person, nfcUid: 'NDEF-WRITTEN', writtenAt: Date.now() }, false);
-          if (Sync.isOnlineEnabled() && navigator.onLine) Sync.pushChips([savedChip]).then(() => updatePendingSyncBadge());
-          await reloadState();
-        }
+        onStep: (step) => setWriterVerifyBox('working', '📡 請將 NFC 晶片貼緊手機背面...', step, { showCancel: !isMock })
       });
 
       const finalChip = await DB.upsertChip(
-        { ...person, nfcUid: result.nfcUid || savedChip?.nfcUid || 'NDEF-WRITTEN', writtenAt: Date.now() },
+        { ...person, nfcUid: result.nfcUid || 'NDEF-WRITTEN', writtenAt: Date.now() },
         false
       );
 
-      if (result.verified) {
-        setWriterVerifyBox(
-          'success',
-          `✅ 共用晶片寫入並自動驗證成功！（UID: ${result.nfcUid || '標準 NDEF'}）`,
-          `晶片內容：${result.data.raw} ｜ 同一晶片可直接參加所有已報名活動！`,
-          false
-        );
-        showToast(`${person.name} (${person.idNumber}) 共用晶片寫入驗證完成！`, 'success');
-      } else {
-        setWriterVerifyBox(
-          'warn',
-          '✅ 共用晶片已寫入成功（略過或未重刷驗證）',
-          `寫入內容：${result.data.raw} ｜ 可隨時點「🔍 讀取/測試晶片」檢查`,
-          false
-        );
-        showToast(`${person.name} 共用晶片已寫入成功`, 'success');
-      }
+      setWriterVerifyBox(
+        'success',
+        `✅ 晶片寫入成功！已寫入「${result.raw}」`,
+        isMock
+          ? `模擬驗證完成（UID: ${result.nfcUid}），同一晶片可直接參加所有已報名活動！`
+          : '資料已寫入晶片並存檔！建議點擊下方綠色按鈕「回讀驗證晶片」（移開 1 秒再貼近），同時讀取晶片 UID 與核對資料。',
+        { showVerifyBtn: !isMock }
+      );
+      showToast(`✅ ${person.name} (${person.idNumber}) 共用晶片寫入成功！`, 'success');
 
-      if (Sync.isOnlineEnabled() && navigator.onLine) Sync.pushChips([finalChip]).then(() => updatePendingSyncBadge());
+      if (Sync.isOnlineEnabled() && navigator.onLine) {
+        Sync.pushChips([finalChip]).then(() => updatePendingSyncBadge());
+      }
       await reloadState();
     } catch (err) {
       NFC.sound.beepError();
-      setWriterVerifyBox('error', '❌ 共用晶片寫入失敗', err.message, false);
+      setWriterVerifyBox('error', '❌ 共用晶片寫入失敗', err.message, { showFallbackUid: true });
+      showToast('晶片寫入失敗，請查看下方詳細原因或改用 UID 綁定', 'error');
+    }
+  }
+
+  /**
+   * 寫入後的獨立回讀驗證（使用全新使用者點擊手勢呼叫 ndef.scan，徹底避免與 write 衝突）
+   */
+  async function executeVerifyWrittenChip() {
+    const person = getWriterChipInput();
+    setWriterVerifyBox(
+      'working',
+      '🔍 回讀驗證中：請將剛寫入的晶片貼近手機背面...',
+      `正在核對晶片內容是否為「${person.name}|${person.idNumber}」並擷取硬體 UID...`,
+      { showCancel: true }
+    );
+
+    try {
+      const tag = await NFC.readSingleTag((step) => {
+        setWriterVerifyBox('working', '🔍 等待貼近晶片驗證...', step, { showCancel: true });
+      });
+
+      const readName = tag.parsed?.name || '';
+      const readId = tag.parsed?.idNumber || '';
+      if (!readId || (person.idNumber && readId !== person.idNumber)) {
+        throw new Error(`回讀驗證不符！晶片讀回「${tag.raw || '空'}」，與表單「${person.name}|${person.idNumber}」不一致。`);
+      }
+
+      const saved = await DB.upsertChip(
+        { name: readName || person.name, idNumber: readId, nfcUid: tag.nfcUid || 'NDEF-VERIFIED', writtenAt: Date.now() },
+        false
+      );
+      NFC.sound.beepWriteVerified();
+      setWriterVerifyBox(
+        'success',
+        `✅ 回讀驗證 100% 一致！（UID: ${tag.nfcUid || '標準 NDEF'}）`,
+        `確認讀回內容：${tag.raw} ｜ 姓名：${readName} ｜ 身份證：${readId}（跨活動共用晶片已就緒！）`
+      );
+      showToast(`✅ 回讀驗證通過！(${tag.raw})`, 'success');
+
+      if (Sync.isOnlineEnabled() && navigator.onLine) {
+        Sync.pushChips([saved]).then(() => updatePendingSyncBadge());
+      }
+      await reloadState();
+    } catch (err) {
+      NFC.sound.beepError();
+      setWriterVerifyBox('error', '❌ 回讀驗證失敗', err.message, { showVerifyBtn: true, showFallbackUid: true });
       showToast(err.message, 'error');
     }
   }
@@ -883,9 +918,9 @@
       return showToast('請先填寫「選手姓名」與「身份證字號」再綁定晶片 UID', 'warn');
     }
 
-    setWriterVerifyBox('working', '🔗 UID 綁定模式：請貼近 NFC 晶片...', '直接綁定晶片唯一序號 UID 至此身份證（跨活動通用）。', true);
+    setWriterVerifyBox('working', '🔗 UID 綁定模式：請貼近 NFC 晶片...', '直接綁定晶片唯一序號 UID 至此身份證（免寫入晶片記憶體，跨活動通用）。', { showCancel: true });
     try {
-      const tag = await NFC.readSingleTag((step) => setWriterVerifyBox('working', '🔗 讀取晶片 UID 中...', step, true));
+      const tag = await NFC.readSingleTag((step) => setWriterVerifyBox('working', '🔗 讀取晶片 UID 中...', step, { showCancel: true }));
       if (!tag.nfcUid) throw new Error('此晶片未回傳硬體 UID，請改用標準「寫入共用晶片」');
 
       const saved = await DB.upsertChip({ ...person, nfcUid: tag.nfcUid, writtenAt: Date.now() }, false);
@@ -893,23 +928,22 @@
       setWriterVerifyBox(
         'success',
         `✅ 晶片 UID 綁定成功！（UID: ${tag.nfcUid}）`,
-        `${person.name} (${person.idNumber}) 持此晶片可於本平台所有已報名活動直接感應計時！`,
-        false
+        `${person.name} (${person.idNumber}) 持此晶片可於本平台所有已報名活動直接感應計時！`
       );
       showToast(`已綁定晶片 UID (${tag.nfcUid}) 給 ${person.name}`, 'success');
       if (Sync.isOnlineEnabled() && navigator.onLine) Sync.pushChips([saved]).then(() => updatePendingSyncBadge());
       await reloadState();
     } catch (err) {
       NFC.sound.beepError();
-      setWriterVerifyBox('error', '❌ UID 綁定失敗', err.message, false);
+      setWriterVerifyBox('error', '❌ UID 綁定失敗', err.message);
       showToast(err.message, 'error');
     }
   }
 
   async function executeReadTestNfc() {
-    setWriterVerifyBox('working', '🔍 讀取測試晶片：請貼近手機背面感應區...', '正在檢測晶片內容、UID 與所有已報名活動...', true);
+    setWriterVerifyBox('working', '🔍 讀取測試晶片：請貼近手機背面感應區...', '正在檢測晶片內容、UID 與所有已報名活動...', { showCancel: true });
     try {
-      const tag = await NFC.readSingleTag((step) => setWriterVerifyBox('working', '🔍 讀取測試中...', step, true));
+      const tag = await NFC.readSingleTag((step) => setWriterVerifyBox('working', '🔍 讀取測試中...', step, { showCancel: true }));
       const chipByUid = tag.nfcUid ? await DB.findChipByUid(tag.nfcUid) : null;
       const detectedId = tag.parsed?.idNumber || chipByUid?.idNumber || '';
       const detectedName = tag.parsed?.name || chipByUid?.name || '';
@@ -924,16 +958,17 @@
 
       const detail = [
         `UID：${tag.nfcUid || '無'}`,
+        `NDEF類型：${tag.recordTypes.length ? tag.recordTypes.join(',') : '無'}`,
         `原始內容：${tag.raw || '（空）'}`,
         `識別身分：${detectedName || '未知'} (${detectedId || '無身份證'})`,
         `已報名場次：${joinedText}`
       ].join(' ｜ ');
 
-      setWriterVerifyBox('success', '✅ 晶片讀取成功！NFC 功能正常', detail, false);
+      setWriterVerifyBox('success', '✅ 晶片讀取成功！NFC 功能正常', detail);
       showToast('晶片讀取測試成功！', 'success');
     } catch (err) {
       NFC.sound.beepError();
-      setWriterVerifyBox('error', '❌ 晶片讀取失敗', err.message, false);
+      setWriterVerifyBox('error', '❌ 晶片讀取失敗', err.message);
       showToast(err.message, 'error');
     }
   }
@@ -1575,6 +1610,8 @@
     // 共用晶片寫入與製卡按鈕
     $('form-nfc-write').addEventListener('submit', (e) => { e.preventDefault(); executeNfcWrite(false); });
     $('btn-bind-uid-nfc').addEventListener('click', executeBindNfcUid);
+    $('btn-fallback-bind-uid').addEventListener('click', executeBindNfcUid);
+    $('btn-verify-just-written').addEventListener('click', executeVerifyWrittenChip);
     $('btn-read-test-nfc').addEventListener('click', executeReadTestNfc);
     $('btn-cancel-nfc-op').addEventListener('click', () => NFC.cancelActiveOperation());
     $('btn-mock-write-nfc').addEventListener('click', () => executeNfcWrite(true));
