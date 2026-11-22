@@ -91,6 +91,7 @@
         感應時間: TE.formatClockMs(s.timestampMs),
         ISO時間: s.isoTime,
         來源: s.source,
+        操作員帳號: s.operator || '',
         裝置ID: s.deviceId || '',
         雲端同步: s.synced ? '已同步' : '待同步',
         備註: s.note || ''

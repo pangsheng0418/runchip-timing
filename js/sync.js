@@ -1,6 +1,5 @@
 /**
- * 智慧路跑 NFC 晶片計時系統 — Google Apps Script (GAS) 雲端同步模組
- * 說明：POST 一律使用 text/plain;charset=utf-8，避免 GAS Web App 觸發 CORS preflight 失敗
+ * 智慧路跑 NFC 晶片計時系統 v2.0 — Google Apps Script (GAS) 雲端同步與帳密驗證模組
  */
 (function (global) {
   'use strict';
@@ -8,6 +7,10 @@
   class CloudSync {
     getUrl() {
       return (global.RaceDB.getDeviceSettings().gasUrl || '').trim();
+    }
+
+    hasUrl() {
+      return Boolean(this.getUrl());
     }
 
     isOnlineEnabled() {
@@ -42,31 +45,52 @@
       return json;
     }
 
-    /** 測試 GAS 連線 */
     async ping(customUrl) {
       const url = (customUrl || this.getUrl()).trim();
       if (!url) throw new Error('請先輸入 Google Apps Script 網頁應用程式 URL');
       return this._get(url, { action: 'ping' });
     }
 
-    /** 公開查詢端拉取（已隱碼身份證字號） */
     async fetchPublicData(customUrl) {
       const url = (customUrl || this.getUrl()).trim();
       if (!url) throw new Error('未設定雲端 API 網址');
       return this._get(url, { action: 'publicData' });
     }
 
-    /** 工作人員端從雲端拉取最新資料並合併至本地 IndexedDB */
-    async pullFromCloud(adminPin = '') {
+    /**
+     * 線上帳密驗證並自動快取至本機 IndexedDB（讓後續離線登入無縫運作）
+     */
+    async loginCloud(mode, username, password) {
       const url = this.getUrl();
-      if (!url) throw new Error('請先於後台設定 Google Apps Script 網址');
-      const res = await this._get(url, { action: 'fullSync', pin: adminPin });
+      if (!url) throw new Error('尚未設定雲端 API 網址');
+      const res = await this._post(url, {
+        action: 'login',
+        mode,
+        username,
+        password
+      });
+      if (res.data) {
+        await global.RaceDB.mergeCloudData(res.data);
+      }
+      if (mode === 'staff' && res.account) {
+        await global.RaceDB.cacheStaffAccount(res.account);
+      }
+      global.RaceDB.saveDeviceSettings({ lastSyncAt: Date.now() });
+      return res;
+    }
+
+    async pullFromCloud(auth) {
+      const url = this.getUrl();
+      if (!url) throw new Error('請先設定 Google Apps Script 網址');
+      const res = await this._post(url, { action: 'fullSync', auth });
       await global.RaceDB.mergeCloudData(res.data);
       global.RaceDB.saveDeviceSettings({ lastSyncAt: Date.now() });
       return res;
     }
 
-    /** 一鍵將本地所有待同步的選手與感應紀錄批次上傳至 Google Sheets */
+    /**
+     * 統一將本機所有待同步的選手與感應紀錄批次上傳至 Google Sheets
+     */
     async syncPendingToCloud() {
       const url = this.getUrl();
       if (!url) throw new Error('請先設定 Google Apps Script 網址');
@@ -103,7 +127,6 @@
       };
     }
 
-    /** 即時推送單筆感應（連線模式下自動觸發，失敗時保留於離線佇列） */
     async pushSingleScan(scan) {
       if (!this.isOnlineEnabled() || !navigator.onLine) return { queued: true };
       try {
@@ -129,7 +152,6 @@
       }
     }
 
-    /** 推送選手資料更新 */
     async pushRunners(runners) {
       if (!this.isOnlineEnabled() || !navigator.onLine) return { queued: true };
       try {
@@ -146,34 +168,57 @@
       }
     }
 
-    /** 同步賽事設定、組別起跑時間與站點至 Google Sheets */
-    async pushConfig(config, adminPin) {
+    async pushConfig(config, auth) {
       if (!this.isOnlineEnabled() || !navigator.onLine) return { queued: true };
       return this._post(this.getUrl(), {
         action: 'saveConfig',
-        adminPin,
+        auth,
         config: {
           raceName: config.raceName,
           raceDate: config.raceDate,
           debounceSeconds: config.debounceSeconds,
           rankBy: config.rankBy,
-          newAdminPin: config.adminPin
+          adminUsername: config.adminUsername,
+          adminPassword: config.adminPassword
         },
         categories: config.categories,
-        checkpoints: config.checkpoints
+        checkpoints: config.checkpoints,
+        staffAccounts: config.staffAccounts
       });
     }
 
-    /** 管理員人工修正感應時間同步至雲端 */
-    async pushAdminEditScan(scan, adminPin) {
+    async pushAdminEditScan(scan, auth) {
       if (!this.isOnlineEnabled() || !navigator.onLine) return { queued: true };
       const res = await this._post(this.getUrl(), {
         action: 'editScan',
-        adminPin,
+        auth,
         scan
       });
       await global.RaceDB.markScansSynced([scan.id]);
       return res;
+    }
+
+    async pushRestoreAll(backupObj, auth) {
+      const url = this.getUrl();
+      if (!url) throw new Error('請先設定 Google Apps Script 網址');
+      const cfg = backupObj.config || {};
+      return this._post(url, {
+        action: 'restoreAll',
+        auth,
+        config: {
+          raceName: cfg.raceName,
+          raceDate: cfg.raceDate,
+          debounceSeconds: cfg.debounceSeconds,
+          rankBy: cfg.rankBy,
+          adminUsername: cfg.adminUsername,
+          adminPassword: cfg.adminPassword
+        },
+        categories: cfg.categories,
+        checkpoints: cfg.checkpoints,
+        staffAccounts: cfg.staffAccounts,
+        runners: backupObj.runners || [],
+        scans: backupObj.scans || []
+      });
     }
   }
 

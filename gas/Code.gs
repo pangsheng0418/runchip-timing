@@ -1,15 +1,20 @@
 /**
  * ============================================================================
- * 智慧路跑 NFC 晶片計時系統 — Google Apps Script (GAS) 後端 API
+ * 智慧路跑 NFC 晶片計時系統 v2.0 — Google Apps Script (GAS) 後端 API
  * ============================================================================
+ * 支援三大權限分區：
+ * 1. 公開查詢頁（免登入，自動隱碼身份證字號，絕不回傳帳密）
+ * 2. 晶片計時作業（帳密管制登入，綁定晶片寫入或指定感應站點防呆，支援離線後統一上傳）
+ * 3. 後台管理區（獨立管理員帳密，最高權限管理成績、作業員帳號、賽事設定與備份同步）
+ *
  * 部署步驟：
  * 1. 建立一個新的 Google 試算表，點選「擴充功能」>「Apps Script」
  * 2. 將本檔案全部貼入 Code.gs 並儲存
- * 3. 先在編輯器上方選擇函式「setupSheets」並點選「執行」，完成授權與工作表初始化
+ * 3. 在編輯器上方選擇函式「setupSheets」並點選「執行」，完成授權與 6 張工作表初始化
  * 4. 點選右上角「部署」>「新增部署作業」> 類型選「網頁應用程式」
  *    - 執行身分：我（試算表擁有者）
  *    - 誰可以存取：所有人（Anyone）
- * 5. 複製部署後的「網頁應用程式 URL」，貼入前端系統設定頁即可開始多機即時同步！
+ * 5. 複製部署後的「網頁應用程式 URL」，貼入後台管理區即可多機即時同步！
  * ============================================================================
  */
 
@@ -17,12 +22,13 @@ const SHEET_NAMES = {
   CONFIG: 'Config',
   CATEGORIES: 'Categories',
   CHECKPOINTS: 'Checkpoints',
+  STAFF: 'StaffAccounts',
   RUNNERS: 'Runners',
   SCANS: 'Scans'
 };
 
 /**
- * 首次初始化：自動建立所有工作表、標題列、預設賽事資料與欄位格式
+ * 首次初始化：自動建立 6 張工作表、標題列與預設資料
  */
 function setupSheets() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -31,11 +37,12 @@ function setupSheets() {
   const configSheet = getOrCreateSheet_(ss, SHEET_NAMES.CONFIG, ['key', 'value', 'description']);
   if (configSheet.getLastRow() <= 1) {
     const today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
-    configSheet.getRange(2, 1, 5, 3).setValues([
+    configSheet.getRange(2, 1, 6, 3).setValues([
       ['raceName', '2026 智慧城市馬拉松', '賽事名稱'],
       ['raceDate', today, '賽事日期 (YYYY-MM-DD)'],
       ['debounceSeconds', '30', '防連點冷卻秒數（同一選手同站點）'],
-      ['adminPin', '1234', '後台管理與成績修正密碼'],
+      ['adminUsername', 'admin', '後台最高管理員帳號'],
+      ['adminPassword', 'admin1234', '後台最高管理員密碼'],
       ['rankBy', 'gun', '預設排名依據 (gun=大會時間, chip=個人淨時間)']
     ]);
   }
@@ -66,18 +73,34 @@ function setupSheets() {
     ]);
   }
 
-  // 4. Runners 工作表（選手名單與罰時）
+  // 4. StaffAccounts 工作表（晶片計時作業人員帳號與指定鎖定站點）
+  const staffSheet = getOrCreateSheet_(ss, SHEET_NAMES.STAFF, [
+    'username', 'password', 'displayName', 'role', 'checkpointId', 'enabled', 'updatedAt'
+  ]);
+  if (staffSheet.getLastRow() <= 1) {
+    const now = Date.now();
+    staffSheet.getRange(2, 1, 6, 7).setValues([
+      ['writer01', '1111', '報到晶片寫入組', 'writer', '', 1, now],
+      ['start01', '1111', '起點感應組', 'scanner', 'START', 1, now],
+      ['cp1', '1111', '補給站1感應組', 'scanner', 'CP1', 1, now],
+      ['cp2', '1111', '補給站2/折返點組', 'scanner', 'CP2', 1, now],
+      ['cp3', '1111', '補給站3感應組', 'scanner', 'CP3', 1, now],
+      ['finish01', '1111', '終點衝線感應組', 'scanner', 'FINISH', 1, now]
+    ]);
+  }
+
+  // 5. Runners 工作表（選手名單與罰時）
   getOrCreateSheet_(ss, SHEET_NAMES.RUNNERS, [
     'bib', 'name', 'idNumber', 'categoryId', 'nfcUid', 'penaltySec', 'checkedInAt', 'updatedAt'
   ]);
 
-  // 5. Scans 工作表（晶片感應紀錄）
+  // 6. Scans 工作表（晶片感應紀錄）
   getOrCreateSheet_(ss, SHEET_NAMES.SCANS, [
     'id', 'bib', 'checkpointId', 'timestampMs', 'timeStr', 'isoTime',
-    'source', 'deviceId', 'deleted', 'note', 'updatedAt'
+    'source', 'deviceId', 'operator', 'deleted', 'note', 'updatedAt'
   ]);
 
-  Logger.log('所有工作表已初始化完成！');
+  Logger.log('所有 6 張工作表已初始化完成！');
 }
 
 function getOrCreateSheet_(ss, name, headers) {
@@ -97,11 +120,9 @@ function getOrCreateSheet_(ss, name, headers) {
 }
 
 /**
- * HTTP GET 入口
- * 參數：
+ * HTTP GET 入口（僅供公開讀取與連線測試，密碼驗證一律走 POST）
  * - action=ping       : 測試連線
- * - action=publicData : 公開查詢用（自動隱碼身份證字號，回傳 SHA-256 雜湊供精準比對）
- * - action=fullSync   : 工作人員端完整拉取（需帶 pin 或為管理同步）
+ * - action=publicData : 公開查詢用（自動隱碼身份證字號，絕不回傳任何帳號密碼）
  */
 function doGet(e) {
   try {
@@ -112,12 +133,12 @@ function doGet(e) {
       return jsonResponse_({
         ok: true,
         serverTimeMs: Date.now(),
-        message: '智慧路跑計時 API 運作正常'
+        message: '智慧路跑計時 API v2.0 運作正常'
       });
     }
 
     if (action === 'publicData') {
-      const data = readAllData_(true);
+      const data = readAllData_(true, false);
       return jsonResponse_({
         ok: true,
         serverTimeMs: Date.now(),
@@ -125,39 +146,27 @@ function doGet(e) {
       });
     }
 
-    if (action === 'fullSync') {
-      const config = readConfigMap_();
-      const pin = params.pin || '';
-      const includeSensitive = pin && String(pin) === String(config.adminPin || '1234');
-      const data = readAllData_(!includeSensitive);
-      return jsonResponse_({
-        ok: true,
-        serverTimeMs: Date.now(),
-        authorized: includeSensitive,
-        data: data
-      });
-    }
-
-    return jsonResponse_({ ok: false, error: '未知的 action: ' + action });
+    return jsonResponse_({ ok: false, error: '未知的 GET action: ' + action });
   } catch (err) {
     return jsonResponse_({ ok: false, error: String(err.message || err) });
   }
 }
 
 /**
- * HTTP POST 入口
- * 前端請以 Content-Type: text/plain 傳送 JSON 字串以避免 CORS 預檢問題
+ * HTTP POST 入口（使用 text/plain;charset=utf-8 避免 CORS preflight）
  * 支援 action：
- * - pushScans    : 批次上傳感應紀錄（含伺服器端 30 秒防連點去重）
- * - upsertRunner : 新增/更新單一或多名選手（晶片寫入/報到/匯入）
- * - saveConfig   : 更新賽事設定、組別起跑時間、站點清單（需驗證 adminPin）
- * - editScan     : 管理員人工修正/補登/刪除感應時間（需驗證 adminPin）
- * - batchSync    : 離線恢復後一鍵同步（同時送出 runners + scans）
+ * - login        : 驗證作業人員或最高管理員帳密，並回傳對應資料供離線快取
+ * - fullSync     : 驗證管理員或作業人員帳密後拉取最新完整資料
+ * - pushScans    : 批次上傳感應紀錄（含伺服器端防連點去重）
+ * - upsertRunners: 新增/更新選手（晶片寫入/報到/批次匯入）
+ * - batchSync    : 離線恢復後一鍵統一上傳（runners + scans）
+ * - saveConfig   : 更新賽事設定、組別起跑時間、站點、作業人員帳號與管理員帳密（需最高管理員驗證）
+ * - editScan     : 最高管理員人工修正/補登/刪除感應紀錄
+ * - restoreAll   : 最高管理員從完整備份檔還原同步至雲端
  */
 function doPost(e) {
   const lock = LockService.getScriptLock();
   try {
-    // 最多等待 15 秒取得寫入鎖，避免多支手機同時感應造成資料錯亂
     lock.waitLock(15000);
 
     const rawBody = e && e.postData && e.postData.contents ? e.postData.contents : '{}';
@@ -169,8 +178,63 @@ function doPost(e) {
     }
 
     const config = readConfigMap_();
-    const expectedPin = String(config.adminPin || '1234');
+    const adminUser = String(config.adminUsername || 'admin').trim();
+    const adminPass = String(config.adminPassword || config.adminPin || 'admin1234');
 
+    // 1. 登入驗證（支援 mode: 'staff' | 'admin'）
+    if (action === 'login') {
+      const mode = payload.mode || 'staff';
+      const u = String(payload.username || '').trim();
+      const p = String(payload.password || '');
+
+      if (mode === 'admin') {
+        if (u !== adminUser || p !== adminPass) {
+          return jsonResponse_({ ok: false, error: '管理員帳號或密碼錯誤' });
+        }
+        const data = readAllData_(false, true);
+        return jsonResponse_({
+          ok: true,
+          serverTimeMs: Date.now(),
+          account: { username: adminUser, displayName: '最高系統管理員', role: 'admin' },
+          data: data
+        });
+      }
+
+      // 作業人員登入驗證
+      const staffList = readStaffList_();
+      const matched = staffList.find(function (s) {
+        return s.enabled && s.username === u && s.password === p;
+      });
+      if (!matched) {
+        return jsonResponse_({ ok: false, error: '作業員帳號或密碼錯誤，或帳號已停用' });
+      }
+      // 回傳該作業員權限 + 賽事與選手資料（不回傳其他人的密碼）
+      const data = readAllData_(false, false);
+      return jsonResponse_({
+        ok: true,
+        serverTimeMs: Date.now(),
+        account: matched,
+        data: data
+      });
+    }
+
+    // 2. 授權同步拉取
+    if (action === 'fullSync') {
+      const isAdmin = verifyAdmin_(payload.auth, adminUser, adminPass);
+      const isStaff = !isAdmin && verifyStaff_(payload.auth);
+      if (!isAdmin && !isStaff) {
+        return jsonResponse_({ ok: false, error: '身分驗證失敗，請重新登入' });
+      }
+      const data = readAllData_(false, isAdmin);
+      return jsonResponse_({
+        ok: true,
+        serverTimeMs: Date.now(),
+        isAdmin: isAdmin,
+        data: data
+      });
+    }
+
+    // 3. 感應與選手資料上傳（作業員與管理員皆可使用）
     if (action === 'pushScans') {
       const result = handlePushScans_(payload.scans || [], Number(config.debounceSeconds || 30));
       return jsonResponse_({ ok: true, serverTimeMs: Date.now(), result: result });
@@ -191,20 +255,30 @@ function doPost(e) {
       });
     }
 
+    // 以下為最高管理員專屬寫入操作
+    if (!verifyAdmin_(payload.auth, adminUser, adminPass)) {
+      return jsonResponse_({ ok: false, error: '權限不足：需要最高管理員帳號密碼驗證' });
+    }
+
     if (action === 'saveConfig') {
-      if (String(payload.adminPin || '') !== expectedPin) {
-        return jsonResponse_({ ok: false, error: '管理員密碼錯誤' });
-      }
       handleSaveConfig_(payload);
-      return jsonResponse_({ ok: true, serverTimeMs: Date.now(), message: '賽事設定已同步至雲端' });
+      return jsonResponse_({ ok: true, serverTimeMs: Date.now(), message: '後台設定已同步至雲端' });
     }
 
     if (action === 'editScan') {
-      if (String(payload.adminPin || '') !== expectedPin) {
-        return jsonResponse_({ ok: false, error: '管理員密碼錯誤' });
-      }
       const result = handleEditScan_(payload.scan);
       return jsonResponse_({ ok: true, serverTimeMs: Date.now(), result: result });
+    }
+
+    if (action === 'restoreAll') {
+      handleSaveConfig_(payload);
+      const rRes = handleUpsertRunners_(payload.runners || []);
+      const sRes = handlePushScans_(payload.scans || [], 0);
+      return jsonResponse_({
+        ok: true,
+        serverTimeMs: Date.now(),
+        result: { runners: rRes, scans: sRes }
+      });
     }
 
     return jsonResponse_({ ok: false, error: '不支援的 POST action: ' + action });
@@ -215,21 +289,54 @@ function doPost(e) {
   }
 }
 
+function verifyAdmin_(auth, adminUser, adminPass) {
+  if (!auth) return false;
+  return String(auth.username || '').trim() === adminUser && String(auth.password || '') === adminPass;
+}
+
+function verifyStaff_(auth) {
+  if (!auth || !auth.username) return false;
+  const list = readStaffList_();
+  return list.some(function (s) {
+    return s.enabled && s.username === String(auth.username).trim() && s.password === String(auth.password || '');
+  });
+}
+
+function readStaffList_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(SHEET_NAMES.STAFF);
+  return readTableObjects_(sheet).map(function (s) {
+    return {
+      username: String(s.username || '').trim(),
+      password: String(s.password || ''),
+      displayName: String(s.displayName || '').trim(),
+      role: String(s.role || 'scanner').trim(), // 'writer' | 'scanner' | 'both'
+      checkpointId: String(s.checkpointId || '').trim(),
+      enabled: String(s.enabled) !== '0' && String(s.enabled).toLowerCase() !== 'false',
+      updatedAt: s.updatedAt ? Number(s.updatedAt) : Date.now()
+    };
+  }).filter(function (s) { return s.username; });
+}
+
 /**
- * 讀取全部賽事資料
- * @param {boolean} maskSensitive 是否隱碼身份證字號（公開查詢頁為 true）
+ * 讀取賽事資料
+ * @param {boolean} maskSensitive 公開查詢為 true（隱碼身份證字號）
+ * @param {boolean} includeStaff  僅最高管理員為 true（回傳作業員帳號清單）
  */
-function readAllData_(maskSensitive) {
+function readAllData_(maskSensitive, includeStaff) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const config = readConfigMap_();
 
-  // 不將 adminPin 暴露給公開端
   const safeConfig = {
     raceName: config.raceName || '智慧路跑計時賽',
     raceDate: config.raceDate || '',
     debounceSeconds: Number(config.debounceSeconds || 30),
     rankBy: config.rankBy || 'gun'
   };
+  if (includeStaff) {
+    safeConfig.adminUsername = String(config.adminUsername || 'admin');
+    safeConfig.adminPassword = String(config.adminPassword || config.adminPin || 'admin1234');
+  }
 
   const categories = readTableObjects_(ss.getSheetByName(SHEET_NAMES.CATEGORIES)).map(function (c) {
     return {
@@ -282,24 +389,27 @@ function readAllData_(maskSensitive) {
       isoTime: String(s.isoTime || ''),
       source: String(s.source || 'nfc'),
       deviceId: String(s.deviceId || ''),
+      operator: String(s.operator || ''),
       deleted: String(s.deleted) === 'true' || Number(s.deleted) === 1,
       note: String(s.note || ''),
       updatedAt: s.updatedAt ? Number(s.updatedAt) : Number(s.timestampMs || 0)
     };
   }).filter(function (s) { return s.id && s.bib && !s.deleted; });
 
-  return {
+  const result = {
     config: safeConfig,
     categories: categories,
     checkpoints: checkpoints,
     runners: runners,
     scans: scans
   };
+
+  if (includeStaff) {
+    result.staffAccounts = readStaffList_();
+  }
+  return result;
 }
 
-/**
- * 處理感應批次寫入（含雙重去重：相同 scan.id 去重 + 同一選手同站點防連點冷卻去重）
- */
 function handlePushScans_(incomingScans, debounceSec) {
   if (!incomingScans || !incomingScans.length) {
     return { inserted: 0, skippedDuplicate: 0, acceptedIds: [], duplicateIds: [] };
@@ -308,12 +418,11 @@ function handlePushScans_(incomingScans, debounceSec) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = getOrCreateSheet_(ss, SHEET_NAMES.SCANS, [
     'id', 'bib', 'checkpointId', 'timestampMs', 'timeStr', 'isoTime',
-    'source', 'deviceId', 'deleted', 'note', 'updatedAt'
+    'source', 'deviceId', 'operator', 'deleted', 'note', 'updatedAt'
   ]);
 
   const existing = readTableObjects_(sheet);
   const existingIdSet = {};
-  // key: bib + '::' + checkpointId -> array of active timestamps
   const recentMap = {};
 
   existing.forEach(function (row) {
@@ -327,12 +436,11 @@ function handlePushScans_(incomingScans, debounceSec) {
     }
   });
 
-  const debounceMs = Math.max(0, Number(debounceSec || 30)) * 1000;
+  const debounceMs = Math.max(0, Number(debounceSec || 0)) * 1000;
   const rowsToAppend = [];
   const acceptedIds = [];
   const duplicateIds = [];
 
-  // 先依時間排序，確保批次上傳時防連點邏輯一致
   const sorted = incomingScans.slice().sort(function (a, b) {
     return Number(a.timestampMs || 0) - Number(b.timestampMs || 0);
   });
@@ -346,13 +454,11 @@ function handlePushScans_(incomingScans, debounceSec) {
 
     if (!bib || !cpId) return;
 
-    // 1. 若 scan.id 已存在，視為已同步成功（冪等性）
     if (existingIdSet[id]) {
       acceptedIds.push(id);
       return;
     }
 
-    // 2. 防連點檢查（人工補登/修正不受限）
     const key = bib + '::' + cpId;
     if (!isManual && debounceMs > 0 && recentMap[key]) {
       const tooClose = recentMap[key].some(function (prevTs) {
@@ -377,6 +483,7 @@ function handlePushScans_(incomingScans, debounceSec) {
       String(scan.isoTime || new Date(ts).toISOString()),
       String(scan.source || 'nfc'),
       String(scan.deviceId || ''),
+      String(scan.operator || ''),
       scan.deleted ? 1 : 0,
       String(scan.note || ''),
       Date.now()
@@ -385,7 +492,7 @@ function handlePushScans_(incomingScans, debounceSec) {
   });
 
   if (rowsToAppend.length > 0) {
-    sheet.getRange(sheet.getLastRow() + 1, 1, rowsToAppend.length, 11).setValues(rowsToAppend);
+    sheet.getRange(sheet.getLastRow() + 1, 1, rowsToAppend.length, 12).setValues(rowsToAppend);
   }
 
   return {
@@ -396,9 +503,6 @@ function handlePushScans_(incomingScans, debounceSec) {
   };
 }
 
-/**
- * 新增或更新選手名單（以 bib 為主鍵）
- */
 function handleUpsertRunners_(incomingRunners) {
   if (!incomingRunners || !incomingRunners.length) {
     return { inserted: 0, updated: 0 };
@@ -413,7 +517,7 @@ function handleUpsertRunners_(incomingRunners) {
   const rowIndexByBib = {};
   for (let i = 1; i < values.length; i++) {
     const bib = String(values[i][0] || '').trim();
-    if (bib) rowIndexByBib[bib] = i + 1; // 1-based row number
+    if (bib) rowIndexByBib[bib] = i + 1;
   }
 
   let inserted = 0;
@@ -452,9 +556,6 @@ function handleUpsertRunners_(incomingRunners) {
   return { inserted: inserted, updated: updated };
 }
 
-/**
- * 儲存賽事基本設定、組別起跑時間與站點
- */
 function handleSaveConfig_(payload) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
 
@@ -465,18 +566,20 @@ function handleSaveConfig_(payload) {
       raceName: payload.config.raceName !== undefined ? payload.config.raceName : existing.raceName,
       raceDate: payload.config.raceDate !== undefined ? payload.config.raceDate : existing.raceDate,
       debounceSeconds: payload.config.debounceSeconds !== undefined ? payload.config.debounceSeconds : existing.debounceSeconds,
-      adminPin: payload.config.newAdminPin ? payload.config.newAdminPin : (existing.adminPin || '1234'),
+      adminUsername: payload.config.adminUsername || existing.adminUsername || 'admin',
+      adminPassword: payload.config.adminPassword || existing.adminPassword || existing.adminPin || 'admin1234',
       rankBy: payload.config.rankBy !== undefined ? payload.config.rankBy : (existing.rankBy || 'gun')
     };
 
     if (configSheet.getLastRow() > 1) {
       configSheet.getRange(2, 1, configSheet.getLastRow() - 1, 3).clearContent();
     }
-    configSheet.getRange(2, 1, 5, 3).setValues([
+    configSheet.getRange(2, 1, 6, 3).setValues([
       ['raceName', String(merged.raceName || ''), '賽事名稱'],
       ['raceDate', String(merged.raceDate || ''), '賽事日期'],
       ['debounceSeconds', String(merged.debounceSeconds || 30), '防連點冷卻秒數'],
-      ['adminPin', String(merged.adminPin || '1234'), '管理員密碼'],
+      ['adminUsername', String(merged.adminUsername || 'admin'), '後台最高管理員帳號'],
+      ['adminPassword', String(merged.adminPassword || 'admin1234'), '後台最高管理員密碼'],
       ['rankBy', String(merged.rankBy || 'gun'), '預設排名依據']
     ]);
   }
@@ -523,11 +626,31 @@ function handleSaveConfig_(payload) {
       cpSheet.getRange(2, 1, cpRows.length, 5).setValues(cpRows);
     }
   }
+
+  if (Array.isArray(payload.staffAccounts)) {
+    const staffSheet = getOrCreateSheet_(ss, SHEET_NAMES.STAFF, [
+      'username', 'password', 'displayName', 'role', 'checkpointId', 'enabled', 'updatedAt'
+    ]);
+    if (staffSheet.getLastRow() > 1) {
+      staffSheet.getRange(2, 1, staffSheet.getLastRow() - 1, 7).clearContent();
+    }
+    if (payload.staffAccounts.length > 0) {
+      const staffRows = payload.staffAccounts.map(function (s) {
+        return [
+          String(s.username || '').trim(),
+          String(s.password || ''),
+          String(s.displayName || '').trim(),
+          String(s.role || 'scanner').trim(),
+          String(s.checkpointId || '').trim(),
+          s.enabled === false ? 0 : 1,
+          Number(s.updatedAt || Date.now())
+        ];
+      });
+      staffSheet.getRange(2, 1, staffRows.length, 7).setValues(staffRows);
+    }
+  }
 }
 
-/**
- * 管理員人工修正/補登/刪除單筆感應紀錄
- */
 function handleEditScan_(scan) {
   if (!scan || !scan.bib || !scan.checkpointId) {
     throw new Error('缺少必要的感應修正欄位 (bib, checkpointId)');
@@ -536,7 +659,7 @@ function handleEditScan_(scan) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = getOrCreateSheet_(ss, SHEET_NAMES.SCANS, [
     'id', 'bib', 'checkpointId', 'timestampMs', 'timeStr', 'isoTime',
-    'source', 'deviceId', 'deleted', 'note', 'updatedAt'
+    'source', 'deviceId', 'operator', 'deleted', 'note', 'updatedAt'
   ]);
 
   const values = sheet.getDataRange().getValues();
@@ -561,16 +684,17 @@ function handleEditScan_(scan) {
     String(scan.isoTime || new Date(ts).toISOString()),
     String(scan.source || 'admin'),
     String(scan.deviceId || 'admin-console'),
+    String(scan.operator || 'admin'),
     scan.deleted ? 1 : 0,
     String(scan.note || '後台人工修正'),
     Date.now()
   ];
 
   if (targetRow > 0) {
-    sheet.getRange(targetRow, 1, 1, 11).setValues([rowData]);
+    sheet.getRange(targetRow, 1, 1, 12).setValues([rowData]);
     return { action: 'updated', id: id };
   } else {
-    sheet.getRange(sheet.getLastRow() + 1, 1, 1, 11).setValues([rowData]);
+    sheet.getRange(sheet.getLastRow() + 1, 1, 1, 12).setValues([rowData]);
     return { action: 'inserted', id: id };
   }
 }

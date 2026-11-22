@@ -1,12 +1,14 @@
 /**
- * 智慧路跑 NFC 晶片計時系統 — 本地 IndexedDB + LocalStorage 離線儲存層
+ * 智慧路跑 NFC 晶片計時系統 v2.0 — 本地 IndexedDB + LocalStorage 離線儲存層
+ * 支援離線帳號快取、權限鎖定站點、完整 JSON 備份還原
  */
 (function (global) {
   'use strict';
 
   const DB_NAME = 'SmartRaceTimingDB';
   const DB_VERSION = 1;
-  const SETTINGS_KEY = 'smart_race_device_settings_v1';
+  const SETTINGS_KEY = 'smart_race_device_settings_v2';
+  const SESSION_KEY = 'smart_race_auth_session_v2';
 
   function getTodayStr() {
     const d = new Date();
@@ -16,13 +18,26 @@
     return `${y}-${m}-${day}`;
   }
 
+  function createDefaultStaffAccounts() {
+    const now = Date.now();
+    return [
+      { username: 'writer01', password: '1111', displayName: '報到晶片寫入組', role: 'writer', checkpointId: '', enabled: true, updatedAt: now },
+      { username: 'start01', password: '1111', displayName: '起點感應組', role: 'scanner', checkpointId: 'START', enabled: true, updatedAt: now },
+      { username: 'cp1', password: '1111', displayName: '補給站 1 感應組', role: 'scanner', checkpointId: 'CP1', enabled: true, updatedAt: now },
+      { username: 'cp2', password: '1111', displayName: '折返點/補給站 2 組', role: 'scanner', checkpointId: 'CP2', enabled: true, updatedAt: now },
+      { username: 'cp3', password: '1111', displayName: '補給站 3 感應組', role: 'scanner', checkpointId: 'CP3', enabled: true, updatedAt: now },
+      { username: 'finish01', password: '1111', displayName: '終點衝線感應組', role: 'scanner', checkpointId: 'FINISH', enabled: true, updatedAt: now }
+    ];
+  }
+
   function createDefaultRaceConfig() {
     return {
       id: 'main',
       raceName: '2026 智慧城市馬拉松',
       raceDate: getTodayStr(),
       debounceSeconds: 30,
-      adminPin: '1234',
+      adminUsername: 'admin',
+      adminPassword: 'admin1234',
       rankBy: 'gun',
       categories: [
         { id: '42K', name: '全馬組 42K', distanceKm: 42.195, gunTimeMs: null, gunTimeIso: '', color: '#ef4444' },
@@ -36,6 +51,7 @@
         { id: 'CP3', name: '補給站 3 (21K)', order: 4, distanceKm: 21.1, type: 'checkpoint' },
         { id: 'FINISH', name: '終點衝線門', order: 5, distanceKm: 42.195, type: 'finish' }
       ],
+      staffAccounts: createDefaultStaffAccounts(),
       updatedAt: Date.now()
     };
   }
@@ -84,6 +100,24 @@
       const existing = await this.getConfig();
       if (!existing) {
         await this.saveConfig(createDefaultRaceConfig());
+      } else {
+        // 向下相容舊版設定，補齊管理員帳密與預設作業員帳號
+        let changed = false;
+        if (!existing.adminUsername) {
+          existing.adminUsername = 'admin';
+          changed = true;
+        }
+        if (!existing.adminPassword) {
+          existing.adminPassword = existing.adminPin || 'admin1234';
+          changed = true;
+        }
+        if (!Array.isArray(existing.staffAccounts) || existing.staffAccounts.length === 0) {
+          existing.staffAccounts = createDefaultStaffAccounts();
+          changed = true;
+        }
+        if (changed) {
+          await this.saveConfig(existing);
+        }
       }
       return this.db;
     }
@@ -99,13 +133,12 @@
       });
     }
 
-    /* ---------------- 裝置本地設定 (LocalStorage) ---------------- */
+    /* ---------------- 裝置設定與登入階段 (LocalStorage / SessionStorage) ---------------- */
 
     getDeviceSettings() {
       const defaults = {
         mode: 'offline', // 'offline' | 'online'
         gasUrl: '',
-        selectedCheckpointId: 'START',
         deviceId: generateDeviceId(),
         highContrast: false,
         soundEnabled: true,
@@ -113,7 +146,7 @@
         lastSyncAt: null
       };
       try {
-        const raw = localStorage.getItem(SETTINGS_KEY);
+        const raw = localStorage.getItem(SETTINGS_KEY) || localStorage.getItem('smart_race_device_settings_v1');
         if (!raw) {
           localStorage.setItem(SETTINGS_KEY, JSON.stringify(defaults));
           return defaults;
@@ -134,7 +167,26 @@
       return merged;
     }
 
-    /* ---------------- 賽事設定 (Config) ---------------- */
+    getSession() {
+      try {
+        const raw = sessionStorage.getItem(SESSION_KEY);
+        return raw ? JSON.parse(raw) : null;
+      } catch {
+        return null;
+      }
+    }
+
+    saveSession(sessionObj) {
+      try {
+        if (!sessionObj) {
+          sessionStorage.removeItem(SESSION_KEY);
+        } else {
+          sessionStorage.setItem(SESSION_KEY, JSON.stringify(sessionObj));
+        }
+      } catch {}
+    }
+
+    /* ---------------- 賽事設定與帳號驗證 (Config) ---------------- */
 
     async getConfig() {
       await this.init();
@@ -146,6 +198,51 @@
       const record = { ...cfg, id: 'main', updatedAt: Date.now() };
       await this._req(this._tx('config', 'readwrite').put(record));
       return record;
+    }
+
+    /**
+     * 本機驗證登入（無網路離線時使用）
+     * @param {'staff'|'admin'} mode
+     */
+    async verifyLocalLogin(mode, username, password) {
+      const cfg = await this.getConfig();
+      const u = String(username || '').trim();
+      const p = String(password || '');
+
+      if (mode === 'admin') {
+        const expectedUser = String(cfg.adminUsername || 'admin').trim();
+        const expectedPass = String(cfg.adminPassword || 'admin1234');
+        if (u === expectedUser && p === expectedPass) {
+          return {
+            ok: true,
+            account: { username: expectedUser, password: expectedPass, displayName: '最高系統管理員', role: 'admin' }
+          };
+        }
+        return { ok: false, error: '管理員帳號或密碼錯誤' };
+      }
+
+      const list = cfg.staffAccounts || [];
+      const matched = list.find((s) => s.enabled !== false && s.username === u && s.password === p);
+      if (!matched) {
+        return { ok: false, error: '作業員帳號或密碼錯誤（若為新帳號請先在有網路狀態登入同步一次）' };
+      }
+      return { ok: true, account: matched };
+    }
+
+    /**
+     * 將線上驗證成功的單一作業員帳號快取至本機，確保後續無網路也能登入同一站點
+     */
+    async cacheStaffAccount(account) {
+      if (!account || !account.username) return;
+      const cfg = await this.getConfig();
+      const list = [...(cfg.staffAccounts || [])];
+      const idx = list.findIndex((s) => s.username === account.username);
+      if (idx >= 0) {
+        list[idx] = { ...list[idx], ...account };
+      } else {
+        list.push(account);
+      }
+      await this.saveConfig({ ...cfg, staffAccounts: list });
     }
 
     /* ---------------- 選手資料 (Runners) ---------------- */
@@ -229,11 +326,7 @@
       };
     }
 
-    /**
-     * 新增感應紀錄（內建防連點機制）
-     * @returns {{ ok: boolean, duplicate?: boolean, waitRemainingSec?: number, scan?: Object }}
-     */
-    async addScan({ bib, checkpointId, timestampMs = Date.now(), source = 'nfc', note = '', bypassDebounce = false }) {
+    async addScan({ bib, checkpointId, timestampMs = Date.now(), source = 'nfc', operator = '', note = '', bypassDebounce = false }) {
       await this.init();
       const cleanBib = String(bib || '').trim();
       const cleanCp = String(checkpointId || '').trim();
@@ -274,6 +367,7 @@
         isoTime: new Date(Number(timestampMs)).toISOString(),
         source,
         deviceId: settings.deviceId,
+        operator: String(operator || ''),
         deleted: false,
         note: String(note || ''),
         synced: 0,
@@ -332,9 +426,6 @@
       });
     }
 
-    /**
-     * 合併雲端拉取資料至本地（不覆蓋尚未同步的本地紀錄）
-     */
     async mergeCloudData(cloudData) {
       await this.init();
       if (!cloudData) return;
@@ -346,8 +437,13 @@
         raceDate: cloudData.config?.raceDate || currentCfg.raceDate,
         debounceSeconds: cloudData.config?.debounceSeconds ?? currentCfg.debounceSeconds,
         rankBy: cloudData.config?.rankBy || currentCfg.rankBy,
+        adminUsername: cloudData.config?.adminUsername || currentCfg.adminUsername,
+        adminPassword: cloudData.config?.adminPassword || currentCfg.adminPassword,
         categories: cloudData.categories?.length ? cloudData.categories : currentCfg.categories,
-        checkpoints: cloudData.checkpoints?.length ? cloudData.checkpoints : currentCfg.checkpoints
+        checkpoints: cloudData.checkpoints?.length ? cloudData.checkpoints : currentCfg.checkpoints,
+        staffAccounts: Array.isArray(cloudData.staffAccounts) && cloudData.staffAccounts.length
+          ? cloudData.staffAccounts
+          : currentCfg.staffAccounts
       };
       await this.saveConfig(mergedCfg);
 
@@ -380,19 +476,86 @@
       }
     }
 
+    /* ---------------- 完整備份匯出 / 還原匯入 (JSON) ---------------- */
+
+    async exportFullBackup() {
+      const [config, runners, scans] = await Promise.all([
+        this.getConfig(),
+        this.getAllRunners(),
+        this.getAllScans()
+      ]);
+      return {
+        schemaVersion: '2.0',
+        exportedAt: new Date().toISOString(),
+        config,
+        runners,
+        scans
+      };
+    }
+
     /**
-     * 清除並載入一套完整的模擬賽事測試資料，方便立即體驗全部功能
+     * 還原或合併 JSON 備份檔
+     * @param {Object} backupObj
+     * @param {'replace'|'merge'} strategy replace=完全覆蓋還原, merge=合併感應與選手紀錄（適用彙整多支離線手機）
      */
+    async importFullBackup(backupObj, strategy = 'replace') {
+      if (!backupObj || (!backupObj.config && !Array.isArray(backupObj.runners) && !Array.isArray(backupObj.scans))) {
+        throw new Error('無效的系統備份檔格式');
+      }
+
+      if (strategy === 'replace') {
+        await this.clearAllData(false);
+        if (backupObj.config) {
+          await this.saveConfig({ ...createDefaultRaceConfig(), ...backupObj.config });
+        }
+      } else if (backupObj.config) {
+        const cur = await this.getConfig();
+        await this.saveConfig({
+          ...cur,
+          ...backupObj.config,
+          categories: backupObj.config.categories || cur.categories,
+          checkpoints: backupObj.config.checkpoints || cur.checkpoints,
+          staffAccounts: backupObj.config.staffAccounts || cur.staffAccounts
+        });
+      }
+
+      let runnerCount = 0;
+      if (Array.isArray(backupObj.runners)) {
+        for (const r of backupObj.runners) {
+          if (!r || !r.bib) continue;
+          await this.upsertRunner(r, false);
+          runnerCount++;
+        }
+      }
+
+      let scanCount = 0;
+      if (Array.isArray(backupObj.scans)) {
+        for (const s of backupObj.scans) {
+          if (!s || !s.id || !s.bib) continue;
+          await this.putScan({ ...s, synced: 0 });
+          scanCount++;
+        }
+      }
+
+      return { runnerCount, scanCount };
+    }
+
     async loadDemoData() {
       await this.init();
+      const prevCfg = await this.getConfig();
       await this.clearAllData(false);
 
       const now = Date.now();
-      const gun42 = now - 3 * 3600 * 1000 - 45 * 60 * 1000; // 3小時45分前鳴槍
-      const gun21 = now - 2 * 3600 * 1000 - 10 * 60 * 1000; // 2小時10分前鳴槍
-      const gun10 = now - 1 * 3600 * 1000 - 15 * 60 * 1000; // 1小時15分前鳴槍
+      const gun42 = now - 3 * 3600 * 1000 - 45 * 60 * 1000;
+      const gun21 = now - 2 * 3600 * 1000 - 10 * 60 * 1000;
+      const gun10 = now - 1 * 3600 * 1000 - 15 * 60 * 1000;
 
       const cfg = createDefaultRaceConfig();
+      // 保留使用者已設定的管理員帳密與作業員帳號
+      cfg.adminUsername = prevCfg?.adminUsername || 'admin';
+      cfg.adminPassword = prevCfg?.adminPassword || 'admin1234';
+      if (prevCfg?.staffAccounts?.length) cfg.staffAccounts = prevCfg.staffAccounts;
+
       cfg.categories[0].gunTimeMs = gun42;
       cfg.categories[0].gunTimeIso = new Date(gun42).toISOString();
       cfg.categories[1].gunTimeMs = gun21;
@@ -414,58 +577,49 @@
       ];
       await this.upsertRunnersBulk(demoRunners, false);
 
-      const addDemoScan = async (bib, cpId, tsMs, source = 'mock') => {
-        await this.addScan({ bib, checkpointId: cpId, timestampMs: tsMs, source, bypassDebounce: true });
+      const addDemoScan = async (bib, cpId, tsMs) => {
+        await this.addScan({ bib, checkpointId: cpId, timestampMs: tsMs, source: 'mock', operator: 'demo', bypassDebounce: true });
       };
 
       const min = 60 * 1000;
-      // A001 42K 完賽 (3:22:18)
       await addDemoScan('A001', 'START', gun42 + 8200);
       await addDemoScan('A001', 'CP1', gun42 + 23 * min + 15200);
       await addDemoScan('A001', 'CP2', gun42 + 47 * min + 5400);
       await addDemoScan('A001', 'CP3', gun42 + 99 * min + 41000);
       await addDemoScan('A001', 'FINISH', gun42 + 202 * min + 18450);
 
-      // A002 42K 完賽 (3:38:42)
       await addDemoScan('A002', 'START', gun42 + 14500);
       await addDemoScan('A002', 'CP1', gun42 + 25 * min + 10100);
       await addDemoScan('A002', 'CP2', gun42 + 51 * min + 32000);
       await addDemoScan('A002', 'CP3', gun42 + 108 * min + 22000);
       await addDemoScan('A002', 'FINISH', gun42 + 218 * min + 42310);
 
-      // A003 42K 仍在賽道上（剛通過 CP3）
       await addDemoScan('A003', 'START', gun42 + 21000);
       await addDemoScan('A003', 'CP1', gun42 + 29 * min + 5000);
       await addDemoScan('A003', 'CP2', gun42 + 60 * min + 12000);
       await addDemoScan('A003', 'CP3', gun42 + 131 * min + 44000);
 
-      // B101 21K 完賽 (1:41:09)
       await addDemoScan('B101', 'START', gun21 + 6100);
       await addDemoScan('B101', 'CP1', gun21 + 24 * min + 1200);
       await addDemoScan('B101', 'CP2', gun21 + 48 * min + 21500);
       await addDemoScan('B101', 'FINISH', gun21 + 101 * min + 9320);
 
-      // B102 21K 完賽 (1:54:26)
       await addDemoScan('B102', 'START', gun21 + 18900);
       await addDemoScan('B102', 'CP1', gun21 + 26 * min + 35000);
       await addDemoScan('B102', 'CP2', gun21 + 54 * min + 10000);
       await addDemoScan('B102', 'FINISH', gun21 + 114 * min + 26780);
 
-      // B103 21K 賽道上（已過 CP2）
       await addDemoScan('B103', 'START', gun21 + 25000);
       await addDemoScan('B103', 'CP1', gun21 + 31 * min + 14000);
       await addDemoScan('B103', 'CP2', gun21 + 64 * min + 8000);
 
-      // C201 10K 完賽 (0:46:55)
       await addDemoScan('C201', 'START', gun10 + 4200);
       await addDemoScan('C201', 'CP1', gun10 + 23 * min + 11000);
       await addDemoScan('C201', 'FINISH', gun10 + 46 * min + 55120);
 
-      // C202 10K 賽道上（已過 CP1）
       await addDemoScan('C202', 'START', gun10 + 12500);
       await addDemoScan('C202', 'CP1', gun10 + 29 * min + 40200);
 
-      // C203 10K 尚未出發（已報到）
       return true;
     }
 
