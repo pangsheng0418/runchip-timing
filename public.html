@@ -4,141 +4,304 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#0f172a" />
-  <title>多場次即時成績與選手動態查詢 — 智慧路跑 NFC 計時平台</title>
-  <link rel="icon" type="image/svg+xml" href="./icon.svg" />
+  <title>TUR (Taiwan Ultra Runners) 即時成績與歷年英雄榜查詢</title>
+  <link rel="icon" type="image/png" href="./tur-icon.png" />
+  <link rel="apple-touch-icon" href="./tur-icon.png" />
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="./css/style.css" />
 </head>
 <body class="min-h-screen bg-slate-950 text-slate-100 pb-12">
 
-  <!-- 頂部橫幅與活動切換列 -->
-  <header class="bg-gradient-to-r from-slate-900 via-slate-900 to-sky-950 border-b border-slate-800">
+  <!-- 頂部與模式切換 -->
+  <header class="bg-slate-900 border-b border-slate-800">
     <div class="max-w-6xl mx-auto px-4 py-4 space-y-3">
       <div class="flex flex-wrap items-center justify-between gap-3">
-        <div class="flex items-center gap-3">
-          <img src="./icon.svg" alt="Logo" class="w-11 h-11 rounded-xl shadow" />
-          <div>
-            <div class="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-400">
-              <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-              <span id="pub-source-badge">即時連線中</span>
+        <div class="flex items-center gap-3 min-w-0">
+          <div class="bg-white px-2.5 py-1.5 rounded-xl shadow shrink-0 flex items-center">
+            <img src="./tur-logo.jpg" alt="TUR Taiwan Ultra Runners" class="h-7 sm:h-9 w-auto object-contain" />
+          </div>
+          <div class="min-w-0">
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="inline-flex items-center gap-1 text-xs font-bold text-emerald-400">
+                <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                <span id="pub-source-badge">連線中</span>
+              </span>
             </div>
-            <h1 id="pub-race-name" class="text-xl sm:text-2xl font-black text-white">智慧路跑即時成績查詢</h1>
-            <div id="pub-race-meta" class="text-xs text-slate-400">--</div>
+            <h1 id="pub-race-name" class="text-lg sm:text-2xl font-black text-white truncate mt-0.5">即時成績查詢</h1>
+            <div id="pub-race-meta" class="text-xs text-slate-400 truncate">--</div>
           </div>
         </div>
 
         <div class="flex items-center gap-2 flex-wrap">
-          <span id="pub-last-updated" class="text-xs text-slate-400 font-mono-num">更新中...</span>
+          <span id="pub-last-updated" class="text-xs text-slate-400 font-mono-num">--</span>
           <button id="btn-pub-refresh" type="button"
-            class="px-3.5 py-2 rounded-xl text-xs font-extrabold bg-sky-600 hover:bg-sky-500 text-white transition">
-            🔄 立即更新
+            class="px-3 py-1.5 rounded-xl text-xs font-bold bg-sky-600 hover:bg-sky-500 text-white transition">
+            🔄 更新
           </button>
           <a href="./index.html"
-            class="px-3 py-2 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 transition">
-            🏠 系統入口
+            class="px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 transition">
+            🏠 大廳
           </a>
         </div>
       </div>
 
-      <!-- 多場次路跑活動切換下拉選單與快捷按鈕 -->
-      <div class="bg-slate-950/70 border border-sky-500/30 rounded-2xl p-3 space-y-2.5">
-        <div class="flex flex-col sm:flex-row sm:items-center gap-2">
-          <label for="pub-event-select" class="text-xs font-extrabold text-sky-300 shrink-0">🏟️ 選擇查詢路跑活動：</label>
+      <!-- 三模式切換：即時賽事 / 歷年成績 / 八百壯士 -->
+      <div class="flex flex-wrap items-center gap-2">
+        <div class="inline-flex flex-wrap p-1 rounded-xl bg-slate-950 border border-slate-800 gap-1">
+          <button type="button" data-pub-mode="live"
+            class="pub-mode-btn px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-black bg-sky-500 text-slate-950 transition">
+            🏃 即時賽事
+          </button>
+          <button type="button" data-pub-mode="history"
+            class="pub-mode-btn px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-bold text-slate-300 hover:bg-slate-800 transition">
+            📜 歷年成績 <span id="pub-history-count-badge" class="ml-1 px-1.5 py-0.5 rounded bg-slate-800 text-amber-300 font-mono-num text-[11px]">0</span>
+          </button>
+          <button type="button" data-pub-mode="warriors800"
+            class="pub-mode-btn px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-bold text-slate-300 hover:bg-slate-800 transition">
+            ⚔️ 八百壯士 <span id="pub-800-count-badge" class="ml-1 px-1.5 py-0.5 rounded bg-slate-800 text-amber-300 font-mono-num text-[11px]">0</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- 即時活動切換（僅顯示進行中／籌備中活動；已結束活動不顯示） -->
+      <div id="pub-live-selector-bar" class="space-y-2">
+        <div id="pub-event-select-wrap" class="flex items-center gap-2">
+          <label for="pub-event-select" class="text-xs font-bold text-sky-300 shrink-0">🏟️ 活動</label>
           <select id="pub-event-select"
             style="background-color:#0f172a; color:#f8fafc;"
-            class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm font-black text-white focus:border-sky-400 focus:outline-none">
-            <option value="">載入路跑活動中...</option>
+            class="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-sm font-bold text-white focus:border-sky-400 focus:outline-none">
           </select>
         </div>
-        <div id="pub-event-pills" class="flex flex-wrap gap-1.5"></div>
+        <div id="pub-event-pills" class="hidden flex flex-wrap gap-1.5"></div>
       </div>
     </div>
   </header>
 
   <main class="max-w-6xl mx-auto px-4 py-6 space-y-6">
 
-    <!-- 1. 選手即時位置與成績查詢框 -->
-    <section class="bg-slate-900 border-2 border-sky-500/40 rounded-3xl p-5 sm:p-6 space-y-4 shadow-xl">
-      <div>
-        <h2 class="text-lg sm:text-xl font-black text-white">🔍 選手即時動態與成績查詢</h2>
-        <p class="text-xs sm:text-sm text-slate-400 mt-1">
-          輸入「選手姓名」、「本場參賽編號」或「完整身份證字號」（系統全面採隱碼顯示如 <code class="text-sky-300">A123****89</code> 保護個資）
-        </p>
-      </div>
-
-      <form id="form-pub-search" class="flex flex-col sm:flex-row gap-2.5">
-        <input id="pub-search-input" type="search" placeholder="請輸入姓名、參賽編號（如 A001）或完整身份證字號..."
-          class="flex-1 text-base sm:text-lg font-bold bg-slate-950 border border-slate-700 rounded-2xl px-4 py-3.5 text-white focus:border-sky-400 focus:outline-none" />
-        <button type="submit"
-          class="px-7 py-3.5 rounded-2xl text-base font-black bg-emerald-500 hover:bg-emerald-400 text-slate-950 transition shrink-0">
-          查詢動態
-        </button>
-      </form>
-
-      <div id="pub-search-results" class="hidden space-y-4 pt-2"></div>
-    </section>
-
-    <!-- 2. 本場活動即時總覽看板 -->
-    <section class="space-y-4">
-      <h2 class="text-base font-extrabold text-slate-200">📊 本場活動即時總覽看板</h2>
-
-      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4">
-          <div id="pub-kpi-label-1" class="text-xs text-slate-400 font-bold">本場報名人數</div>
-          <div id="pub-kpi-total" class="text-3xl font-black text-white font-mono-num mt-1">0</div>
-        </div>
-        <div class="bg-slate-900 border border-sky-500/30 rounded-2xl p-4">
-          <div id="pub-kpi-label-checkin" class="text-xs text-sky-400 font-bold">已報到人數</div>
-          <div id="pub-kpi-checkin" class="text-3xl font-black text-sky-400 font-mono-num mt-1">0</div>
-        </div>
-        <div class="bg-slate-900 border border-emerald-500/30 rounded-2xl p-4">
-          <div id="pub-kpi-label-2" class="text-xs text-emerald-400 font-bold">已完賽人數</div>
-          <div id="pub-kpi-finished" class="text-3xl font-black text-emerald-400 font-mono-num mt-1">0</div>
-        </div>
-        <div class="bg-slate-900 border border-amber-500/30 rounded-2xl p-4">
-          <div id="pub-kpi-label-3" class="text-xs text-amber-400 font-bold">賽道上人數</div>
-          <div id="pub-kpi-oncourse" class="text-3xl font-black text-amber-400 font-mono-num mt-1">0</div>
-        </div>
-        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4">
-          <div id="pub-kpi-label-4" class="text-xs text-slate-400 font-bold">未報到人數</div>
-          <div id="pub-kpi-notstarted" class="text-3xl font-black text-slate-300 font-mono-num mt-1">0</div>
+    <!-- ================================================================== -->
+    <!-- 模式 1：即時賽事查詢（僅進行中／籌備中活動） -->
+    <!-- ================================================================== -->
+    <div id="pub-view-live" class="space-y-6">
+      <div id="pub-live-empty" class="hidden bg-slate-900 border border-slate-800 rounded-3xl p-10 text-center space-y-3">
+        <div class="text-4xl">🏁</div>
+        <div class="text-lg font-black text-white">目前無進行中的路跑活動</div>
+        <p class="text-xs text-slate-400">已結束與歷年活動請切換至「歷年成績」或「八百壯士」查詢</p>
+        <div class="flex flex-wrap justify-center gap-2">
+          <button id="btn-goto-history-from-empty" type="button"
+            class="px-5 py-2.5 rounded-xl text-sm font-black bg-amber-500 hover:bg-amber-400 text-slate-950 transition shadow">
+            📜 歷年成績查詢
+          </button>
+          <button id="btn-goto-800-from-empty" type="button"
+            class="px-5 py-2.5 rounded-xl text-sm font-black bg-slate-800 hover:bg-slate-700 border border-amber-500/40 text-amber-300 transition">
+            ⚔️ 八百壯士英雄榜
+          </button>
         </div>
       </div>
 
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
-          <h3 id="pub-cat-card-title" class="text-sm font-extrabold text-white">🏃 各分組完賽進度</h3>
-          <div id="pub-category-stats" class="space-y-3"></div>
+      <div id="pub-live-content" class="space-y-6">
+        <!-- 1. 選手查詢 -->
+        <section class="bg-slate-900 border border-sky-500/40 rounded-3xl p-4 sm:p-5 space-y-3 shadow-xl">
+          <form id="form-pub-search" class="flex flex-col sm:flex-row gap-2.5">
+            <input id="pub-search-input" type="search" placeholder="🔍 查詢選手：輸入姓名、參賽編號或身份證"
+              class="flex-1 text-base font-bold bg-slate-950 border border-slate-700 rounded-2xl px-4 py-3 text-white focus:border-sky-400 focus:outline-none" />
+            <button type="submit"
+              class="px-7 py-3 rounded-2xl text-base font-black bg-emerald-500 hover:bg-emerald-400 text-slate-950 transition shrink-0">
+              查詢
+            </button>
+          </form>
+          <div id="pub-search-results" class="hidden space-y-4 pt-1"></div>
+        </section>
+
+        <!-- 2. 即時總覽 -->
+        <section class="space-y-4">
+          <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-3.5">
+              <div id="pub-kpi-label-1" class="text-xs text-slate-400 font-bold">報名</div>
+              <div id="pub-kpi-total" class="text-2xl sm:text-3xl font-black text-white font-mono-num mt-0.5">0</div>
+            </div>
+            <div class="bg-slate-900 border border-sky-500/30 rounded-2xl p-3.5">
+              <div id="pub-kpi-label-checkin" class="text-xs text-sky-400 font-bold">已報到</div>
+              <div id="pub-kpi-checkin" class="text-2xl sm:text-3xl font-black text-sky-400 font-mono-num mt-0.5">0</div>
+            </div>
+            <div class="bg-slate-900 border border-emerald-500/30 rounded-2xl p-3.5">
+              <div id="pub-kpi-label-2" class="text-xs text-emerald-400 font-bold">已完賽</div>
+              <div id="pub-kpi-finished" class="text-2xl sm:text-3xl font-black text-emerald-400 font-mono-num mt-0.5">0</div>
+            </div>
+            <div class="bg-slate-900 border border-amber-500/30 rounded-2xl p-3.5">
+              <div id="pub-kpi-label-3" class="text-xs text-amber-400 font-bold">賽道上</div>
+              <div id="pub-kpi-oncourse" class="text-2xl sm:text-3xl font-black text-amber-400 font-mono-num mt-0.5">0</div>
+            </div>
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-3.5">
+              <div id="pub-kpi-label-4" class="text-xs text-slate-400 font-bold">未報到</div>
+              <div id="pub-kpi-notstarted" class="text-2xl sm:text-3xl font-black text-slate-300 font-mono-num mt-0.5">0</div>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 space-y-3">
+              <h3 id="pub-cat-card-title" class="text-sm font-extrabold text-white">🏃 分組進度</h3>
+              <div id="pub-category-stats" class="space-y-3"></div>
+            </div>
+
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 space-y-3">
+              <h3 id="pub-right-card-title" class="text-sm font-extrabold text-white">📍 站點通過</h3>
+              <div id="pub-checkpoint-stats" class="space-y-3"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 3. 排行榜 -->
+        <section class="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 space-y-4">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <h2 id="pub-lb-title" class="text-base font-extrabold text-white">🏆 成績排行榜</h2>
+            <select id="pub-cat-filter" class="bg-slate-950 border border-slate-700 rounded-xl px-3 py-1.5 text-xs font-bold text-white">
+              <option value="ALL">全部組別</option>
+            </select>
+          </div>
+
+          <div class="overflow-x-auto">
+            <table class="w-full text-xs sm:text-sm text-left whitespace-nowrap">
+              <thead id="pub-leaderboard-thead" class="text-xs text-slate-400 border-b border-slate-800"></thead>
+              <tbody id="pub-leaderboard-tbody" class="divide-y divide-slate-800/70"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <!-- ================================================================== -->
+    <!-- 模式 2：歷年成績查詢（系統已結束活動 ＋ 匯入歷年成績 個人合併查詢） -->
+    <!-- ================================================================== -->
+    <div id="pub-view-history" class="hidden space-y-5">
+      <section class="bg-slate-900 border border-amber-500/40 rounded-3xl p-4 sm:p-5 space-y-4 shadow-xl">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <h2 class="text-base sm:text-lg font-black text-amber-300">📜 歷年個人成績查詢</h2>
+          <span id="pub-history-events-badge" class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-slate-800 text-slate-300 font-mono-num">
+            歷年 0 場
+          </span>
         </div>
 
-        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
-          <h3 id="pub-right-card-title" class="text-sm font-extrabold text-white">📍 各補給站通過人數統計</h3>
-          <div id="pub-checkpoint-stats" class="space-y-3"></div>
-        </div>
-      </div>
-    </section>
+        <form id="form-pub-history-search" class="space-y-2.5">
+          <div class="grid grid-cols-1 sm:grid-cols-12 gap-2">
+            <select id="pub-history-year-filter"
+              style="background-color:#0f172a; color:#f8fafc;"
+              class="sm:col-span-3 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs sm:text-sm font-bold text-white focus:border-amber-400 focus:outline-none">
+              <option value="ALL">全部年份</option>
+            </select>
+            <select id="pub-history-event-filter"
+              style="background-color:#0f172a; color:#f8fafc;"
+              class="sm:col-span-9 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs sm:text-sm font-bold text-white focus:border-amber-400 focus:outline-none">
+              <option value="ALL">全部歷年活動</option>
+            </select>
+          </div>
 
-    <!-- 3. 本場即時成績排行榜 -->
-    <section class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
-      <div class="flex flex-wrap items-center justify-between gap-3">
-        <h2 id="pub-lb-title" class="text-base font-extrabold text-white">🏆 本場即時成績排行榜</h2>
-        <div class="flex flex-wrap gap-2">
-          <select id="pub-cat-filter" class="bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-white">
-            <option value="ALL">全部組別</option>
-          </select>
-        </div>
+          <div class="flex flex-col sm:flex-row gap-2.5">
+            <input id="pub-history-input" type="search" placeholder="🔍 輸入選手姓名、完整身份證字號或參賽編號"
+              class="flex-1 text-base font-bold bg-slate-950 border border-slate-700 rounded-2xl px-4 py-3 text-white focus:border-amber-400 focus:outline-none" />
+            <button type="submit"
+              class="px-7 py-3 rounded-2xl text-base font-black bg-amber-500 hover:bg-amber-400 text-slate-950 transition shrink-0">
+              查詢歷年成績
+            </button>
+          </div>
+        </form>
+      </section>
+
+      <div id="pub-history-results" class="space-y-4"></div>
+    </div>
+
+    <!-- ================================================================== -->
+    <!-- 模式 3：⚔️ TUR 八百壯士系統（當年度成績整合 ＋ 歷年英雄榜查詢） -->
+    <!-- ================================================================== -->
+    <div id="pub-view-warriors800" class="hidden space-y-6">
+      <div id="pub-800-empty" class="hidden bg-slate-900 border border-slate-800 rounded-3xl p-10 text-center space-y-2">
+        <div class="text-4xl">⚔️</div>
+        <div class="text-lg font-black text-white">尚無八百壯士系統活動資料</div>
+        <p class="text-xs text-slate-400">活動名稱包含「八百壯士」之賽事與匯入歷年成績將自動整合至此</p>
       </div>
 
-      <div class="overflow-x-auto">
-        <table class="w-full text-xs sm:text-sm text-left whitespace-nowrap">
-          <thead id="pub-leaderboard-thead" class="text-xs uppercase text-slate-400 border-b border-slate-800"></thead>
-          <tbody id="pub-leaderboard-tbody" class="divide-y divide-slate-800/70"></tbody>
-        </table>
+      <div id="pub-800-content" class="space-y-6">
+        <!-- A. 當年度八百壯士成績整合資訊 -->
+        <section class="bg-slate-900 border border-amber-500/40 rounded-3xl p-4 sm:p-5 space-y-4 shadow-xl">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <h2 class="text-base sm:text-lg font-black text-amber-300">📅 當年度八百壯士成績整合</h2>
+            <select id="pub-800-year-select"
+              style="background-color:#0f172a; color:#f8fafc;"
+              class="bg-slate-950 border border-amber-500/50 rounded-xl px-3 py-1.5 text-xs sm:text-sm font-black text-amber-300 focus:outline-none">
+            </select>
+          </div>
+
+          <!-- 年度整合 KPI -->
+          <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <div class="bg-slate-950 border border-slate-800 rounded-2xl p-3.5">
+              <div class="text-xs font-bold text-slate-400">年度場次</div>
+              <div id="pub-800-yr-events" class="text-2xl sm:text-3xl font-black text-white font-mono-num mt-0.5">0</div>
+            </div>
+            <div class="bg-slate-950 border border-sky-500/30 rounded-2xl p-3.5">
+              <div class="text-xs font-bold text-sky-400">參賽人次</div>
+              <div id="pub-800-yr-entries" class="text-2xl sm:text-3xl font-black text-sky-400 font-mono-num mt-0.5">0</div>
+            </div>
+            <div class="bg-slate-950 border border-emerald-500/30 rounded-2xl p-3.5">
+              <div class="text-xs font-bold text-emerald-400">完賽人次</div>
+              <div id="pub-800-yr-finishers" class="text-2xl sm:text-3xl font-black text-emerald-400 font-mono-num mt-0.5">0</div>
+            </div>
+            <div class="bg-slate-950 border border-amber-500/30 rounded-2xl p-3.5">
+              <div class="text-xs font-bold text-amber-400">年度總里程 (km)</div>
+              <div id="pub-800-yr-km" class="text-2xl sm:text-3xl font-black text-amber-400 font-mono-num mt-0.5">0</div>
+            </div>
+          </div>
+
+          <!-- 當年度各場次摘要 -->
+          <div id="pub-800-year-events-list" class="grid grid-cols-1 md:grid-cols-2 gap-2.5"></div>
+
+          <!-- 當年度個人整合排行榜 -->
+          <div class="space-y-2 pt-1">
+            <div class="flex items-center justify-between">
+              <h3 class="text-sm font-extrabold text-white">🏅 當年度個人整合排名</h3>
+              <span id="pub-800-yr-runners-count" class="text-xs font-mono-num text-slate-400">0 人</span>
+            </div>
+            <div class="overflow-x-auto border border-slate-800 rounded-2xl">
+              <table class="w-full text-xs sm:text-sm text-left whitespace-nowrap">
+                <thead class="bg-slate-950 text-xs text-slate-400 border-b border-slate-800">
+                  <tr>
+                    <th class="py-2.5 px-3">名次</th>
+                    <th class="py-2.5 px-2">姓名</th>
+                    <th class="py-2.5 px-2">身份證 (隱碼)</th>
+                    <th class="py-2.5 px-2">年度場次</th>
+                    <th class="py-2.5 px-2">年度總里程</th>
+                    <th class="py-2.5 px-3">當年度參與場次與成績</th>
+                  </tr>
+                </thead>
+                <tbody id="pub-800-year-tbody" class="divide-y divide-slate-800/70"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- B. ⚔️ 八百壯士歷年英雄榜（跨年度總榜查詢） -->
+        <section class="bg-slate-900 border border-amber-500/30 rounded-3xl p-4 sm:p-5 space-y-4 shadow-xl">
+          <div class="flex flex-wrap items-center justify-between gap-2.5">
+            <div>
+              <h2 class="text-base sm:text-lg font-black text-amber-300">⚔️ 八百壯士歷年英雄榜</h2>
+              <div id="pub-800-hero-summary" class="text-xs text-slate-400 font-mono-num mt-0.5">--</div>
+            </div>
+            <form id="form-pub-800-hero" class="flex gap-2 w-full sm:w-auto">
+              <input id="pub-800-hero-search" type="search" placeholder="🔍 搜尋英雄姓名 / 身份證 / 編號"
+                class="flex-1 sm:w-64 bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs sm:text-sm font-bold text-white focus:border-amber-400 focus:outline-none" />
+              <button type="submit"
+                class="px-4 py-2 rounded-xl text-xs font-black bg-amber-500 hover:bg-amber-400 text-slate-950 shrink-0">
+                查詢
+              </button>
+            </form>
+          </div>
+
+          <div id="pub-800-hero-list" class="space-y-2.5"></div>
+        </section>
       </div>
-    </section>
+    </div>
 
     <footer class="text-center text-xs text-slate-500 pt-2">
-      智慧路跑 NFC 多場次共用晶片計時平台 • 每 20 秒自動刷新 • 所有身份證字號全面隱碼保護
+      TUR (Taiwan Ultra Runners) 路跑晶片計時平台 • 每 20 秒自動更新 • 身份證字號全面隱碼保護
     </footer>
   </main>
 

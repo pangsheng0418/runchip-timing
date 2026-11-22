@@ -160,6 +160,7 @@
 
       let regsToUpload = pending.unsyncedRegs;
       let scansToUpload = pending.unsyncedScans;
+      let historyToUpload = isAdmin ? (pending.unsyncedHistory || []) : [];
       let platformPayload = null;
 
       if (isAdmin) {
@@ -178,15 +179,16 @@
         }
       }
 
-      if (!includePlatform && pending.chips === 0 && regsToUpload.length === 0 && scansToUpload.length === 0) {
-        return { platformSynced: false, uploadedChips: 0, uploadedRegs: 0, uploadedScans: 0, skippedDuplicate: 0 };
+      if (!includePlatform && pending.chips === 0 && regsToUpload.length === 0 && scansToUpload.length === 0 && historyToUpload.length === 0) {
+        return { platformSynced: false, uploadedChips: 0, uploadedRegs: 0, uploadedScans: 0, uploadedHistory: 0, skippedDuplicate: 0 };
       }
 
       const body = {
         action: 'batchSync',
         chips: pending.unsyncedChips,
         registrations: regsToUpload,
-        scans: scansToUpload
+        scans: scansToUpload,
+        historyRecords: historyToUpload
       };
 
       if (session && session.auth) {
@@ -207,7 +209,8 @@
         platform: Boolean(res.result?.platformSynced),
         chipIds: pending.unsyncedChips.map((c) => c.idNumber),
         regIds: regsToUpload.map((r) => r.regId),
-        scanIds: scanDoneIds
+        scanIds: scanDoneIds,
+        historyIds: historyToUpload.map((h) => h.id)
       });
 
       global.RaceDB.saveDeviceSettings({ lastSyncAt: Date.now() });
@@ -218,6 +221,7 @@
         uploadedChips: pending.unsyncedChips.length,
         uploadedRegs: regsToUpload.length,
         uploadedScans: res.result?.scans?.inserted || 0,
+        uploadedHistory: historyToUpload.length,
         skippedDuplicate: res.result?.scans?.skippedDuplicate || 0
       };
     }
@@ -300,6 +304,33 @@
       const res = await this._post(this.getUrl(), { action: 'editScan', auth, scan });
       await global.RaceDB.markSynced({ scanIds: [scan.id] });
       return res;
+    }
+
+    async pushHistoryRecords(historyRecords, auth = null) {
+      if (!this.isOnlineEnabled() || !navigator.onLine) return { queued: true };
+      try {
+        const body = { action: 'upsertHistory', historyRecords };
+        if (auth) body.auth = auth;
+        await this._post(this.getUrl(), body);
+        await global.RaceDB.markSynced({ historyIds: historyRecords.map((h) => h.id) });
+        global.RaceDB.saveDeviceSettings({ lastSyncAt: Date.now() });
+        return { queued: false };
+      } catch (err) {
+        return { queued: true, error: err.message };
+      }
+    }
+
+    async deleteHistoryRecordsCloud(ids, auth = null) {
+      if (!this.isOnlineEnabled() || !navigator.onLine || !ids?.length) return { queued: true };
+      try {
+        const body = { action: 'deleteHistory', ids };
+        if (auth) body.auth = auth;
+        await this._post(this.getUrl(), body);
+        global.RaceDB.saveDeviceSettings({ lastSyncAt: Date.now() });
+        return { queued: false };
+      } catch (err) {
+        return { queued: true, error: err.message };
+      }
     }
   }
 

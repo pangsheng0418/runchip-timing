@@ -1,7 +1,7 @@
 {
-  "name": "智慧路跑 NFC 晶片計時系統",
-  "short_name": "NFC路跑計時",
-  "description": "支援離線與多機即時雲端同步的 Web NFC 路跑晶片計時系統",
+  "name": "TUR Taiwan Ultra Runners 路跑晶片計時平台",
+  "short_name": "TUR計時平台",
+  "description": "TUR (Taiwan Ultra Runners) 專屬多場次 Web NFC 路跑晶片計時、歷年成績與八百壯士英雄榜平台",
   "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#0f172a",
@@ -9,9 +9,9 @@
   "orientation": "portrait-primary",
   "icons": [
     {
-      "src": "./icon.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
+      "src": "./tur-icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
       "purpose": "any maskable"
     }
   ]

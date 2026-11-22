@@ -10,7 +10,7 @@
   'use strict';
 
   const DB_NAME = 'SmartRacePlatformDB_v3';
-  const DB_VERSION = 1;
+  const DB_VERSION = 2;
   const SETTINGS_KEY = 'smart_race_platform_settings_v3';
   const SESSION_KEY = 'smart_race_platform_session_v3';
 
@@ -19,10 +19,12 @@
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   }
 
-  function createDefaultEvent(eventId = 'EVT-2026-01', name = '2026 智慧城市馬拉松', date = getTodayStr(), location = '台北市政府廣場', ownerAdmin = 'admin') {
+  function createDefaultEvent(eventId = 'EVT-2026-01', name = '2026 TUR 超級馬拉松挑戰賽', date = getTodayStr(), location = '台北市政府廣場', ownerAdmin = 'admin') {
     return {
       eventId,
       name,
+      englishName: '',
+      organization: 'Taiwan Ultra Runners',
       date,
       location,
       status: 'active',
@@ -52,6 +54,8 @@
     return {
       eventId,
       name,
+      englishName: '',
+      organization: 'Taiwan Ultra Runners',
       date,
       location,
       status: 'active',
@@ -71,6 +75,31 @@
       ],
       updatedAt: Date.now()
     };
+  }
+
+  function normalizeGenderValue(rawGender, idNumber = '') {
+    const g = String(rawGender ?? '').trim().toUpperCase();
+    if (g === 'M' || g === 'MALE' || g === '男' || g === 'BOY' || g === 'MAN') return 'M';
+    if (g === 'F' || g === 'FEMALE' || g === '女' || g === 'GIRL' || g === 'WOMAN') return 'F';
+    if (g === '') {
+      const id = String(idNumber || '').trim().toUpperCase();
+      if (/^[A-Z][1289]\d{8}$/.test(id)) {
+        return (id[1] === '1' || id[1] === '8') ? 'M' : 'F';
+      }
+    }
+    return '';
+  }
+
+  function normalizeDobValue(raw) {
+    const s = String(raw ?? '').trim();
+    if (!s) return '';
+    const m = s.match(/^(\d{4})[\/.\-](\d{1,2})[\/.\-](\d{1,2})/);
+    if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
+    const d = new Date(s);
+    if (!Number.isNaN(d.getTime()) && d.getFullYear() >= 1900 && d.getFullYear() <= 2100) {
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    }
+    return s;
   }
 
   function createDefaultAdminAccounts(adminUsername = 'admin', adminPassword = 'admin1234') {
@@ -175,7 +204,7 @@
   }
 
   function createDefaultPlatform() {
-    const defaultEvt = createDefaultEvent('EVT-2026-01', '2026 智慧城市馬拉松', getTodayStr(), '台北市政府廣場', 'admin');
+    const defaultEvt = createDefaultEvent('EVT-2026-01', '2026 TUR 超級馬拉松挑戰賽', getTodayStr(), '台北市政府廣場', 'admin');
     return {
       id: 'main',
       adminUsername: 'admin',
@@ -205,6 +234,27 @@
     return `${String(eventId).trim()}__${cleanId || cleanBib}`;
   }
 
+  function normalizeHistoryDate(rawDate, rawYear) {
+    const d = String(rawDate || '').trim();
+    if (/^\d{4}[-/.]\d{1,2}[-/.]\d{1,2}$/.test(d)) {
+      const parts = d.split(/[-/.]/);
+      return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+    }
+    const yMatch = (d || String(rawYear || '')).match(/(\d{4})/);
+    if (yMatch) return `${yMatch[1]}-01-01`;
+    return getTodayStr();
+  }
+
+  function makeHistoryId(eventDate, eventName, idNumber, bib, name, categoryName) {
+    const cleanId = String(idNumber || '').trim().toUpperCase();
+    const cleanBib = String(bib || '').trim().toUpperCase();
+    const cleanName = String(name || '').trim();
+    const cleanEvt = String(eventName || '').trim();
+    const cleanCat = String(categoryName || '').trim();
+    const personKey = cleanId || `${cleanName}_${cleanBib || cleanCat}`;
+    return `HIST__${eventDate}__${cleanEvt}__${personKey}`.replace(/\s+/g, '_');
+  }
+
   class RaceDB {
     constructor() {
       this.db = null;
@@ -232,6 +282,12 @@
             const store = db.createObjectStore('scans', { keyPath: 'id' });
             store.createIndex('eventId', 'eventId', { unique: false });
             store.createIndex('bib', 'bib', { unique: false });
+          }
+          if (!db.objectStoreNames.contains('history_records')) {
+            const store = db.createObjectStore('history_records', { keyPath: 'id' });
+            store.createIndex('year', 'year', { unique: false });
+            store.createIndex('eventName', 'eventName', { unique: false });
+            store.createIndex('idNumber', 'idNumber', { unique: false });
           }
         };
         req.onsuccess = () => resolve(req.result);
@@ -467,11 +523,21 @@
       const finalId = idNumber || existing?.idNumber || '';
       const idHash = finalId ? await global.TimingEngine.sha256Hex(finalId) : (reg.idHash || existing?.idHash || '');
 
+      const rawGender = reg.gender !== undefined ? reg.gender : (existing?.gender ?? '');
+      const finalGender = normalizeGenderValue(rawGender, finalId);
+      const finalDob = reg.dob !== undefined ? normalizeDobValue(reg.dob) : (existing?.dob || '');
+
       const record = {
         regId,
         eventId,
         bib,
         name: String(reg.name ?? existing?.name ?? '').trim(),
+        lastName: String(reg.lastName ?? existing?.lastName ?? '').trim(),
+        firstName: String(reg.firstName ?? existing?.firstName ?? '').trim(),
+        gender: finalGender,
+        dob: finalDob,
+        city: String(reg.city ?? existing?.city ?? '').trim(),
+        country: String(reg.country ?? existing?.country ?? '').trim(),
         idNumber: finalId,
         idMasked: reg.idMasked || global.TimingEngine.maskIdNumber(finalId),
         idHash,
@@ -674,32 +740,132 @@
       return { deletedRegistrations, deletedScans };
     }
 
+    /* ---------------- 歷年活動及成績匯入 (History Records) ---------------- */
+
+    async getAllHistoryRecords() {
+      await this.init();
+      return this._req(this._tx('history_records').getAll());
+    }
+
+    async normalizeHistoryItem(item, fromCloud = false) {
+      const TE = global.TimingEngine;
+      const eventDate = normalizeHistoryDate(item.eventDate || item.date, item.year);
+      const yearMatch = eventDate.match(/^(\d{4})/);
+      const year = String(item.year || (yearMatch ? yearMatch[1] : '')).trim() || eventDate.slice(0, 4);
+      const eventName = String(item.eventName || '').trim();
+      const categoryName = String(item.categoryName || item.category || '').trim() || '一般組';
+      const bib = String(item.bib || '').trim();
+      const name = String(item.name || '').trim();
+      const idNumber = String(item.idNumber || '').trim().toUpperCase();
+      const idMasked = item.idMasked || (idNumber ? TE.maskIdNumber(idNumber) : '');
+      const idHash = item.idHash || (idNumber ? await TE.sha256Hex(idNumber) : '');
+      const distanceKm = Math.max(0, Number(item.distanceKm || 0) || 0);
+      const laps = Math.max(0, parseInt(item.laps || 0, 10) || 0);
+      const overallRank = item.overallRank !== undefined && item.overallRank !== null && String(item.overallRank).trim() !== ''
+        ? (parseInt(item.overallRank, 10) || null)
+        : null;
+      const categoryRank = item.categoryRank !== undefined && item.categoryRank !== null && String(item.categoryRank).trim() !== ''
+        ? (parseInt(item.categoryRank, 10) || null)
+        : null;
+      const finishTime = String(item.finishTime || '').trim();
+      const rawStatus = String(item.status || '').trim();
+      const status = rawStatus || ((finishTime || distanceKm > 0 || laps > 0) ? '完賽' : '未完賽');
+      const id = String(item.id || makeHistoryId(eventDate, eventName, idNumber, bib, name, categoryName));
+
+      return {
+        id,
+        year,
+        eventDate,
+        eventName,
+        categoryName,
+        bib,
+        name,
+        idNumber,
+        idMasked,
+        idHash,
+        finishTime,
+        distanceKm,
+        laps,
+        overallRank,
+        categoryRank,
+        status,
+        note: String(item.note || '').trim(),
+        ownerAdmin: String(item.ownerAdmin || 'admin').trim() || 'admin',
+        synced: fromCloud ? 1 : 0,
+        updatedAt: Number(item.updatedAt || Date.now())
+      };
+    }
+
+    async upsertHistoryRecordsBulk(list, fromCloud = false) {
+      await this.init();
+      const normalized = [];
+      for (const item of list || []) {
+        if (!item || !String(item.eventName || '').trim() || !String(item.name || '').trim()) continue;
+        normalized.push(await this.normalizeHistoryItem(item, fromCloud));
+      }
+      if (!normalized.length) return [];
+      const tx = this.db.transaction('history_records', 'readwrite');
+      const store = tx.objectStore('history_records');
+      for (const rec of normalized) {
+        store.put(rec);
+      }
+      await new Promise((resolve, reject) => {
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+      });
+      return normalized;
+    }
+
+    async deleteHistoryRecord(id) {
+      await this.init();
+      await this._req(this._tx('history_records', 'readwrite').delete(id));
+    }
+
+    async deleteHistoryEvent(eventDate, eventName) {
+      await this.init();
+      const all = await this.getAllHistoryRecords();
+      const targets = all.filter((h) => h.eventDate === eventDate && h.eventName === eventName);
+      if (!targets.length) return [];
+      const tx = this.db.transaction('history_records', 'readwrite');
+      const store = tx.objectStore('history_records');
+      for (const t of targets) store.delete(t.id);
+      await new Promise((resolve, reject) => {
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+      });
+      return targets.map((t) => t.id);
+    }
+
     /* ---------------- 待同步狀態與批次標記 ---------------- */
 
     async getPendingSyncCounts() {
-      const [platform, chips, regs, scans] = await Promise.all([
+      const [platform, chips, regs, scans, history] = await Promise.all([
         this.getPlatform(),
         this.getAllChips(),
         this.getAllRegistrations(),
-        this.getAllScans()
+        this.getAllScans(),
+        this.getAllHistoryRecords()
       ]);
       const platformDirty = platform && platform.synced === 0 ? 1 : 0;
       const unsyncedChips = chips.filter((c) => !c.synced);
       const unsyncedRegs = regs.filter((r) => !r.synced);
       const unsyncedScans = scans.filter((s) => !s.synced);
+      const unsyncedHistory = history.filter((h) => !h.synced);
       return {
         platformDirty,
         chips: unsyncedChips.length,
         registrations: unsyncedRegs.length,
         scans: unsyncedScans.length,
-        total: platformDirty + unsyncedChips.length + unsyncedRegs.length + unsyncedScans.length,
+        history: unsyncedHistory.length,
+        total: platformDirty + unsyncedChips.length + unsyncedRegs.length + unsyncedScans.length + unsyncedHistory.length,
         unsyncedChips,
         unsyncedRegs,
-        unsyncedScans
+        unsyncedScans,
+        unsyncedHistory
       };
     }
 
-    async markSynced({ platform = false, chipIds = [], regIds = [], scanIds = [] }) {
+    async markSynced({ platform = false, chipIds = [], regIds = [], scanIds = [], historyIds = [] }) {
       await this.init();
       if (platform) {
         const cur = await this.getPlatform();
@@ -732,6 +898,15 @@
         const tx = this.db.transaction('scans', 'readwrite');
         for (const s of all) {
           if (set.has(s.id) && !s.synced) { s.synced = 1; tx.objectStore('scans').put(s); }
+        }
+        await new Promise((r, j) => { tx.oncomplete = r; tx.onerror = () => j(tx.error); });
+      }
+      if (historyIds.length) {
+        const set = new Set(historyIds);
+        const all = await this.getAllHistoryRecords();
+        const tx = this.db.transaction('history_records', 'readwrite');
+        for (const h of all) {
+          if (set.has(h.id) && !h.synced) { h.synced = 1; tx.objectStore('history_records').put(h); }
         }
         await new Promise((r, j) => { tx.oncomplete = r; tx.onerror = () => j(tx.error); });
       }
@@ -867,7 +1042,11 @@
         for (const r of cloudData.registrations) {
           const local = localMap.get(r.regId);
           if (local && !local.synced && local.updatedAt > (r.updatedAt || 0)) continue;
-          await this.upsertRegistration({ ...r, idNumber: r.idNumber || local?.idNumber || '' }, true);
+          await this.upsertRegistration({
+            ...r,
+            idNumber: r.idNumber || local?.idNumber || '',
+            dob: r.dob !== undefined ? r.dob : (local?.dob || '')
+          }, true);
         }
       }
 
@@ -887,16 +1066,37 @@
           await this.putScan({ ...s, synced: 1 });
         }
       }
+
+      if (Array.isArray(cloudData.historyRecords)) {
+        const localAll = await this.getAllHistoryRecords();
+        const localMap = new Map(localAll.map((h) => [h.id, h]));
+        const cloudHistSet = new Set(cloudData.historyRecords.map((h) => h.id));
+        for (const lh of localAll) {
+          if (lh.synced && !cloudHistSet.has(lh.id)) {
+            await this.deleteHistoryRecord(lh.id);
+          }
+        }
+        const toPut = [];
+        for (const h of cloudData.historyRecords) {
+          const local = localMap.get(h.id);
+          if (local && !local.synced && local.updatedAt > (h.updatedAt || 0)) continue;
+          toPut.push({ ...h, idNumber: h.idNumber || local?.idNumber || '' });
+        }
+        if (toPut.length) {
+          await this.upsertHistoryRecordsBulk(toPut, true);
+        }
+      }
     }
 
     /* ---------------- 完整系統備份 / 還原合併 (JSON) ---------------- */
 
     async exportFullBackup({ ownerAdmin = '', isSuperAdmin = true } = {}) {
-      const [platform, chips, registrations, scans] = await Promise.all([
+      const [platform, chips, registrations, scans, historyRecords] = await Promise.all([
         this.getPlatform(),
         this.getAllChips(),
         this.getAllRegistrations(),
-        this.getAllScans()
+        this.getAllScans(),
+        this.getAllHistoryRecords()
       ]);
 
       if (ownerAdmin) {
@@ -907,7 +1107,7 @@
           return isSuperAdmin ? (!o || o === ownerAdmin) : o === ownerAdmin;
         });
         return {
-          schemaVersion: '3.4',
+          schemaVersion: '3.9',
           exportedAt: new Date().toISOString(),
           scopedOwnerAdmin: ownerAdmin,
           platform: {
@@ -918,17 +1118,19 @@
           },
           chips,
           registrations: registrations.filter((r) => ownEventIds.has(r.eventId)),
-          scans: scans.filter((s) => ownEventIds.has(s.eventId))
+          scans: scans.filter((s) => ownEventIds.has(s.eventId)),
+          historyRecords: isSuperAdmin ? historyRecords : historyRecords.filter((h) => h.ownerAdmin === ownerAdmin)
         };
       }
 
       return {
-        schemaVersion: '3.4',
+        schemaVersion: '3.9',
         exportedAt: new Date().toISOString(),
         platform,
         chips,
         registrations,
-        scans
+        scans,
+        historyRecords
       };
     }
 
@@ -969,7 +1171,7 @@
         ? new Set((latestPlatform.events || []).filter((e) => (e.ownerAdmin || latestPlatform.adminUsername) === ownerAdmin).map((e) => e.eventId))
         : null;
 
-      let chipCount = 0, regCount = 0, scanCount = 0;
+      let chipCount = 0, regCount = 0, scanCount = 0, historyCount = 0;
       for (const c of backupObj.chips || []) {
         if (!c?.idNumber) continue;
         await this.upsertChip(c, false);
@@ -987,11 +1189,15 @@
         await this.putScan({ ...s, synced: 0 });
         scanCount++;
       }
-      return { chipCount, regCount, scanCount };
+      if (Array.isArray(backupObj.historyRecords) && backupObj.historyRecords.length) {
+        const savedHist = await this.upsertHistoryRecordsBulk(backupObj.historyRecords, false);
+        historyCount = savedHist.length;
+      }
+      return { chipCount, regCount, scanCount, historyCount };
     }
 
     /**
-     * 載入「雙場次共用晶片」完整模擬資料（展示同一選手持同一晶片參加不同活動與組別）
+     * 載入 TUR (Taiwan Ultra Runners) 完整模擬資料（含進行中活動、八百壯士系統與歷年匯入成績）
      */
     async loadDemoData(ownerAdmin = '') {
       await this.init();
@@ -1005,7 +1211,9 @@
       const gunCoast = now - 85 * min;
       const gunUltra = now - 250 * min;
 
-      const evt1 = createDefaultEvent('EVT-2026-SPRING', '2026 春季城市馬拉松', getTodayStr(), '台北市政府廣場', targetOwner);
+      const evt1 = createDefaultEvent('EVT-2026-800-SPRING', '2026 TUR 八百壯士春季挑戰賽', getTodayStr(), '台北市政府廣場', targetOwner);
+      evt1.englishName = '800 Heroes Ultra Marathon - Spring Challenge';
+      evt1.organization = 'Taiwan Ultra Runners';
       evt1.unifiedGunTimeMs = gunSpring;
       evt1.categories.forEach((c) => {
         c.gunTimeMs = gunSpring;
@@ -1014,7 +1222,9 @@
 
       const evt2 = {
         eventId: 'EVT-2026-COAST',
-        name: '2026 秋季海岸公益路跑',
+        name: '2026 TUR 北海岸公益超馬',
+        englishName: 'TUR North Coast Charity Ultra Marathon',
+        organization: 'Taiwan Ultra Runners',
         date: getTodayStr(),
         location: '淡水漁人碼頭',
         status: 'active',
@@ -1035,7 +1245,9 @@
         updatedAt: now
       };
 
-      const evt3 = createLapTimedEvent('EVT-2026-ULTRA', '2026 環湖超級馬拉松繞圈賽', getTodayStr(), '碧潭環湖賽道 (單圈2.54K)', 2.54, targetOwner);
+      const evt3 = createLapTimedEvent('EVT-2026-800-ULTRA', '2026 TUR 八百壯士環湖繞圈賽', getTodayStr(), '碧潭環湖賽道 (單圈2.54K)', 2.54, targetOwner);
+      evt3.englishName = '800 Heroes Ultra Marathon - Bitan Timed Loop';
+      evt3.organization = 'Taiwan Ultra Runners';
       evt3.unifiedGunTimeMs = gunUltra;
       evt3.categories.forEach((c) => {
         c.gunTimeMs = gunUltra;
@@ -1053,49 +1265,53 @@
 
       // 共用晶片主檔（每人僅一張晶片：姓名 + 身份證字號，可跨場參加多項活動！）
       const people = [
-        { idNumber: 'A123456789', name: '林志明', nfcUid: '04:A1:10:01' },
-        { idNumber: 'B234567891', name: '陳怡君', nfcUid: '04:A1:10:02' },
-        { idNumber: 'C145678912', name: '張家豪', nfcUid: '04:A1:10:03' },
-        { idNumber: 'F256789123', name: '王雅婷', nfcUid: '04:A1:10:04' },
-        { idNumber: 'H167891234', name: '李俊傑', nfcUid: '04:A1:10:05' },
-        { idNumber: 'T189123456', name: '吳冠宇', nfcUid: '04:A1:10:06' },
-        { idNumber: 'N291234567', name: '劉佳穎', nfcUid: '04:A1:10:07' }
+        { idNumber: 'A123456789', name: '林志明', nfcUid: '04:A1:10:01', gender: 'M', dob: '1984-01-18', city: 'Taipei', country: 'Taiwan' },
+        { idNumber: 'B234567891', name: '陳怡君', nfcUid: '04:A1:10:02', gender: 'F', dob: '1980-02-07', city: 'Taipei', country: 'Taiwan' },
+        { idNumber: 'C145678912', name: '張家豪', nfcUid: '04:A1:10:03', gender: 'M', dob: '1975-09-13', city: 'New Taipei', country: 'Taiwan' },
+        { idNumber: 'F256789123', name: '王雅婷', nfcUid: '04:A1:10:04', gender: 'F', dob: '1990-03-15', city: 'Taichung', country: 'Taiwan' },
+        { idNumber: 'H167891234', name: '李俊傑', nfcUid: '04:A1:10:05', gender: 'M', dob: '1977-06-28', city: 'Taoyuan', country: 'Taiwan' },
+        { idNumber: 'T189123456', name: '吳冠宇', nfcUid: '04:A1:10:06', gender: 'M', dob: '1983-08-28', city: 'Kaohsiung', country: 'Taiwan' },
+        { idNumber: 'N291234567', name: '劉佳穎', nfcUid: '04:A1:10:07', gender: 'F', dob: '1988-11-22', city: 'Tainan', country: 'Taiwan' }
       ];
+      const peopleMap = new Map(people.map((p) => [p.idNumber, p]));
       for (const p of people) {
         await this.upsertChip(p, false);
       }
+      const withDemoBio = (reg) => {
+        const p = peopleMap.get(reg.idNumber);
+        return p ? { ...reg, gender: p.gender, dob: p.dob, city: p.city, country: p.country } : reg;
+      };
 
-      // 活動 1 名單（春季馬拉松）
+      // 活動 1 名單
       await this.upsertRegistrationsBulk([
-        { eventId: evt1.eventId, bib: 'A001', name: '林志明', idNumber: 'A123456789', categoryId: '42K' },
-        { eventId: evt1.eventId, bib: 'A002', name: '陳怡君', idNumber: 'B234567891', categoryId: '42K' },
-        { eventId: evt1.eventId, bib: 'A003', name: '張家豪', idNumber: 'C145678912', categoryId: '42K' },
-        { eventId: evt1.eventId, bib: 'B101', name: '王雅婷', idNumber: 'F256789123', categoryId: '21K' },
-        { eventId: evt1.eventId, bib: 'B102', name: '李俊傑', idNumber: 'H167891234', categoryId: '21K' },
-        { eventId: evt1.eventId, bib: 'C201', name: '吳冠宇', idNumber: 'T189123456', categoryId: '10K' }
+        withDemoBio({ eventId: evt1.eventId, bib: 'A001', name: '林志明', idNumber: 'A123456789', categoryId: '42K' }),
+        withDemoBio({ eventId: evt1.eventId, bib: 'A002', name: '陳怡君', idNumber: 'B234567891', categoryId: '42K' }),
+        withDemoBio({ eventId: evt1.eventId, bib: 'A003', name: '張家豪', idNumber: 'C145678912', categoryId: '42K' }),
+        withDemoBio({ eventId: evt1.eventId, bib: 'B101', name: '王雅婷', idNumber: 'F256789123', categoryId: '21K' }),
+        withDemoBio({ eventId: evt1.eventId, bib: 'B102', name: '李俊傑', idNumber: 'H167891234', categoryId: '21K' }),
+        withDemoBio({ eventId: evt1.eventId, bib: 'C201', name: '吳冠宇', idNumber: 'T189123456', categoryId: '10K' })
       ], false);
 
-      // 活動 2 名單（秋季海岸路跑）
+      // 活動 2 名單
       await this.upsertRegistrationsBulk([
-        { eventId: evt2.eventId, bib: 'S101', name: '林志明', idNumber: 'A123456789', categoryId: '12K' },
-        { eventId: evt2.eventId, bib: 'S102', name: '陳怡君', idNumber: 'B234567891', categoryId: '12K' },
-        { eventId: evt2.eventId, bib: 'L201', name: '王雅婷', idNumber: 'F256789123', categoryId: '5K' },
-        { eventId: evt2.eventId, bib: 'L202', name: '劉佳穎', idNumber: 'N291234567', categoryId: '5K' }
+        withDemoBio({ eventId: evt2.eventId, bib: 'S101', name: '林志明', idNumber: 'A123456789', categoryId: '12K' }),
+        withDemoBio({ eventId: evt2.eventId, bib: 'S102', name: '陳怡君', idNumber: 'B234567891', categoryId: '12K' }),
+        withDemoBio({ eventId: evt2.eventId, bib: 'L201', name: '王雅婷', idNumber: 'F256789123', categoryId: '5K' }),
+        withDemoBio({ eventId: evt2.eventId, bib: 'L202', name: '劉佳穎', idNumber: 'N291234567', categoryId: '5K' })
       ], false);
 
-      // 活動 3 名單（繞圈計時賽 — 同一批選手持同一晶片挑戰 6H / 12H / 24H 繞圈！）
+      // 活動 3 名單（八百壯士繞圈計時賽）
       await this.upsertRegistrationsBulk([
-        { eventId: evt3.eventId, bib: 'U001', name: '林志明', idNumber: 'A123456789', categoryId: '12H' },
-        { eventId: evt3.eventId, bib: 'U002', name: '陳怡君', idNumber: 'B234567891', categoryId: '12H' },
-        { eventId: evt3.eventId, bib: 'U101', name: '張家豪', idNumber: 'C145678912', categoryId: '24H' },
-        { eventId: evt3.eventId, bib: 'U201', name: '王雅婷', idNumber: 'F256789123', categoryId: '6H' },
-        { eventId: evt3.eventId, bib: 'U202', name: '吳冠宇', idNumber: 'T189123456', categoryId: '6H' }
+        withDemoBio({ eventId: evt3.eventId, bib: 'U001', name: '林志明', idNumber: 'A123456789', categoryId: '12H' }),
+        withDemoBio({ eventId: evt3.eventId, bib: 'U002', name: '陳怡君', idNumber: 'B234567891', categoryId: '12H' }),
+        withDemoBio({ eventId: evt3.eventId, bib: 'U101', name: '張家豪', idNumber: 'C145678912', categoryId: '24H' }),
+        withDemoBio({ eventId: evt3.eventId, bib: 'U201', name: '王雅婷', idNumber: 'F256789123', categoryId: '6H' }),
+        withDemoBio({ eventId: evt3.eventId, bib: 'U202', name: '吳冠宇', idNumber: 'T189123456', categoryId: '6H' })
       ], false);
 
       const addS = (eventId, bib, idNumber, checkpointId, timestampMs) =>
         this.addScan({ eventId, bib, idNumber, checkpointId, timestampMs, source: 'mock', operator: 'demo', bypassDebounce: true });
 
-      // 活動 1 報到與賽道感應紀錄（採統一律定起跑時間，無起點感應；B102 尚未報到以示範報到掌握）
       await addS(evt1.eventId, 'A001', 'A123456789', 'CHECKIN', gunSpring - 32 * min);
       await addS(evt1.eventId, 'A001', 'A123456789', 'CP1', gunSpring + 23 * min + 15000);
       await addS(evt1.eventId, 'A001', 'A123456789', 'CP2', gunSpring + 47 * min + 5000);
@@ -1121,7 +1337,6 @@
       await addS(evt1.eventId, 'C201', 'T189123456', 'CP1', gunSpring + 23 * min + 11000);
       await addS(evt1.eventId, 'C201', 'T189123456', 'FINISH', gunSpring + 46 * min + 55120);
 
-      // 活動 2 報到與賽道感應紀錄（L202 尚未報到以示範）
       await addS(evt2.eventId, 'S101', 'A123456789', 'CHECKIN', gunCoast - 30 * min);
       await addS(evt2.eventId, 'S101', 'A123456789', 'CP1', gunCoast + 28 * min + 12000);
       await addS(evt2.eventId, 'S101', 'A123456789', 'FINISH', gunCoast + 57 * min + 34120);
@@ -1132,7 +1347,6 @@
       await addS(evt2.eventId, 'L201', 'F256789123', 'CHECKIN', gunCoast - 15 * min);
       await addS(evt2.eventId, 'L201', 'F256789123', 'FINISH', gunCoast + 26 * min + 48200);
 
-      // 活動 3 繞圈計時賽：先報到感應 (CHECKIN，不計入圈數)，再繞圈計次 (LAP)
       await addS(evt3.eventId, 'U101', 'C145678912', 'CHECKIN', gunUltra - 35 * min);
       await addS(evt3.eventId, 'U001', 'A123456789', 'CHECKIN', gunUltra - 30 * min);
       await addS(evt3.eventId, 'U002', 'B234567891', 'CHECKIN', gunUltra - 26 * min);
@@ -1146,11 +1360,24 @@
           await addS(evt3.eventId, bib, idNum, 'LAP', cur);
         }
       };
-      await addLaps('U101', 'C145678912', gunUltra, 16, 15.2); // 16圈 (24H組)
-      await addLaps('U001', 'A123456789', gunUltra, 15, 14.5); // 15圈 (12H組)
-      await addLaps('U002', 'B234567891', gunUltra, 13, 15.8); // 13圈 (12H組)
-      await addLaps('U201', 'F256789123', gunUltra, 10, 14.2); // 10圈 (6H組)
-      await addLaps('U202', 'T189123456', gunUltra, 10, 14.9); // 10圈 (6H組，同里程比先後！)
+      await addLaps('U101', 'C145678912', gunUltra, 16, 15.2);
+      await addLaps('U001', 'A123456789', gunUltra, 15, 14.5);
+      await addLaps('U002', 'B234567891', gunUltra, 13, 15.8);
+      await addLaps('U201', 'F256789123', gunUltra, 10, 14.2);
+      await addLaps('U202', 'T189123456', gunUltra, 10, 14.9);
+
+      // 示範歷年匯入成績（含 2024 / 2025 TUR 八百壯士系列與一般 TUR 超馬，可與個人成績合併查詢及顯示八百壯士英雄榜！）
+      await this.upsertHistoryRecordsBulk([
+        { eventDate: '2025-11-16', eventName: '2025 TUR 八百壯士超級馬拉松', categoryName: '100K', bib: 'W001', name: '林志明', idNumber: 'A123456789', finishTime: '09:38:15', distanceKm: 100, laps: 0, overallRank: 1, categoryRank: 1, status: '完賽', ownerAdmin: targetOwner },
+        { eventDate: '2025-11-16', eventName: '2025 TUR 八百壯士超級馬拉松', categoryName: '100K', bib: 'W002', name: '張家豪', idNumber: 'C145678912', finishTime: '10:12:40', distanceKm: 100, laps: 0, overallRank: 2, categoryRank: 2, status: '完賽', ownerAdmin: targetOwner },
+        { eventDate: '2025-11-16', eventName: '2025 TUR 八百壯士超級馬拉松', categoryName: '50K', bib: 'W101', name: '陳怡君', idNumber: 'B234567891', finishTime: '04:42:10', distanceKm: 50, laps: 0, overallRank: 1, categoryRank: 1, status: '完賽', ownerAdmin: targetOwner },
+        { eventDate: '2025-11-16', eventName: '2025 TUR 八百壯士超級馬拉松', categoryName: '50K', bib: 'W102', name: '王雅婷', idNumber: 'F256789123', finishTime: '05:05:22', distanceKm: 50, laps: 0, overallRank: 2, categoryRank: 2, status: '完賽', ownerAdmin: targetOwner },
+        { eventDate: '2024-11-17', eventName: '2024 TUR 八百壯士經典挑戰賽', categoryName: '100K', bib: 'H001', name: '林志明', idNumber: 'A123456789', finishTime: '09:55:08', distanceKm: 100, laps: 0, overallRank: 1, categoryRank: 1, status: '完賽', ownerAdmin: targetOwner },
+        { eventDate: '2024-11-17', eventName: '2024 TUR 八百壯士經典挑戰賽', categoryName: '100K', bib: 'H002', name: '張家豪', idNumber: 'C145678912', finishTime: '10:25:33', distanceKm: 100, laps: 0, overallRank: 2, categoryRank: 2, status: '完賽', ownerAdmin: targetOwner },
+        { eventDate: '2024-11-17', eventName: '2024 TUR 八百壯士經典挑戰賽', categoryName: '50K', bib: 'H101', name: '陳怡君', idNumber: 'B234567891', finishTime: '04:51:19', distanceKm: 50, laps: 0, overallRank: 1, categoryRank: 1, status: '完賽', ownerAdmin: targetOwner },
+        { eventDate: '2025-05-10', eventName: '2025 TUR 陽明山百公里越野賽', categoryName: '50K', bib: 'Y010', name: '林志明', idNumber: 'A123456789', finishTime: '05:18:40', distanceKm: 50, laps: 0, overallRank: 3, categoryRank: 2, status: '完賽', ownerAdmin: targetOwner },
+        { eventDate: '2025-05-10', eventName: '2025 TUR 陽明山百公里越野賽', categoryName: '50K', bib: 'Y011', name: '王雅婷', idNumber: 'F256789123', finishTime: '05:45:12', distanceKm: 50, laps: 0, overallRank: 6, categoryRank: 1, status: '完賽', ownerAdmin: targetOwner }
+      ], false);
 
       this.saveDeviceSettings({ selectedEventId: evt3.eventId });
       return true;
@@ -1161,7 +1388,8 @@
       await Promise.all([
         this._req(this._tx('chips', 'readwrite').clear()),
         this._req(this._tx('registrations', 'readwrite').clear()),
-        this._req(this._tx('scans', 'readwrite').clear())
+        this._req(this._tx('scans', 'readwrite').clear()),
+        this._req(this._tx('history_records', 'readwrite').clear())
       ]);
       if (resetPlatform) {
         await this.savePlatform(createDefaultPlatform());

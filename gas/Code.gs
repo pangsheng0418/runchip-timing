@@ -1,17 +1,18 @@
 /**
  * ============================================================================
- * 智慧路跑 NFC 晶片計時平台 v3.0 — 多場次共用晶片 Google Apps Script (GAS) 後端
+ * TUR (Taiwan Ultra Runners) 路跑晶片計時平台 v3.10 — Google Apps Script (GAS) 後端
  * ============================================================================
  * 核心設計：
  * - 平台支援建立多場次路跑活動 (Events)，每場擁有獨立分組、鳴槍時間、站點與參賽名單
  * - 共用晶片主檔 (Chips)：晶片內僅存「姓名｜身份證字號」，同一晶片可重複參加不同場次與組別
- * - 參賽明細 (Registrations)：事前匯入各活動選手名單與組別，感應時依晶片身份證自動比對
- * - 三大權限分區：公開查詢（隱碼免登入）、作業員帳密鎖定站點、最高管理員獨立帳密
+ * - 參賽明細 (Registrations)：支援選填 DUV 欄位（性別、出生年月日、城市、國家、姓／名）
+ * - 歷年活動成績 (HistoryResults)：支援匯入歷年成績並整合八百壯士英雄榜
+ * - 三大權限分區：公開查詢（隱碼免登入）、作業員帳密鎖定站點、多管理者獨立隔離
  *
  * 部署步驟：
  * 1. 開啟 Google 試算表 →「擴充功能」→「Apps Script」
  * 2. 貼入本檔案全部內容並儲存
- * 3. 選擇函式「setupSheets」並點選「執行」（自動建立 6 張工作表）
+ * 3. 選擇函式「setupSheets」並點選「執行」（自動建立 8 張工作表）
  * 4. 點選「部署」→「新增部署作業」（或「管理部署作業」→「建立新版本」）
  *    - 類型：網頁應用程式 ｜ 執行身分：我 ｜ 誰可以存取：所有人 (Anyone)
  * ============================================================================
@@ -24,11 +25,12 @@ const SHEET_NAMES = {
   STAFF: 'StaffAccounts',
   CHIPS: 'Chips',
   REGISTRATIONS: 'Registrations',
-  SCANS: 'Scans'
+  SCANS: 'Scans',
+  HISTORY: 'HistoryResults'
 };
 
 /**
- * 首次初始化：自動建立 7 張工作表與預設範例活動/帳號
+ * 首次初始化：自動建立 8 張工作表與預設範例活動/帳號
  */
 function setupSheets() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -61,10 +63,11 @@ function setupSheets() {
     ]]);
   }
 
-  // 2. Events（多場次路跑活動清單：支援一般距離賽 distance 與繞圈計時賽 lap_timed，含建立者 ownerAdmin）
+  // 2. Events（多場次路跑活動清單：支援一般距離賽 distance 與繞圈計時賽 lap_timed，含建立者 ownerAdmin 與 DUV 設定）
   const evtSheet = getOrCreateSheet_(ss, SHEET_NAMES.EVENTS, [
     'eventId', 'name', 'date', 'location', 'status', 'debounceSeconds',
-    'rankBy', 'categoriesJson', 'checkpointsJson', 'updatedAt', 'eventType', 'lapDistanceKm', 'ownerAdmin'
+    'rankBy', 'categoriesJson', 'checkpointsJson', 'updatedAt', 'eventType', 'lapDistanceKm', 'ownerAdmin',
+    'englishName', 'organization'
   ]);
   if (evtSheet.getLastRow() <= 1) {
     const defaultCats = JSON.stringify([
@@ -79,9 +82,10 @@ function setupSheets() {
       { id: 'FINISH', name: '終點衝線門', order: 4, distanceKm: 42.195, type: 'finish' }
     ]);
     evtSheet.getRange(2, 3, 1, 1).setNumberFormat('@');
-    evtSheet.getRange(2, 1, 1, 13).setValues([[
-      'EVT-2026-01', '2026 智慧城市馬拉松', today, '台北市政府廣場', 'active',
-      30, 'gun', defaultCats, defaultCps, now, 'distance', 0, 'admin'
+    evtSheet.getRange(2, 1, 1, 15).setValues([[
+      'EVT-2026-01', '2026 TUR 超級馬拉松挑戰賽', today, '台北市政府廣場', 'active',
+      30, 'gun', defaultCats, defaultCps, now, 'distance', 0, 'admin',
+      '', 'Taiwan Ultra Runners'
     ]]);
   }
 
@@ -106,9 +110,10 @@ function setupSheets() {
     'idNumber', 'name', 'nfcUid', 'writtenAt', 'updatedAt'
   ]);
 
-  // 5. Registrations（各活動參賽選手明細與組別）
+  // 5. Registrations（各活動參賽選手明細、組別與選填 DUV 個人欄位）
   getOrCreateSheet_(ss, SHEET_NAMES.REGISTRATIONS, [
-    'regId', 'eventId', 'bib', 'name', 'idNumber', 'categoryId', 'penaltySec', 'updatedAt'
+    'regId', 'eventId', 'bib', 'name', 'idNumber', 'categoryId', 'penaltySec', 'updatedAt',
+    'gender', 'dob', 'city', 'country', 'lastName', 'firstName'
   ]);
 
   // 6. Scans（各活動晶片感應紀錄）
@@ -117,7 +122,13 @@ function setupSheets() {
     'source', 'deviceId', 'operator', 'deleted', 'note', 'updatedAt'
   ]);
 
-  Logger.log('v3.4 多管理員獨立隔離・多場次共用晶片計時平台 7 張工作表已初始化完成！');
+  // 7. HistoryResults（以前歷年活動與個人成績匯入）
+  getOrCreateSheet_(ss, SHEET_NAMES.HISTORY, [
+    'id', 'year', 'eventDate', 'eventName', 'categoryName', 'bib', 'name', 'idNumber',
+    'finishTime', 'distanceKm', 'laps', 'overallRank', 'categoryRank', 'status', 'note', 'ownerAdmin', 'updatedAt'
+  ]);
+
+  Logger.log('TUR (Taiwan Ultra Runners) 計時平台 v3.10 共 8 張工作表已初始化完成！');
 }
 
 function getOrCreateSheet_(ss, name, headers) {
@@ -145,10 +156,10 @@ function doGet(e) {
     if (action === 'ping') {
       return jsonResponse_({
         ok: true,
-        apiVersion: '3.5',
+        apiVersion: '3.10',
         multiAdmin: true,
         serverTimeMs: Date.now(),
-        message: '智慧路跑多場次計時平台 API v3.5 (多管理者活動隔離・刪除活動連動清理明細) 運作正常'
+        message: 'TUR (Taiwan Ultra Runners) 路跑計時平台 API v3.10 運作正常'
       });
     }
 
@@ -156,7 +167,7 @@ function doGet(e) {
       const data = readAllData_(true, null);
       return jsonResponse_({
         ok: true,
-        apiVersion: '3.5',
+        apiVersion: '3.9',
         multiAdmin: true,
         serverTimeMs: Date.now(),
         data: data
@@ -286,11 +297,14 @@ function doPost(e) {
       }
       const regRes = handleUpsertRegistrations_(regs);
       const scanRes = handlePushScans_(payload.scans || []);
+      const histRes = (callerAdmin && Array.isArray(payload.historyRecords) && payload.historyRecords.length)
+        ? handleUpsertHistory_(payload.historyRecords, callerAdmin)
+        : { inserted: 0, updated: 0 };
       return jsonResponse_({
         ok: true,
         multiAdmin: true,
         serverTimeMs: Date.now(),
-        result: { platformSynced: platformSynced, purge: purgeRes, chips: chipRes, registrations: regRes, scans: scanRes }
+        result: { platformSynced: platformSynced, purge: purgeRes, chips: chipRes, registrations: regRes, scans: scanRes, history: histRes }
       });
     }
 
@@ -298,6 +312,16 @@ function doPost(e) {
     const callerAdmin = verifyAdminAccount_(payload.auth, gCfg);
     if (!callerAdmin) {
       return jsonResponse_({ ok: false, multiAdmin: true, error: '權限不足：需要管理員帳號密碼驗證' });
+    }
+
+    if (action === 'upsertHistory') {
+      const res = handleUpsertHistory_(payload.historyRecords || [], callerAdmin);
+      return jsonResponse_({ ok: true, multiAdmin: true, serverTimeMs: Date.now(), result: res });
+    }
+
+    if (action === 'deleteHistory') {
+      const res = handleDeleteHistory_(payload.ids || []);
+      return jsonResponse_({ ok: true, multiAdmin: true, serverTimeMs: Date.now(), result: res });
     }
 
     if (action === 'savePlatform') {
@@ -447,6 +471,25 @@ function formatDateCell_(val) {
   return s;
 }
 
+function formatTimeCell_(val) {
+  if (val === null || val === undefined || val === '') return '';
+  if (val instanceof Date) {
+    const tz = Session.getScriptTimeZone();
+    // Google Sheets 將 HH:mm:ss 存入時會以 1899-12-30 為基準日期，超過 24 小時則會跨日
+    if (val.getFullYear() <= 1900) {
+      const epoch = new Date(1899, 11, 30, 0, 0, 0, 0);
+      const diffSec = Math.max(0, Math.round((val.getTime() - epoch.getTime()) / 1000));
+      const h = Math.floor(diffSec / 3600);
+      const m = Math.floor((diffSec % 3600) / 60);
+      const s = diffSec % 60;
+      const pad = function (n) { return (n < 10 ? '0' : '') + n; };
+      return pad(h) + ':' + pad(m) + ':' + pad(s);
+    }
+    return Utilities.formatDate(val, tz, 'HH:mm:ss');
+  }
+  return String(val).trim();
+}
+
 function readEventsList_(defaultOwner) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName(SHEET_NAMES.EVENTS);
@@ -460,6 +503,8 @@ function readEventsList_(defaultOwner) {
     return {
       eventId: String(ev.eventId || '').trim(),
       name: String(ev.name || '').trim(),
+      englishName: String(ev.englishName || '').trim(),
+      organization: String(ev.organization || '').trim(),
       date: formatDateCell_(ev.date),
       location: String(ev.location || '').trim(),
       status: String(ev.status || 'active').trim(),
@@ -506,13 +551,21 @@ function readAllData_(maskSensitive, callerAdmin) {
       eventId: String(r.eventId || '').trim(),
       bib: String(r.bib || '').trim(),
       name: String(r.name || '').trim(),
+      lastName: String(r.lastName || '').trim(),
+      firstName: String(r.firstName || '').trim(),
+      gender: String(r.gender || '').trim().toUpperCase(),
+      city: String(r.city || '').trim(),
+      country: String(r.country || '').trim(),
       idMasked: maskIdNumber_(rawId),
       idHash: rawId ? sha256Hex_(rawId) : '',
       categoryId: String(r.categoryId || '').trim(),
       penaltySec: Number(r.penaltySec || 0),
       updatedAt: r.updatedAt ? Number(r.updatedAt) : Date.now()
     };
-    if (!maskSensitive) obj.idNumber = rawId;
+    if (!maskSensitive) {
+      obj.idNumber = rawId;
+      obj.dob = formatDateCell_(r.dob);
+    }
     return obj;
   }).filter(function (r) {
     if (!r.eventId || !r.bib) return false;
@@ -544,11 +597,40 @@ function readAllData_(maskSensitive, callerAdmin) {
     return true;
   });
 
+  const historyRecords = readTableObjects_(ss.getSheetByName(SHEET_NAMES.HISTORY)).map(function (h) {
+    const rawId = String(h.idNumber || '').trim().toUpperCase();
+    const evDate = formatDateCell_(h.eventDate);
+    const yr = String(h.year || (evDate ? evDate.slice(0, 4) : '')).trim();
+    const obj = {
+      id: String(h.id || '').trim(),
+      year: yr,
+      eventDate: evDate,
+      eventName: String(h.eventName || '').trim(),
+      categoryName: String(h.categoryName || '').trim(),
+      bib: String(h.bib || '').trim(),
+      name: String(h.name || '').trim(),
+      idMasked: maskIdNumber_(rawId),
+      idHash: rawId ? sha256Hex_(rawId) : '',
+      finishTime: formatTimeCell_(h.finishTime),
+      distanceKm: Number(h.distanceKm || 0),
+      laps: parseInt(h.laps || 0, 10) || 0,
+      overallRank: h.overallRank !== '' && h.overallRank !== null && h.overallRank !== undefined ? (parseInt(h.overallRank, 10) || null) : null,
+      categoryRank: h.categoryRank !== '' && h.categoryRank !== null && h.categoryRank !== undefined ? (parseInt(h.categoryRank, 10) || null) : null,
+      status: String(h.status || '完賽').trim(),
+      note: String(h.note || '').trim(),
+      ownerAdmin: String(h.ownerAdmin || defaultOwner).trim(),
+      updatedAt: h.updatedAt ? Number(h.updatedAt) : Date.now()
+    };
+    if (!maskSensitive) obj.idNumber = rawId;
+    return obj;
+  }).filter(function (h) { return h.id && h.eventName && h.name; });
+
   const result = {
     globalConfig: globalConfig,
     events: events,
     registrations: registrations,
-    scans: scans
+    scans: scans,
+    historyRecords: historyRecords
   };
 
   if (!maskSensitive) {
@@ -592,6 +674,7 @@ function handleUpsertChips_(incomingChips) {
 
   let inserted = 0, updated = 0;
   const toAppend = [];
+  const pendingIdxById = {};
 
   incomingChips.forEach(function (c) {
     const id = String(c.idNumber || '').trim().toUpperCase();
@@ -603,12 +686,15 @@ function handleUpsertChips_(incomingChips) {
       c.writtenAt ? Number(c.writtenAt) : Date.now(),
       Number(c.updatedAt || Date.now())
     ];
-    if (rowById[id]) {
+    if (rowById[id] > 0) {
       sheet.getRange(rowById[id], 1, 1, 5).setValues([row]);
       updated++;
+    } else if (pendingIdxById[id] !== undefined) {
+      toAppend[pendingIdxById[id]] = row;
+      updated++;
     } else {
+      pendingIdxById[id] = toAppend.length;
       toAppend.push(row);
-      rowById[id] = values.length + toAppend.length;
       inserted++;
     }
   });
@@ -622,9 +708,15 @@ function handleUpsertChips_(incomingChips) {
 function handleUpsertRegistrations_(incomingRegs) {
   if (!incomingRegs || !incomingRegs.length) return { inserted: 0, updated: 0 };
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = getOrCreateSheet_(ss, SHEET_NAMES.REGISTRATIONS, [
-    'regId', 'eventId', 'bib', 'name', 'idNumber', 'categoryId', 'penaltySec', 'updatedAt'
-  ]);
+  const regHeaders = [
+    'regId', 'eventId', 'bib', 'name', 'idNumber', 'categoryId', 'penaltySec', 'updatedAt',
+    'gender', 'dob', 'city', 'country', 'lastName', 'firstName'
+  ];
+  const sheet = getOrCreateSheet_(ss, SHEET_NAMES.REGISTRATIONS, regHeaders);
+  if (sheet.getLastColumn() < regHeaders.length) {
+    sheet.getRange(1, 1, 1, regHeaders.length).setValues([regHeaders])
+      .setFontWeight('bold').setBackground('#1e293b').setFontColor('#ffffff');
+  }
 
   const values = sheet.getDataRange().getValues();
   const rowByKey = {};
@@ -635,6 +727,7 @@ function handleUpsertRegistrations_(incomingRegs) {
 
   let inserted = 0, updated = 0;
   const toAppend = [];
+  const pendingIdxByKey = {};
 
   incomingRegs.forEach(function (r) {
     const eventId = String(r.eventId || '').trim();
@@ -642,6 +735,9 @@ function handleUpsertRegistrations_(incomingRegs) {
     const idNumber = String(r.idNumber || '').trim().toUpperCase();
     if (!eventId || !bib) return;
     const regId = String(r.regId || (eventId + '__' + (idNumber || bib))).trim();
+    const genderRaw = String(r.gender || '').trim().toUpperCase();
+    const gender = (genderRaw === 'M' || genderRaw === 'MALE' || genderRaw === '男') ? 'M'
+      : ((genderRaw === 'F' || genderRaw === 'FEMALE' || genderRaw === '女') ? 'F' : '');
 
     const row = [
       regId,
@@ -651,21 +747,35 @@ function handleUpsertRegistrations_(incomingRegs) {
       idNumber,
       String(r.categoryId || '').trim(),
       Number(r.penaltySec || 0),
-      Number(r.updatedAt || Date.now())
+      Number(r.updatedAt || Date.now()),
+      gender,
+      formatDateCell_(r.dob),
+      String(r.city || '').trim(),
+      String(r.country || '').trim(),
+      String(r.lastName || '').trim(),
+      String(r.firstName || '').trim()
     ];
 
-    if (rowByKey[regId]) {
-      sheet.getRange(rowByKey[regId], 1, 1, 8).setValues([row]);
+    if (rowByKey[regId] > 0) {
+      sheet.getRange(rowByKey[regId], 3, 1, 1).setNumberFormat('@');
+      sheet.getRange(rowByKey[regId], 10, 1, 1).setNumberFormat('@');
+      sheet.getRange(rowByKey[regId], 1, 1, regHeaders.length).setValues([row]);
+      updated++;
+    } else if (pendingIdxByKey[regId] !== undefined) {
+      toAppend[pendingIdxByKey[regId]] = row;
       updated++;
     } else {
+      pendingIdxByKey[regId] = toAppend.length;
       toAppend.push(row);
-      rowByKey[regId] = values.length + toAppend.length;
       inserted++;
     }
   });
 
   if (toAppend.length > 0) {
-    sheet.getRange(sheet.getLastRow() + 1, 1, toAppend.length, 8).setValues(toAppend);
+    const startRow = sheet.getLastRow() + 1;
+    sheet.getRange(startRow, 3, toAppend.length, 1).setNumberFormat('@');
+    sheet.getRange(startRow, 10, toAppend.length, 1).setNumberFormat('@');
+    sheet.getRange(startRow, 1, toAppend.length, regHeaders.length).setValues(toAppend);
   }
   return { inserted: inserted, updated: updated };
 }
@@ -855,12 +965,13 @@ function handleSavePlatform_(payload, callerAdmin, gCfg) {
   if (Array.isArray(payload.events) || Object.keys(renamedAdmins).length > 0) {
     const evtHeaders = [
       'eventId', 'name', 'date', 'location', 'status', 'debounceSeconds',
-      'rankBy', 'categoriesJson', 'checkpointsJson', 'updatedAt', 'eventType', 'lapDistanceKm', 'ownerAdmin'
+      'rankBy', 'categoriesJson', 'checkpointsJson', 'updatedAt', 'eventType', 'lapDistanceKm', 'ownerAdmin',
+      'englishName', 'organization'
     ];
     const evtSheet = getOrCreateSheet_(ss, SHEET_NAMES.EVENTS, evtHeaders);
-    // 確保舊版 10/12 欄工作表自動補齊第 13 欄標題 (ownerAdmin)
-    if (evtSheet.getLastColumn() < 13) {
-      evtSheet.getRange(1, 1, 1, 13).setValues([evtHeaders])
+    // 確保舊版工作表自動補齊完整欄位標題 (ownerAdmin / englishName / organization)
+    if (evtSheet.getLastColumn() < evtHeaders.length) {
+      evtSheet.getRange(1, 1, 1, evtHeaders.length).setValues([evtHeaders])
         .setFontWeight('bold').setBackground('#1e293b').setFontColor('#ffffff');
     }
 
@@ -881,6 +992,8 @@ function handleSavePlatform_(payload, callerAdmin, gCfg) {
         callerEvents.push({
           eventId: eid,
           name: String(ev.name || '').trim(),
+          englishName: String(ev.englishName || '').trim(),
+          organization: String(ev.organization || '').trim(),
           date: String(ev.date || '').trim(),
           location: String(ev.location || '').trim(),
           status: String(ev.status || 'active').trim(),
@@ -917,7 +1030,7 @@ function handleSavePlatform_(payload, callerAdmin, gCfg) {
     }
 
     const prevEvtLastRow = evtSheet.getLastRow();
-    const evtCols = Math.max(13, evtSheet.getLastColumn());
+    const evtCols = Math.max(evtHeaders.length, evtSheet.getLastColumn());
     if (finalAllEvents.length > 0) {
       const rows = finalAllEvents.map(function (ev) {
         return [
@@ -933,10 +1046,12 @@ function handleSavePlatform_(payload, callerAdmin, gCfg) {
           ev.updatedAt,
           ev.eventType,
           ev.lapDistanceKm,
-          ev.ownerAdmin
+          ev.ownerAdmin,
+          String(ev.englishName || '').trim(),
+          String(ev.organization || '').trim()
         ];
       });
-      const range = evtSheet.getRange(2, 1, rows.length, 13);
+      const range = evtSheet.getRange(2, 1, rows.length, evtHeaders.length);
       evtSheet.getRange(2, 3, rows.length, 1).setNumberFormat('@');
       range.setValues(rows);
     }
@@ -1173,6 +1288,121 @@ function handleEditScan_(scan, callerAdmin, gCfg) {
     sheet.getRange(sheet.getLastRow() + 1, 1, 1, 14).setValues([rowData]);
     return { action: 'inserted', id: id };
   }
+}
+
+function handleUpsertHistory_(incomingList, callerAdmin) {
+  if (!incomingList || !incomingList.length) return { inserted: 0, updated: 0 };
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const headers = [
+    'id', 'year', 'eventDate', 'eventName', 'categoryName', 'bib', 'name', 'idNumber',
+    'finishTime', 'distanceKm', 'laps', 'overallRank', 'categoryRank', 'status', 'note', 'ownerAdmin', 'updatedAt'
+  ];
+  const sheet = getOrCreateSheet_(ss, SHEET_NAMES.HISTORY, headers);
+
+  const values = sheet.getDataRange().getValues();
+  const rowById = {};
+  for (let i = 1; i < values.length; i++) {
+    const id = String(values[i][0] || '').trim();
+    if (id) rowById[id] = i + 1;
+  }
+
+  let inserted = 0;
+  let updated = 0;
+  const rowsToAppend = [];
+  const pendingIdxById = {};
+  const owner = callerAdmin ? callerAdmin.username : 'admin';
+
+  incomingList.forEach(function (h) {
+    const id = String(h.id || '').trim();
+    const eventName = String(h.eventName || '').trim();
+    const name = String(h.name || '').trim();
+    if (!id || !eventName || !name) return;
+
+    const evDate = formatDateCell_(h.eventDate);
+    const yr = String(h.year || (evDate ? evDate.slice(0, 4) : '')).trim();
+    const rowData = [
+      id,
+      yr,
+      evDate,
+      eventName,
+      String(h.categoryName || '').trim(),
+      String(h.bib || '').trim(),
+      name,
+      String(h.idNumber || '').trim().toUpperCase(),
+      formatTimeCell_(h.finishTime),
+      Number(h.distanceKm || 0),
+      parseInt(h.laps || 0, 10) || 0,
+      h.overallRank !== null && h.overallRank !== undefined && h.overallRank !== '' ? Number(h.overallRank) : '',
+      h.categoryRank !== null && h.categoryRank !== undefined && h.categoryRank !== '' ? Number(h.categoryRank) : '',
+      String(h.status || '完賽').trim(),
+      String(h.note || '').trim(),
+      String(h.ownerAdmin || owner).trim(),
+      Number(h.updatedAt || Date.now())
+    ];
+
+    if (rowById[id] > 0) {
+      const targetRow = rowById[id];
+      sheet.getRange(targetRow, 2, 1, 2).setNumberFormat('@');
+      sheet.getRange(targetRow, 6, 1, 1).setNumberFormat('@');
+      sheet.getRange(targetRow, 9, 1, 1).setNumberFormat('@');
+      sheet.getRange(targetRow, 1, 1, 17).setValues([rowData]);
+      updated++;
+    } else if (pendingIdxById[id] !== undefined) {
+      rowsToAppend[pendingIdxById[id]] = rowData;
+      updated++;
+    } else {
+      pendingIdxById[id] = rowsToAppend.length;
+      rowsToAppend.push(rowData);
+      inserted++;
+    }
+  });
+
+  if (rowsToAppend.length) {
+    const startRow = sheet.getLastRow() + 1;
+    sheet.getRange(startRow, 2, rowsToAppend.length, 2).setNumberFormat('@');
+    sheet.getRange(startRow, 6, rowsToAppend.length, 1).setNumberFormat('@');
+    sheet.getRange(startRow, 9, rowsToAppend.length, 1).setNumberFormat('@');
+    sheet.getRange(startRow, 1, rowsToAppend.length, 17).setValues(rowsToAppend);
+  }
+
+  return { inserted: inserted, updated: updated };
+}
+
+function handleDeleteHistory_(ids) {
+  if (!ids || !ids.length) return { deleted: 0 };
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(SHEET_NAMES.HISTORY);
+  if (!sheet || sheet.getLastRow() <= 1) return { deleted: 0 };
+
+  const delSet = {};
+  ids.forEach(function (id) {
+    const clean = String(id || '').trim();
+    if (clean) delSet[clean] = true;
+  });
+
+  const data = sheet.getDataRange().getValues();
+  const kept = [data[0]];
+  let deleted = 0;
+  for (let i = 1; i < data.length; i++) {
+    const id = String(data[i][0] || '').trim();
+    if (delSet[id]) deleted++;
+    else kept.push(data[i]);
+  }
+  if (deleted === 0) return { deleted: 0 };
+
+  sheet.clearContents();
+  if (kept.length > 0) {
+    if (kept.length > 1) {
+      sheet.getRange(2, 2, kept.length - 1, 2).setNumberFormat('@');
+      sheet.getRange(2, 6, kept.length - 1, 1).setNumberFormat('@');
+      sheet.getRange(2, 9, kept.length - 1, 1).setNumberFormat('@');
+    }
+    sheet.getRange(1, 1, kept.length, kept[0].length).setValues(kept);
+  }
+  const maxRows = sheet.getMaxRows();
+  const keepRows = Math.max(kept.length, 2);
+  if (maxRows > keepRows) sheet.deleteRows(keepRows + 1, maxRows - keepRows);
+  return { deleted: deleted };
 }
 
 /* ========================= 內部工具函式 ========================= */

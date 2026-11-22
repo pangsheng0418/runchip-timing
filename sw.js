@@ -1,13 +1,15 @@
 /**
  * Service Worker — 支援賽道無網路環境離線快取 (PWA Offline-First)
  */
-const CACHE_NAME = 'nfc-race-timing-v3.6.1';
+const CACHE_NAME = 'nfc-race-timing-v3.10';
 
 const CORE_ASSETS = [
   './',
   './index.html',
   './public.html',
   './manifest.json',
+  './tur-logo.jpg',
+  './tur-icon.png',
   './icon.svg',
   './css/style.css',
   './js/config.js',
