@@ -19,6 +19,7 @@
 
 const SHEET_NAMES = {
   GLOBAL_CONFIG: 'GlobalConfig',
+  ADMINS: 'AdminAccounts',
   EVENTS: 'Events',
   STAFF: 'StaffAccounts',
   CHIPS: 'Chips',
@@ -27,14 +28,14 @@ const SHEET_NAMES = {
 };
 
 /**
- * 首次初始化：自動建立 6 張工作表與預設範例活動/帳號
+ * 首次初始化：自動建立 7 張工作表與預設範例活動/帳號
  */
 function setupSheets() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
   const now = Date.now();
 
-  // 1. GlobalConfig（平台管理員帳密與預設活動）
+  // 1. GlobalConfig（平台主管理員帳密與預設活動）
   const cfgSheet = getOrCreateSheet_(ss, SHEET_NAMES.GLOBAL_CONFIG, ['key', 'value', 'description']);
   if (cfgSheet.getLastRow() <= 1) {
     cfgSheet.getRange(2, 1, 3, 3).setValues([
@@ -44,10 +45,26 @@ function setupSheets() {
     ]);
   }
 
-  // 2. Events（多場次路跑活動清單：支援一般距離賽 distance 與繞圈計時賽 lap_timed）
+  // 1.5 AdminAccounts（多管理者帳號列表，各管理者活動資料獨立隔離）
+  const adminSheet = getOrCreateSheet_(ss, SHEET_NAMES.ADMINS, [
+    'username', 'password', 'displayName', 'isSuperAdmin', 'enabled', 'updatedAt'
+  ]);
+  if (adminSheet.getLastRow() <= 1) {
+    const gCfg = readGlobalConfigMap_();
+    adminSheet.getRange(2, 1, 1, 6).setValues([[
+      String(gCfg.adminUsername || 'admin').trim(),
+      String(gCfg.adminPassword || 'admin1234'),
+      '最高系統管理員',
+      1,
+      1,
+      now
+    ]]);
+  }
+
+  // 2. Events（多場次路跑活動清單：支援一般距離賽 distance 與繞圈計時賽 lap_timed，含建立者 ownerAdmin）
   const evtSheet = getOrCreateSheet_(ss, SHEET_NAMES.EVENTS, [
     'eventId', 'name', 'date', 'location', 'status', 'debounceSeconds',
-    'rankBy', 'categoriesJson', 'checkpointsJson', 'updatedAt', 'eventType', 'lapDistanceKm'
+    'rankBy', 'categoriesJson', 'checkpointsJson', 'updatedAt', 'eventType', 'lapDistanceKm', 'ownerAdmin'
   ]);
   if (evtSheet.getLastRow() <= 1) {
     const defaultCats = JSON.stringify([
@@ -56,32 +73,31 @@ function setupSheets() {
       { id: '10K', name: '健康組 10K', distanceKm: 10, gunTimeMs: null, gunTimeIso: '', color: '#10b981' }
     ]);
     const defaultCps = JSON.stringify([
-      { id: 'START', name: '起點感應門', order: 1, distanceKm: 0, type: 'start' },
-      { id: 'CP1', name: '補給站 1 (5K)', order: 2, distanceKm: 5, type: 'checkpoint' },
-      { id: 'CP2', name: '折返點 / 補給站 2 (10K)', order: 3, distanceKm: 10, type: 'checkpoint' },
-      { id: 'CP3', name: '補給站 3 (21K)', order: 4, distanceKm: 21.1, type: 'checkpoint' },
-      { id: 'FINISH', name: '終點衝線門', order: 5, distanceKm: 42.195, type: 'finish' }
+      { id: 'CP1', name: '補給站 1 (5K)', order: 1, distanceKm: 5, type: 'checkpoint' },
+      { id: 'CP2', name: '折返點 / 補給站 2 (10K)', order: 2, distanceKm: 10, type: 'checkpoint' },
+      { id: 'CP3', name: '補給站 3 (21K)', order: 3, distanceKm: 21.1, type: 'checkpoint' },
+      { id: 'FINISH', name: '終點衝線門', order: 4, distanceKm: 42.195, type: 'finish' }
     ]);
     evtSheet.getRange(2, 3, 1, 1).setNumberFormat('@');
-    evtSheet.getRange(2, 1, 1, 12).setValues([[
+    evtSheet.getRange(2, 1, 1, 13).setValues([[
       'EVT-2026-01', '2026 智慧城市馬拉松', today, '台北市政府廣場', 'active',
-      30, 'gun', defaultCats, defaultCps, now, 'distance', 0
+      30, 'gun', defaultCats, defaultCps, now, 'distance', 0, 'admin'
     ]]);
   }
 
-  // 3. StaffAccounts（作業人員帳密、權限與鎖定活動/站點）
+  // 3. StaffAccounts（作業人員帳密、權限與鎖定活動/站點，含所屬管理者 ownerAdmin）
   const staffSheet = getOrCreateSheet_(ss, SHEET_NAMES.STAFF, [
-    'username', 'password', 'displayName', 'role', 'eventId', 'checkpointId', 'enabled', 'updatedAt'
+    'username', 'password', 'displayName', 'role', 'eventId', 'checkpointId', 'enabled', 'updatedAt', 'ownerAdmin'
   ]);
   if (staffSheet.getLastRow() <= 1) {
-    staffSheet.getRange(2, 1, 7, 8).setValues([
-      ['writer01', '1111', '晶片寫入報到組', 'writer', 'ALL', '', 1, now],
-      ['lap01', '1111', '繞圈計次感應組', 'scanner', 'ALL', 'LAP', 1, now],
-      ['start01', '1111', '起點感應組', 'scanner', 'ALL', 'START', 1, now],
-      ['cp1', '1111', '補給站 1 感應組', 'scanner', 'ALL', 'CP1', 1, now],
-      ['cp2', '1111', '補給站 2 / 折返點組', 'scanner', 'ALL', 'CP2', 1, now],
-      ['cp3', '1111', '補給站 3 感應組', 'scanner', 'ALL', 'CP3', 1, now],
-      ['finish01', '1111', '終點衝線感應組', 'scanner', 'ALL', 'FINISH', 1, now]
+    staffSheet.getRange(2, 1, 7, 9).setValues([
+      ['writer01', '1111', '晶片寫入發卡組', 'writer', 'ALL', '', 1, now, ''],
+      ['checkin01', '1111', '選手報到感應組', 'scanner', 'ALL', 'CHECKIN', 1, now, ''],
+      ['lap01', '1111', '繞圈計次感應組', 'scanner', 'ALL', 'LAP', 1, now, ''],
+      ['cp1', '1111', '補給站 1 感應組', 'scanner', 'ALL', 'CP1', 1, now, ''],
+      ['cp2', '1111', '補給站 2 / 折返點組', 'scanner', 'ALL', 'CP2', 1, now, ''],
+      ['cp3', '1111', '補給站 3 感應組', 'scanner', 'ALL', 'CP3', 1, now, ''],
+      ['finish01', '1111', '終點衝線感應組', 'scanner', 'ALL', 'FINISH', 1, now, '']
     ]);
   }
 
@@ -101,7 +117,7 @@ function setupSheets() {
     'source', 'deviceId', 'operator', 'deleted', 'note', 'updatedAt'
   ]);
 
-  Logger.log('v3.0 多場次共用晶片計時平台 6 張工作表已初始化完成！');
+  Logger.log('v3.4 多管理員獨立隔離・多場次共用晶片計時平台 7 張工作表已初始化完成！');
 }
 
 function getOrCreateSheet_(ss, name, headers) {
@@ -129,15 +145,19 @@ function doGet(e) {
     if (action === 'ping') {
       return jsonResponse_({
         ok: true,
+        apiVersion: '3.4',
+        multiAdmin: true,
         serverTimeMs: Date.now(),
-        message: '智慧路跑多場次計時平台 API v3.0 運作正常'
+        message: '智慧路跑多場次計時平台 API v3.4 (多管理者活動隔離) 運作正常'
       });
     }
 
     if (action === 'publicData') {
-      const data = readAllData_(true, false);
+      const data = readAllData_(true, null);
       return jsonResponse_({
         ok: true,
+        apiVersion: '3.4',
+        multiAdmin: true,
         serverTimeMs: Date.now(),
         data: data
       });
@@ -163,24 +183,30 @@ function doPost(e) {
     if (!action) return jsonResponse_({ ok: false, error: '缺少 action 參數' });
 
     const gCfg = readGlobalConfigMap_();
-    const adminUser = String(gCfg.adminUsername || 'admin').trim();
-    const adminPass = String(gCfg.adminPassword || 'admin1234');
 
-    // 1. 登入驗證（作業人員或最高管理員）
+    // 1. 登入驗證（作業人員或各管理者帳號）
     if (action === 'login') {
       const mode = payload.mode || 'staff';
       const u = String(payload.username || '').trim();
       const p = String(payload.password || '');
 
       if (mode === 'admin') {
-        if (u !== adminUser || p !== adminPass) {
-          return jsonResponse_({ ok: false, error: '管理員帳號或密碼錯誤' });
+        const matchedAdmin = verifyAdminAccount_({ username: u, password: p }, gCfg);
+        if (!matchedAdmin) {
+          return jsonResponse_({ ok: false, multiAdmin: true, error: '管理員帳號或密碼錯誤，或帳號已停用' });
         }
         return jsonResponse_({
           ok: true,
+          apiVersion: '3.4',
+          multiAdmin: true,
           serverTimeMs: Date.now(),
-          account: { username: adminUser, displayName: '最高系統管理員', role: 'admin' },
-          data: readAllData_(false, true)
+          account: {
+            username: matchedAdmin.username,
+            displayName: matchedAdmin.displayName || matchedAdmin.username,
+            isSuperAdmin: matchedAdmin.isSuperAdmin,
+            role: 'admin'
+          },
+          data: readAllData_(false, matchedAdmin)
         });
       }
 
@@ -189,28 +215,34 @@ function doPost(e) {
         return s.enabled && s.username === u && s.password === p;
       });
       if (!matched) {
-        return jsonResponse_({ ok: false, error: '作業員帳號或密碼錯誤，或帳號已停用' });
+        return jsonResponse_({ ok: false, multiAdmin: true, error: '作業員帳號或密碼錯誤，或帳號已停用' });
       }
       return jsonResponse_({
         ok: true,
+        apiVersion: '3.4',
+        multiAdmin: true,
         serverTimeMs: Date.now(),
         account: matched,
-        data: readAllData_(false, false)
+        data: readAllData_(false, null)
       });
     }
 
-    // 2. 授權同步拉取
+    // 2. 授權同步拉取（管理員僅回傳該管理員本人建立的活動，避免看見或誤改他人活動）
     if (action === 'fullSync') {
-      const isAdmin = verifyAdmin_(payload.auth, adminUser, adminPass);
-      const isStaff = !isAdmin && verifyStaff_(payload.auth);
-      if (!isAdmin && !isStaff) {
-        return jsonResponse_({ ok: false, error: '身分驗證失敗，請重新登入' });
+      const callerAdmin = verifyAdminAccount_(payload.auth, gCfg);
+      const isStaff = !callerAdmin && verifyStaff_(payload.auth);
+      if (!callerAdmin && !isStaff) {
+        return jsonResponse_({ ok: false, multiAdmin: true, error: '身分驗證失敗，請重新登入' });
       }
       return jsonResponse_({
         ok: true,
+        apiVersion: '3.4',
+        multiAdmin: true,
         serverTimeMs: Date.now(),
-        isAdmin: isAdmin,
-        data: readAllData_(false, isAdmin)
+        isAdmin: Boolean(callerAdmin),
+        isSuperAdmin: Boolean(callerAdmin && callerAdmin.isSuperAdmin),
+        adminUsername: callerAdmin ? callerAdmin.username : '',
+        data: readAllData_(false, callerAdmin)
       });
     }
 
@@ -226,53 +258,135 @@ function doPost(e) {
     }
 
     if (action === 'upsertRegistrations') {
-      const res = handleUpsertRegistrations_(payload.registrations || []);
+      const callerAdmin = payload.auth ? verifyAdminAccount_(payload.auth, gCfg) : null;
+      if (payload.auth && !callerAdmin) {
+        return jsonResponse_({ ok: false, multiAdmin: true, error: '管理員身分驗證失敗' });
+      }
+      const regs = payload.registrations || [];
+      if (callerAdmin && regs.length) {
+        assertEventsOwnedByAdmin_(regs.map(function (r) { return r.eventId; }), callerAdmin, gCfg);
+      }
+      const res = handleUpsertRegistrations_(regs);
       return jsonResponse_({ ok: true, serverTimeMs: Date.now(), result: res });
     }
 
     if (action === 'batchSync') {
-      // 若為最高管理員帶入 auth + platform 資料，同步更新所有活動、分組鳴槍與作業員帳號
       let platformSynced = false;
-      if (payload.platform && verifyAdmin_(payload.auth, adminUser, adminPass)) {
-        handleSavePlatform_(payload.platform);
+      const callerAdmin = payload.auth ? verifyAdminAccount_(payload.auth, gCfg) : null;
+      if (payload.platform && callerAdmin) {
+        handleSavePlatform_(payload.platform, callerAdmin, gCfg);
         platformSynced = true;
       }
       const chipRes = handleUpsertChips_(payload.chips || []);
-      const regRes = handleUpsertRegistrations_(payload.registrations || []);
+      const regs = payload.registrations || [];
+      if (callerAdmin && regs.length) {
+        assertEventsOwnedByAdmin_(regs.map(function (r) { return r.eventId; }), callerAdmin, gCfg);
+      }
+      const regRes = handleUpsertRegistrations_(regs);
       const scanRes = handlePushScans_(payload.scans || []);
       return jsonResponse_({
         ok: true,
+        multiAdmin: true,
         serverTimeMs: Date.now(),
         result: { platformSynced: platformSynced, chips: chipRes, registrations: regRes, scans: scanRes }
       });
     }
 
-    // 以下需最高管理員驗證
-    if (!verifyAdmin_(payload.auth, adminUser, adminPass)) {
-      return jsonResponse_({ ok: false, error: '權限不足：需要最高管理員帳號密碼驗證' });
+    // 以下需管理員帳號驗證
+    const callerAdmin = verifyAdminAccount_(payload.auth, gCfg);
+    if (!callerAdmin) {
+      return jsonResponse_({ ok: false, multiAdmin: true, error: '權限不足：需要管理員帳號密碼驗證' });
     }
 
     if (action === 'savePlatform') {
-      handleSavePlatform_(payload);
-      return jsonResponse_({ ok: true, serverTimeMs: Date.now(), message: '平台設定、活動與帳號已同步至雲端' });
+      handleSavePlatform_(payload, callerAdmin, gCfg);
+      return jsonResponse_({ ok: true, multiAdmin: true, serverTimeMs: Date.now(), message: '您的活動設定與帳號已同步至雲端' });
     }
 
     if (action === 'editScan') {
-      const res = handleEditScan_(payload.scan);
-      return jsonResponse_({ ok: true, serverTimeMs: Date.now(), result: res });
+      const res = handleEditScan_(payload.scan, callerAdmin, gCfg);
+      return jsonResponse_({ ok: true, multiAdmin: true, serverTimeMs: Date.now(), result: res });
     }
 
     return jsonResponse_({ ok: false, error: '不支援的 POST action: ' + action });
   } catch (err) {
-    return jsonResponse_({ ok: false, error: String(err.message || err) });
+    return jsonResponse_({ ok: false, multiAdmin: true, error: String(err.message || err) });
   } finally {
     lock.releaseLock();
   }
 }
 
-function verifyAdmin_(auth, adminUser, adminPass) {
-  if (!auth) return false;
-  return String(auth.username || '').trim() === adminUser && String(auth.password || '') === adminPass;
+function readAdminAccountsList_(gCfg) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(SHEET_NAMES.ADMINS);
+  const cfg = gCfg || readGlobalConfigMap_();
+  const primaryUser = String(cfg.adminUsername || 'admin').trim() || 'admin';
+  const primaryPass = String(cfg.adminPassword || 'admin1234');
+
+  const list = readTableObjects_(sheet).map(function (a) {
+    return {
+      username: String(a.username || '').trim(),
+      password: String(a.password || ''),
+      displayName: String(a.displayName || a.username || '').trim(),
+      isSuperAdmin: String(a.isSuperAdmin) === '1' || String(a.isSuperAdmin).toLowerCase() === 'true',
+      enabled: String(a.enabled) !== '0' && String(a.enabled).toLowerCase() !== 'false',
+      updatedAt: a.updatedAt ? Number(a.updatedAt) : Date.now()
+    };
+  }).filter(function (a) { return a.username; });
+
+  if (!list.length) {
+    return [{
+      username: primaryUser,
+      password: primaryPass,
+      displayName: '最高系統管理員',
+      isSuperAdmin: true,
+      enabled: true,
+      updatedAt: Date.now()
+    }];
+  }
+
+  if (!list.some(function (a) { return a.isSuperAdmin && a.enabled; })) {
+    const idx = list.findIndex(function (a) { return a.username === primaryUser; });
+    if (idx >= 0) {
+      list[idx].isSuperAdmin = true;
+      list[idx].enabled = true;
+    } else {
+      list.unshift({
+        username: primaryUser,
+        password: primaryPass,
+        displayName: '最高系統管理員',
+        isSuperAdmin: true,
+        enabled: true,
+        updatedAt: Date.now()
+      });
+    }
+  }
+  return list;
+}
+
+function verifyAdminAccount_(auth, gCfg) {
+  if (!auth || !auth.username) return null;
+  const u = String(auth.username || '').trim();
+  const p = String(auth.password || '');
+  const list = readAdminAccountsList_(gCfg);
+  return list.find(function (a) {
+    return a.enabled && a.username === u && a.password === p;
+  }) || null;
+}
+
+function assertEventsOwnedByAdmin_(eventIds, callerAdmin, gCfg) {
+  const defaultOwner = String((gCfg && gCfg.adminUsername) || 'admin').trim() || 'admin';
+  const events = readEventsList_(defaultOwner);
+  const ownerMap = {};
+  events.forEach(function (ev) { ownerMap[ev.eventId] = ev.ownerAdmin; });
+
+  eventIds.forEach(function (eid) {
+    const clean = String(eid || '').trim();
+    if (!clean) return;
+    if (ownerMap[clean] && ownerMap[clean] !== callerAdmin.username) {
+      throw new Error('權限不足：活動「' + clean + '」屬於其他管理員，不可修改');
+    }
+  });
 }
 
 function verifyStaff_(auth) {
@@ -304,6 +418,7 @@ function readStaffList_() {
       role: String(s.role || 'scanner').trim(),
       eventId: String(s.eventId || 'ALL').trim() || 'ALL',
       checkpointId: String(s.checkpointId || '').trim(),
+      ownerAdmin: String(s.ownerAdmin || '').trim(),
       enabled: String(s.enabled) !== '0' && String(s.enabled).toLowerCase() !== 'false',
       updatedAt: s.updatedAt ? Number(s.updatedAt) : Date.now()
     };
@@ -324,9 +439,10 @@ function formatDateCell_(val) {
   return s;
 }
 
-function readEventsList_() {
+function readEventsList_(defaultOwner) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName(SHEET_NAMES.EVENTS);
+  const fallbackOwner = String(defaultOwner || 'admin').trim() || 'admin';
   return readTableObjects_(sheet).map(function (ev) {
     let cats = [];
     let cps = [];
@@ -339,6 +455,7 @@ function readEventsList_() {
       date: formatDateCell_(ev.date),
       location: String(ev.location || '').trim(),
       status: String(ev.status || 'active').trim(),
+      ownerAdmin: String(ev.ownerAdmin || '').trim() || fallbackOwner,
       eventType: eventType,
       lapDistanceKm: Number(ev.lapDistanceKm || 0),
       debounceSeconds: Number(ev.debounceSeconds || 30),
@@ -350,16 +467,27 @@ function readEventsList_() {
   }).filter(function (ev) { return ev.eventId; });
 }
 
-function readAllData_(maskSensitive, includeAdminSecrets) {
+function readAllData_(maskSensitive, callerAdmin) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const gCfg = readGlobalConfigMap_();
-  const events = readEventsList_();
+  const defaultOwner = String(gCfg.adminUsername || 'admin').trim() || 'admin';
+  const allEvents = readEventsList_(defaultOwner);
+
+  // 若為管理員登入，僅回傳該管理員本人建立的活動、報名、感應與作業員，落實多管理者資料隔離！
+  const events = callerAdmin
+    ? allEvents.filter(function (ev) { return ev.ownerAdmin === callerAdmin.username; })
+    : allEvents;
+
+  const allowedEventIdSet = callerAdmin ? {} : null;
+  if (callerAdmin) {
+    events.forEach(function (ev) { allowedEventIdSet[ev.eventId] = true; });
+  }
 
   const globalConfig = {
-    activeEventId: String(gCfg.activeEventId || (events[0] ? events[0].eventId : '')).trim()
+    activeEventId: String(gCfg.activeEventId || (allEvents[0] ? allEvents[0].eventId : '')).trim()
   };
-  if (includeAdminSecrets) {
-    globalConfig.adminUsername = String(gCfg.adminUsername || 'admin');
+  if (callerAdmin && callerAdmin.isSuperAdmin) {
+    globalConfig.adminUsername = defaultOwner;
     globalConfig.adminPassword = String(gCfg.adminPassword || 'admin1234');
   }
 
@@ -378,7 +506,11 @@ function readAllData_(maskSensitive, includeAdminSecrets) {
     };
     if (!maskSensitive) obj.idNumber = rawId;
     return obj;
-  }).filter(function (r) { return r.eventId && r.bib; });
+  }).filter(function (r) {
+    if (!r.eventId || !r.bib) return false;
+    if (allowedEventIdSet && !allowedEventIdSet[r.eventId]) return false;
+    return true;
+  });
 
   const scans = readTableObjects_(ss.getSheetByName(SHEET_NAMES.SCANS)).map(function (s) {
     const obj = {
@@ -398,7 +530,11 @@ function readAllData_(maskSensitive, includeAdminSecrets) {
     };
     if (!maskSensitive) obj.idNumber = String(s.idNumber || '').trim().toUpperCase();
     return obj;
-  }).filter(function (s) { return s.id && s.eventId && s.bib && !s.deleted; });
+  }).filter(function (s) {
+    if (!s.id || !s.eventId || !s.bib || s.deleted) return false;
+    if (allowedEventIdSet && !allowedEventIdSet[s.eventId]) return false;
+    return true;
+  });
 
   const result = {
     globalConfig: globalConfig,
@@ -419,8 +555,16 @@ function readAllData_(maskSensitive, includeAdminSecrets) {
     }).filter(function (c) { return c.idNumber; });
   }
 
-  if (includeAdminSecrets) {
-    result.staffAccounts = readStaffList_();
+  if (callerAdmin) {
+    const allStaff = readStaffList_();
+    result.staffAccounts = allStaff.filter(function (s) {
+      if (callerAdmin.isSuperAdmin) return !s.ownerAdmin || s.ownerAdmin === callerAdmin.username;
+      return s.ownerAdmin === callerAdmin.username;
+    });
+    const allAdmins = readAdminAccountsList_(gCfg);
+    result.adminAccounts = callerAdmin.isSuperAdmin
+      ? allAdmins
+      : allAdmins.filter(function (a) { return a.username === callerAdmin.username; });
   }
 
   return result;
@@ -618,16 +762,242 @@ function handlePushScans_(incomingScans) {
   };
 }
 
-function handleSavePlatform_(payload) {
+function handleSavePlatform_(payload, callerAdmin, gCfg) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const cfg = gCfg || readGlobalConfigMap_();
+  const defaultOwner = String(cfg.adminUsername || 'admin').trim() || 'admin';
+  const isSuper = Boolean(callerAdmin && callerAdmin.isSuperAdmin);
 
-  if (payload.globalConfig) {
+  // 若最高管理員修改了管理者帳號名稱，同步搬移對應活動與作業員的 ownerAdmin
+  const renamedAdmins = (isSuper && payload.renamedAdmins && typeof payload.renamedAdmins === 'object')
+    ? payload.renamedAdmins
+    : {};
+  const renameOwner_ = function (name) {
+    const clean = String(name || '').trim();
+    return renamedAdmins[clean] ? String(renamedAdmins[clean]).trim() : clean;
+  };
+  const effectiveCaller = renameOwner_(callerAdmin.username);
+
+  // 1. 更新管理者帳號列表 (AdminAccounts)
+  const adminHeaders = ['username', 'password', 'displayName', 'isSuperAdmin', 'enabled', 'updatedAt'];
+  let currentAdmins = readAdminAccountsList_(cfg);
+  let primarySuper = currentAdmins.find(function (a) { return a.isSuperAdmin && a.enabled; }) || currentAdmins[0];
+
+  if (Array.isArray(payload.adminAccounts)) {
+    const adminSheet = getOrCreateSheet_(ss, SHEET_NAMES.ADMINS, adminHeaders);
+    let nextAdmins = currentAdmins.slice();
+
+    if (isSuper) {
+      const seen = {};
+      nextAdmins = [];
+      payload.adminAccounts.forEach(function (a) {
+        const u = String(a.username || '').trim();
+        if (!u || seen[u]) return;
+        seen[u] = true;
+        nextAdmins.push({
+          username: u,
+          password: String(a.password || ''),
+          displayName: String(a.displayName || u).trim(),
+          isSuperAdmin: Boolean(a.isSuperAdmin),
+          enabled: a.enabled !== false,
+          updatedAt: Number(a.updatedAt || Date.now())
+        });
+      });
+      if (!nextAdmins.some(function (a) { return a.isSuperAdmin && a.enabled; })) {
+        throw new Error('系統至少須保留一位啟用中的最高管理員帳號');
+      }
+    } else {
+      // 一般活動管理者僅能修改自己的密碼與名稱
+      const selfIncoming = payload.adminAccounts.find(function (a) {
+        return String(a.username || '').trim() === callerAdmin.username;
+      });
+      if (selfIncoming) {
+        nextAdmins = nextAdmins.map(function (a) {
+          if (a.username !== callerAdmin.username) return a;
+          return {
+            username: a.username,
+            password: String(selfIncoming.password || a.password),
+            displayName: String(selfIncoming.displayName || a.displayName || a.username).trim(),
+            isSuperAdmin: a.isSuperAdmin,
+            enabled: a.enabled,
+            updatedAt: Date.now()
+          };
+        });
+      }
+    }
+
+    if (adminSheet.getLastRow() > 1) adminSheet.getRange(2, 1, adminSheet.getLastRow() - 1, 6).clearContent();
+    if (nextAdmins.length > 0) {
+      const adminRows = nextAdmins.map(function (a) {
+        return [a.username, a.password, a.displayName, a.isSuperAdmin ? 1 : 0, a.enabled === false ? 0 : 1, a.updatedAt];
+      });
+      adminSheet.getRange(2, 1, adminRows.length, 6).setValues(adminRows);
+    }
+    currentAdmins = nextAdmins;
+    primarySuper = currentAdmins.find(function (a) { return a.isSuperAdmin && a.enabled; }) || currentAdmins[0];
+  }
+
+  // 2. 更新活動清單（嚴格依 ownerAdmin 隔離合併，絕不覆蓋或刪除其他管理員的活動！）
+  let finalAllEvents = readEventsList_(defaultOwner).map(function (ev) {
+    ev.ownerAdmin = renameOwner_(ev.ownerAdmin);
+    return ev;
+  });
+
+  if (Array.isArray(payload.events) || Object.keys(renamedAdmins).length > 0) {
+    const evtHeaders = [
+      'eventId', 'name', 'date', 'location', 'status', 'debounceSeconds',
+      'rankBy', 'categoriesJson', 'checkpointsJson', 'updatedAt', 'eventType', 'lapDistanceKm', 'ownerAdmin'
+    ];
+    const evtSheet = getOrCreateSheet_(ss, SHEET_NAMES.EVENTS, evtHeaders);
+    // 確保舊版 10/12 欄工作表自動補齊第 13 欄標題 (ownerAdmin)
+    if (evtSheet.getLastColumn() < 13) {
+      evtSheet.getRange(1, 1, 1, 13).setValues([evtHeaders])
+        .setFontWeight('bold').setBackground('#1e293b').setFontColor('#ffffff');
+    }
+
+    if (Array.isArray(payload.events)) {
+      const otherEvents = finalAllEvents.filter(function (ev) { return ev.ownerAdmin !== effectiveCaller; });
+      const otherIdSet = {};
+      otherEvents.forEach(function (ev) { otherIdSet[ev.eventId] = true; });
+
+      const callerEvents = [];
+      payload.events.forEach(function (ev) {
+        const eid = String(ev.eventId || '').trim();
+        if (!eid || otherIdSet[eid]) return; // 嚴禁寫入/篡改其他管理員的活動 ID
+        callerEvents.push({
+          eventId: eid,
+          name: String(ev.name || '').trim(),
+          date: String(ev.date || '').trim(),
+          location: String(ev.location || '').trim(),
+          status: String(ev.status || 'active').trim(),
+          debounceSeconds: Number(ev.debounceSeconds || 30),
+          rankBy: String(ev.rankBy || 'gun').trim(),
+          categories: Array.isArray(ev.categories) ? ev.categories : [],
+          checkpoints: Array.isArray(ev.checkpoints) ? ev.checkpoints : [],
+          updatedAt: Number(ev.updatedAt || Date.now()),
+          eventType: String(ev.eventType || 'distance').trim(),
+          lapDistanceKm: Number(ev.lapDistanceKm || 0),
+          ownerAdmin: effectiveCaller
+        });
+      });
+
+      finalAllEvents = otherEvents.concat(callerEvents);
+    }
+
+    if (evtSheet.getLastRow() > 1) {
+      evtSheet.getRange(2, 1, evtSheet.getLastRow() - 1, Math.max(13, evtSheet.getLastColumn())).clearContent();
+    }
+    if (finalAllEvents.length > 0) {
+      const rows = finalAllEvents.map(function (ev) {
+        return [
+          ev.eventId,
+          ev.name,
+          ev.date,
+          ev.location,
+          ev.status,
+          ev.debounceSeconds,
+          ev.rankBy,
+          JSON.stringify(ev.categories || []),
+          JSON.stringify(ev.checkpoints || []),
+          ev.updatedAt,
+          ev.eventType,
+          ev.lapDistanceKm,
+          ev.ownerAdmin
+        ];
+      });
+      const range = evtSheet.getRange(2, 1, rows.length, 13);
+      evtSheet.getRange(2, 3, rows.length, 1).setNumberFormat('@');
+      range.setValues(rows);
+    }
+  }
+
+  // 3. 更新作業員帳號（嚴格依 ownerAdmin 隔離合併，防止跨管理員覆蓋或帳號衝突）
+  if (Array.isArray(payload.staffAccounts) || Object.keys(renamedAdmins).length > 0) {
+    const staffHeaders = [
+      'username', 'password', 'displayName', 'role', 'eventId', 'checkpointId', 'enabled', 'updatedAt', 'ownerAdmin'
+    ];
+    const staffSheet = getOrCreateSheet_(ss, SHEET_NAMES.STAFF, staffHeaders);
+    if (staffSheet.getLastColumn() < 9) {
+      staffSheet.getRange(1, 1, 1, 9).setValues([staffHeaders])
+        .setFontWeight('bold').setBackground('#1e293b').setFontColor('#ffffff');
+    }
+
+    const existingStaff = readStaffList_().map(function (s) {
+      s.ownerAdmin = s.ownerAdmin ? renameOwner_(s.ownerAdmin) : '';
+      return s;
+    });
+
+    let finalStaff = existingStaff;
+    if (Array.isArray(payload.staffAccounts)) {
+      const otherStaff = existingStaff.filter(function (s) {
+        if (isSuper) return s.ownerAdmin && s.ownerAdmin !== effectiveCaller;
+        return s.ownerAdmin !== effectiveCaller;
+      });
+      const otherUserSet = {};
+      otherStaff.forEach(function (s) { otherUserSet[s.username] = true; });
+
+      const callerStaff = [];
+      payload.staffAccounts.forEach(function (s) {
+        const u = String(s.username || '').trim();
+        if (!u) return;
+        if (otherUserSet[u]) {
+          throw new Error('作業員帳號「' + u + '」已被其他管理員使用，請更換其他帳號名稱');
+        }
+        const rawOwner = String(s.ownerAdmin || '').trim();
+        callerStaff.push({
+          username: u,
+          password: String(s.password || ''),
+          displayName: String(s.displayName || '').trim(),
+          role: String(s.role || 'scanner').trim(),
+          eventId: String(s.eventId || 'ALL').trim() || 'ALL',
+          checkpointId: String(s.checkpointId || '').trim(),
+          enabled: s.enabled !== false,
+          updatedAt: Number(s.updatedAt || Date.now()),
+          ownerAdmin: isSuper ? (rawOwner === '' ? '' : effectiveCaller) : effectiveCaller
+        });
+      });
+      finalStaff = otherStaff.concat(callerStaff);
+    }
+
+    if (staffSheet.getLastRow() > 1) {
+      staffSheet.getRange(2, 1, staffSheet.getLastRow() - 1, Math.max(9, staffSheet.getLastColumn())).clearContent();
+    }
+    if (finalStaff.length > 0) {
+      const rows = finalStaff.map(function (s) {
+        return [
+          s.username,
+          s.password,
+          s.displayName,
+          s.role,
+          s.eventId,
+          s.checkpointId,
+          s.enabled === false ? 0 : 1,
+          s.updatedAt,
+          s.ownerAdmin
+        ];
+      });
+      staffSheet.getRange(2, 1, rows.length, 9).setValues(rows);
+    }
+  }
+
+  // 4. 更新 GlobalConfig
+  if (payload.globalConfig || primarySuper) {
     const cfgSheet = getOrCreateSheet_(ss, SHEET_NAMES.GLOBAL_CONFIG, ['key', 'value', 'description']);
     const existing = readGlobalConfigMap_();
+    let nextActiveEvt = String(existing.activeEventId || '');
+    const reqActiveEvt = payload.globalConfig && payload.globalConfig.activeEventId
+      ? String(payload.globalConfig.activeEventId).trim()
+      : '';
+    if (reqActiveEvt) {
+      const targetEv = finalAllEvents.find(function (ev) { return ev.eventId === reqActiveEvt; });
+      if (isSuper || (targetEv && targetEv.ownerAdmin === effectiveCaller)) {
+        nextActiveEvt = reqActiveEvt;
+      }
+    }
     const merged = {
-      adminUsername: payload.globalConfig.adminUsername || existing.adminUsername || 'admin',
-      adminPassword: payload.globalConfig.adminPassword || existing.adminPassword || 'admin1234',
-      activeEventId: payload.globalConfig.activeEventId || existing.activeEventId || ''
+      adminUsername: primarySuper ? primarySuper.username : (existing.adminUsername || 'admin'),
+      adminPassword: primarySuper ? primarySuper.password : (existing.adminPassword || 'admin1234'),
+      activeEventId: nextActiveEvt
     };
     if (cfgSheet.getLastRow() > 1) cfgSheet.getRange(2, 1, cfgSheet.getLastRow() - 1, 3).clearContent();
     cfgSheet.getRange(2, 1, 3, 3).setValues([
@@ -636,68 +1006,14 @@ function handleSavePlatform_(payload) {
       ['activeEventId', String(merged.activeEventId), '預設顯示活動代碼']
     ]);
   }
-
-  if (Array.isArray(payload.events)) {
-    const evtHeaders = [
-      'eventId', 'name', 'date', 'location', 'status', 'debounceSeconds',
-      'rankBy', 'categoriesJson', 'checkpointsJson', 'updatedAt', 'eventType', 'lapDistanceKm'
-    ];
-    const evtSheet = getOrCreateSheet_(ss, SHEET_NAMES.EVENTS, evtHeaders);
-    // 確保舊版 10 欄工作表自動補齊第 11、12 欄標題
-    if (evtSheet.getLastColumn() < 12) {
-      evtSheet.getRange(1, 1, 1, 12).setValues([evtHeaders])
-        .setFontWeight('bold').setBackground('#1e293b').setFontColor('#ffffff');
-    }
-    if (evtSheet.getLastRow() > 1) evtSheet.getRange(2, 1, evtSheet.getLastRow() - 1, 12).clearContent();
-    if (payload.events.length > 0) {
-      const rows = payload.events.map(function (ev) {
-        return [
-          String(ev.eventId || '').trim(),
-          String(ev.name || '').trim(),
-          String(ev.date || '').trim(),
-          String(ev.location || '').trim(),
-          String(ev.status || 'active').trim(),
-          Number(ev.debounceSeconds || 30),
-          String(ev.rankBy || 'gun').trim(),
-          JSON.stringify(ev.categories || []),
-          JSON.stringify(ev.checkpoints || []),
-          Number(ev.updatedAt || Date.now()),
-          String(ev.eventType || 'distance').trim(),
-          Number(ev.lapDistanceKm || 0)
-        ];
-      });
-      const range = evtSheet.getRange(2, 1, rows.length, 12);
-      evtSheet.getRange(2, 3, rows.length, 1).setNumberFormat('@');
-      range.setValues(rows);
-    }
-  }
-
-  if (Array.isArray(payload.staffAccounts)) {
-    const staffSheet = getOrCreateSheet_(ss, SHEET_NAMES.STAFF, [
-      'username', 'password', 'displayName', 'role', 'eventId', 'checkpointId', 'enabled', 'updatedAt'
-    ]);
-    if (staffSheet.getLastRow() > 1) staffSheet.getRange(2, 1, staffSheet.getLastRow() - 1, 8).clearContent();
-    if (payload.staffAccounts.length > 0) {
-      const rows = payload.staffAccounts.map(function (s) {
-        return [
-          String(s.username || '').trim(),
-          String(s.password || ''),
-          String(s.displayName || '').trim(),
-          String(s.role || 'scanner').trim(),
-          String(s.eventId || 'ALL').trim() || 'ALL',
-          String(s.checkpointId || '').trim(),
-          s.enabled === false ? 0 : 1,
-          Number(s.updatedAt || Date.now())
-        ];
-      });
-      staffSheet.getRange(2, 1, rows.length, 8).setValues(rows);
-    }
-  }
 }
 
-function handleEditScan_(scan) {
+function handleEditScan_(scan, callerAdmin, gCfg) {
   if (!scan || !scan.eventId || !scan.bib || !scan.checkpointId) {
     throw new Error('缺少必要的感應修正欄位 (eventId, bib, checkpointId)');
+  }
+  if (callerAdmin) {
+    assertEventsOwnedByAdmin_([scan.eventId], callerAdmin, gCfg);
   }
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = getOrCreateSheet_(ss, SHEET_NAMES.SCANS, [
@@ -729,7 +1045,7 @@ function handleEditScan_(scan) {
     String(scan.isoTime || new Date(ts).toISOString()),
     String(scan.source || 'admin'),
     String(scan.deviceId || 'admin-console'),
-    String(scan.operator || 'admin'),
+    String(scan.operator || (callerAdmin ? callerAdmin.username : 'admin')),
     scan.deleted ? 1 : 0,
     String(scan.note || '後台人工修正'),
     Date.now()

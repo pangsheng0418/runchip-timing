@@ -45,8 +45,47 @@
       });
       if (!resp.ok) throw new Error(`HTTP 錯誤 (${resp.status})`);
       const json = await resp.json();
-      if (!json.ok) throw new Error(json.error || '雲端 API 寫入失敗');
+      if (!json.ok) {
+        const err = new Error(json.error || '雲端 API 寫入失敗');
+        err.multiAdmin = Boolean(json.multiAdmin);
+        throw err;
+      }
       return json;
+    }
+
+    _buildScopedPlatformPayload(platform, auth, extra = {}) {
+      const owner = String(extra?.targetOwner || auth?.username || platform.adminUsername || 'admin').trim();
+      const defaultOwner = String(platform.adminUsername || 'admin').trim();
+      const adminList = platform.adminAccounts || [];
+      const callerAcc = adminList.find((a) => a.username === owner);
+      const isSuper = Boolean(callerAcc ? callerAcc.isSuperAdmin : owner === defaultOwner);
+
+      const scopedEvents = (platform.events || []).filter(
+        (e) => (String(e.ownerAdmin || '').trim() || defaultOwner) === owner
+      );
+      const scopedStaff = (platform.staffAccounts || []).filter((s) => {
+        const sOwner = String(s.ownerAdmin || '').trim();
+        return isSuper ? (!sOwner || sOwner === owner) : sOwner === owner;
+      });
+      const scopedAdmins = isSuper
+        ? adminList
+        : adminList.filter((a) => a.username === owner);
+
+      const restExtra = { ...(extra || {}) };
+      delete restExtra.targetOwner;
+
+      return {
+        scopedAdminSync: true,
+        globalConfig: {
+          adminUsername: platform.adminUsername,
+          adminPassword: platform.adminPassword,
+          activeEventId: platform.activeEventId
+        },
+        adminAccounts: scopedAdmins,
+        events: scopedEvents,
+        staffAccounts: scopedStaff,
+        ...restExtra
+      };
     }
 
     async ping(customUrl) {
@@ -79,8 +118,19 @@
       const url = this.getUrl();
       if (!url) throw new Error('尚未設定雲端 API 網址');
       const res = await this._post(url, { action: 'login', mode, username, password });
-      if (res.data) await global.RaceDB.mergeCloudData(res.data);
-      if (mode === 'staff' && res.account) await global.RaceDB.cacheStaffAccount(res.account);
+      if (mode === 'admin') {
+        const acc = res.account || { username, isSuperAdmin: true, displayName: username, role: 'admin' };
+        if (res.data) {
+          const opts = res.multiAdmin
+            ? { scopedOwnerAdmin: acc.username, scopedAdminOnly: !acc.isSuperAdmin }
+            : {};
+          await global.RaceDB.mergeCloudData(res.data, opts);
+        }
+        await global.RaceDB.cacheAdminAccount({ ...acc, password });
+      } else {
+        if (res.data) await global.RaceDB.mergeCloudData(res.data);
+        if (res.account) await global.RaceDB.cacheStaffAccount(res.account);
+      }
       global.RaceDB.saveDeviceSettings({ lastSyncAt: Date.now() });
       return res;
     }
@@ -89,7 +139,10 @@
       const url = this.getUrl();
       if (!url) throw new Error('請先設定 Google Apps Script 網址');
       const res = await this._post(url, { action: 'fullSync', auth });
-      await global.RaceDB.mergeCloudData(res.data);
+      const opts = res.isAdmin && res.multiAdmin && res.adminUsername
+        ? { scopedOwnerAdmin: res.adminUsername, scopedAdminOnly: !res.isSuperAdmin }
+        : {};
+      await global.RaceDB.mergeCloudData(res.data, opts);
       global.RaceDB.saveDeviceSettings({ lastSyncAt: Date.now() });
       return res;
     }
@@ -105,29 +158,42 @@
       const isAdmin = session && session.mode === 'admin' && session.auth;
       const includePlatform = Boolean(isAdmin && pending.platformDirty);
 
-      if (!includePlatform && pending.chips === 0 && pending.registrations === 0 && pending.scans === 0) {
+      let regsToUpload = pending.unsyncedRegs;
+      let scansToUpload = pending.unsyncedScans;
+      let platformPayload = null;
+
+      if (isAdmin) {
+        const platform = await global.RaceDB.getPlatform();
+        const owner = String(session.auth.username || '').trim();
+        const defaultOwner = String(platform.adminUsername || 'admin').trim();
+        const ownEventIds = new Set(
+          (platform.events || [])
+            .filter((e) => (String(e.ownerAdmin || '').trim() || defaultOwner) === owner)
+            .map((e) => e.eventId)
+        );
+        regsToUpload = pending.unsyncedRegs.filter((r) => ownEventIds.has(r.eventId));
+        scansToUpload = pending.unsyncedScans.filter((s) => ownEventIds.has(s.eventId));
+        if (includePlatform) {
+          platformPayload = this._buildScopedPlatformPayload(platform, session.auth);
+        }
+      }
+
+      if (!includePlatform && pending.chips === 0 && regsToUpload.length === 0 && scansToUpload.length === 0) {
         return { platformSynced: false, uploadedChips: 0, uploadedRegs: 0, uploadedScans: 0, skippedDuplicate: 0 };
       }
 
       const body = {
         action: 'batchSync',
         chips: pending.unsyncedChips,
-        registrations: pending.unsyncedRegs,
-        scans: pending.unsyncedScans
+        registrations: regsToUpload,
+        scans: scansToUpload
       };
 
-      if (includePlatform) {
-        const platform = await global.RaceDB.getPlatform();
+      if (session && session.auth) {
         body.auth = session.auth;
-        body.platform = {
-          globalConfig: {
-            adminUsername: platform.adminUsername,
-            adminPassword: platform.adminPassword,
-            activeEventId: platform.activeEventId
-          },
-          events: platform.events,
-          staffAccounts: platform.staffAccounts
-        };
+      }
+      if (platformPayload) {
+        body.platform = platformPayload;
       }
 
       const res = await this._post(url, body);
@@ -140,7 +206,7 @@
       await global.RaceDB.markSynced({
         platform: Boolean(res.result?.platformSynced),
         chipIds: pending.unsyncedChips.map((c) => c.idNumber),
-        regIds: pending.unsyncedRegs.map((r) => r.regId),
+        regIds: regsToUpload.map((r) => r.regId),
         scanIds: scanDoneIds
       });
 
@@ -148,7 +214,7 @@
       return {
         platformSynced: Boolean(res.result?.platformSynced),
         uploadedChips: pending.unsyncedChips.length,
-        uploadedRegs: pending.unsyncedRegs.length,
+        uploadedRegs: regsToUpload.length,
         uploadedScans: res.result?.scans?.inserted || 0,
         skippedDuplicate: res.result?.scans?.skippedDuplicate || 0
       };
@@ -200,10 +266,12 @@
       }
     }
 
-    async pushRegistrations(registrations) {
+    async pushRegistrations(registrations, auth = null) {
       if (!this.isOnlineEnabled() || !navigator.onLine) return { queued: true };
       try {
-        await this._post(this.getUrl(), { action: 'upsertRegistrations', registrations });
+        const body = { action: 'upsertRegistrations', registrations };
+        if (auth) body.auth = auth;
+        await this._post(this.getUrl(), body);
         await global.RaceDB.markSynced({ regIds: registrations.map((r) => r.regId) });
         global.RaceDB.saveDeviceSettings({ lastSyncAt: Date.now() });
         return { queued: false };
@@ -212,18 +280,13 @@
       }
     }
 
-    async pushPlatform(platform, auth) {
+    async pushPlatform(platform, auth, extra = {}) {
       if (!this.isOnlineEnabled() || !navigator.onLine) return { queued: true };
+      const scoped = this._buildScopedPlatformPayload(platform, auth, extra);
       const res = await this._post(this.getUrl(), {
         action: 'savePlatform',
         auth,
-        globalConfig: {
-          adminUsername: platform.adminUsername,
-          adminPassword: platform.adminPassword,
-          activeEventId: platform.activeEventId
-        },
-        events: platform.events,
-        staffAccounts: platform.staffAccounts
+        ...scoped
       });
       await global.RaceDB.markSynced({ platform: true });
       global.RaceDB.saveDeviceSettings({ lastSyncAt: Date.now() });

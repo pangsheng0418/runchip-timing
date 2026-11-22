@@ -26,12 +26,12 @@
     allRegistrations: [],
     allScans: [],
     computed: null,
-    rankBy: 'gun',
     resultsCatFilter: 'ALL',
     resultsSearch: '',
     rosterSearch: '',
     writerEventFilter: 'ALL',
     adminRegSearch: '',
+    adminRegCheckinFilter: 'ALL',
     editMode: 'scan'
   };
 
@@ -64,7 +64,61 @@
     }, 3600);
   }
 
+  function getLocalDateStr() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+
+  function getCurrentAdminUsername() {
+    return state.session?.mode === 'admin' ? String(state.session.account?.username || '').trim() : '';
+  }
+
+  function isCurrentSuperAdmin() {
+    return state.session?.mode === 'admin' && Boolean(state.session.account?.isSuperAdmin);
+  }
+
+  function getEventOwner(ev) {
+    return String(ev?.ownerAdmin || state.platform?.adminUsername || 'admin').trim() || 'admin';
+  }
+
+  function getAdminOwnEvents() {
+    const adminUser = getCurrentAdminUsername();
+    if (!adminUser) return [];
+    return (state.platform?.events || []).filter((e) => getEventOwner(e) === adminUser);
+  }
+
+  function isEventOwnedByCurrentAdmin(ev) {
+    const adminUser = getCurrentAdminUsername();
+    return Boolean(ev && adminUser && getEventOwner(ev) === adminUser);
+  }
+
+  function getAdminOwnStaffAccounts() {
+    const adminUser = getCurrentAdminUsername();
+    if (!adminUser) return [];
+    const isSuper = isCurrentSuperAdmin();
+    return (state.platform?.staffAccounts || []).filter((s) => {
+      const sOwner = String(s.ownerAdmin || '').trim();
+      return isSuper ? (!sOwner || sOwner === adminUser) : sOwner === adminUser;
+    });
+  }
+
+  function syncNewEventModalHints(evtType) {
+    const isLap = evtType === 'lap_timed';
+    const year = new Date().getFullYear();
+    $('new-evt-lap-km-box').classList.toggle('hidden', !isLap);
+    $('new-evt-name').placeholder = isLap
+      ? `例如：${year} 環湖 12 小時繞圈超馬賽`
+      : `例如：${year} 高雄城市馬拉松`;
+    $('new-evt-location').placeholder = isLap
+      ? '例如：大安森林公園環道'
+      : '例如：高雄夢時代廣場';
+  }
+
   function getActiveEvent() {
+    if (state.session?.mode === 'admin') {
+      const ownEvents = getAdminOwnEvents();
+      return ownEvents.find((e) => e.eventId === state.selectedEventId) || ownEvents[0] || null;
+    }
     const events = state.platform?.events || [];
     const targetId =
       state.view === 'staff-workspace' && state.session?.lockedEventId
@@ -155,7 +209,9 @@
     try {
       const uploadRes = await Sync.fullBidirectionalSync(state.session);
       await reloadState();
-      const evtCount = (state.platform?.events || []).length;
+      const evtCount = state.session?.mode === 'admin'
+        ? getAdminOwnEvents().length
+        : (state.platform?.events || []).length;
       if (showNotice) {
         const uploaded = (uploadRes.uploadedChips || 0) + (uploadRes.uploadedRegs || 0) + (uploadRes.uploadedScans || 0);
         const msg = uploaded > 0 || uploadRes.platformSynced
@@ -193,12 +249,31 @@
     state.allRegistrations = regs;
     state.allScans = scans;
 
-    const events = platform.events || [];
-    if (!state.selectedEventId || !events.some((e) => e.eventId === state.selectedEventId)) {
-      const defaultId = platform.activeEventId;
-      const validDefault = defaultId && events.some((e) => e.eventId === defaultId);
-      state.selectedEventId = validDefault ? defaultId : (events[0]?.eventId || '');
-      DB.saveDeviceSettings({ selectedEventId: state.selectedEventId });
+    // 若已登入後台管理員，同步最新帳號名稱與角色權限，並嚴格限制選取活動僅限本人所建活動
+    if (state.session?.mode === 'admin') {
+      const matchedAdmin = (platform.adminAccounts || []).find((a) => a.username === state.session.account?.username);
+      if (matchedAdmin) {
+        state.session.account = {
+          ...state.session.account,
+          displayName: matchedAdmin.displayName || matchedAdmin.username,
+          isSuperAdmin: Boolean(matchedAdmin.isSuperAdmin)
+        };
+        DB.saveSession(state.session);
+      }
+      const ownEvents = getAdminOwnEvents();
+      if (!state.selectedEventId || !ownEvents.some((e) => e.eventId === state.selectedEventId)) {
+        const defaultId = platform.activeEventId;
+        const validDefault = defaultId && ownEvents.some((e) => e.eventId === defaultId);
+        state.selectedEventId = validDefault ? defaultId : (ownEvents[0]?.eventId || '');
+      }
+    } else {
+      const events = platform.events || [];
+      if (!state.selectedEventId || !events.some((e) => e.eventId === state.selectedEventId)) {
+        const defaultId = platform.activeEventId;
+        const validDefault = defaultId && events.some((e) => e.eventId === defaultId);
+        state.selectedEventId = validDefault ? defaultId : (events[0]?.eventId || '');
+        DB.saveDeviceSettings({ selectedEventId: state.selectedEventId });
+      }
     }
 
     const evt = getActiveEvent();
@@ -208,8 +283,7 @@
       state.computed = TE.computeEventResults({
         event: evt,
         runners: evtRegs,
-        scans: evtScans,
-        rankBy: state.rankBy
+        scans: evtScans
       });
     } else {
       state.computed = null;
@@ -312,7 +386,7 @@
       userBox.classList.remove('hidden');
       const acc = state.session.account;
       userLabel.textContent = state.session.mode === 'admin'
-        ? `🛡️ ${acc.username} (最高管理員)`
+        ? `🛡️ ${acc.displayName || acc.username} (${acc.isSuperAdmin ? '最高管理員' : '活動管理員'})`
         : `👷 ${acc.displayName || acc.username}`;
     } else {
       userBox.classList.add('hidden');
@@ -325,29 +399,42 @@
   }
 
   function renderEventDropdowns() {
-    const events = state.platform?.events || [];
+    const allEvents = state.platform?.events || [];
     const statusLabel = { active: '進行中', upcoming: '籌備中', finished: '已結束' };
-    const optionsHtml = events.length
-      ? events.map((ev) => {
-          const typeTag = ev.eventType === 'lap_timed' ? `🔁繞圈(${ev.lapDistanceKm}K/圈)` : '🏃距離賽';
-          return `<option value="${esc(ev.eventId)}" style="background-color:#0f172a;color:#f8fafc;">${typeTag} ${esc(ev.name)} (${esc(ev.date || '')}) [${statusLabel[ev.status] || ev.status}]</option>`;
-        }).join('')
-      : '<option value="" style="background-color:#0f172a;color:#f8fafc;">尚無活動</option>';
+    const buildOptionsHtml = (list, emptyLabel) => (
+      list.length
+        ? list.map((ev) => {
+            const typeTag = ev.eventType === 'lap_timed' ? `🔁繞圈(${ev.lapDistanceKm}K/圈)` : '🏃距離賽';
+            return `<option value="${esc(ev.eventId)}" style="background-color:#0f172a;color:#f8fafc;">${typeTag} ${esc(ev.name)} (${esc(ev.date || '')}) [${statusLabel[ev.status] || ev.status}]</option>`;
+          }).join('')
+        : `<option value="" style="background-color:#0f172a;color:#f8fafc;">${emptyLabel}</option>`
+    );
 
-    ['portal-event-select', 'staff-login-event', 'admin-event-select'].forEach((id) => {
+    const allOptionsHtml = buildOptionsHtml(allEvents, '尚無活動');
+    ['portal-event-select', 'staff-login-event'].forEach((id) => {
       const el = $(id);
       if (!el) return;
-      el.innerHTML = optionsHtml;
-      if (events.some((e) => e.eventId === state.selectedEventId)) {
+      el.innerHTML = allOptionsHtml;
+      if (allEvents.some((e) => e.eventId === state.selectedEventId)) {
         el.value = state.selectedEventId;
       }
     });
 
+    // 後台管理區下拉選單：嚴格僅顯示目前登入管理者本人建立的活動！
+    const adminSel = $('admin-event-select');
+    if (adminSel) {
+      const ownEvents = getAdminOwnEvents();
+      adminSel.innerHTML = buildOptionsHtml(ownEvents, '尚無您建立的活動（請點右側「＋ 建立新路跑活動」）');
+      if (ownEvents.some((e) => e.eventId === state.selectedEventId)) {
+        adminSel.value = state.selectedEventId;
+      }
+    }
+
     const wf = $('writer-event-filter');
     if (wf) {
       const prev = state.writerEventFilter;
-      wf.innerHTML = '<option value="ALL">所有活動名單</option>' + optionsHtml;
-      wf.value = (prev === 'ALL' || events.some((e) => e.eventId === prev)) ? prev : 'ALL';
+      wf.innerHTML = '<option value="ALL">所有活動名單</option>' + allOptionsHtml;
+      wf.value = (prev === 'ALL' || allEvents.some((e) => e.eventId === prev)) ? prev : 'ALL';
     }
   }
 
@@ -441,17 +528,29 @@
 
     let account = null;
     let usedCloud = false;
+    let cloudLegacyFallback = false;
 
     if (navigator.onLine && Sync.hasUrl()) {
       try {
         const res = await Sync.loginCloud(mode, u, p);
-        account = { ...res.account, password: p };
+        account = {
+          ...res.account,
+          password: p,
+          isSuperAdmin: mode === 'admin'
+            ? (res.account?.isSuperAdmin !== undefined ? Boolean(res.account.isSuperAdmin) : true)
+            : false
+        };
         usedCloud = true;
       } catch (err) {
         if (String(err.message).includes('錯誤') || String(err.message).includes('停用')) {
-          NFC.sound.beepError();
-          showToast(err.message, 'error');
-          return;
+          // 若雲端 GAS 尚未升級至 v3.4 多管理者版本，允許回退驗證本機新建的管理者帳號
+          if (mode === 'admin' && !err.multiAdmin) {
+            cloudLegacyFallback = true;
+          } else {
+            NFC.sound.beepError();
+            showToast(err.message, 'error');
+            return;
+          }
         }
       }
     }
@@ -475,9 +574,27 @@
         lockedEventId = account.eventId;
       } else {
         lockedEventId = chosenEventId || state.selectedEventId || events[0]?.eventId || '';
+        // 若該作業員隸屬於特定管理者，檢查所選活動是否為該管理者建立（防止誤感應至他人活動）
+        const staffOwner = String(account.ownerAdmin || '').trim();
+        if (staffOwner && lockedEventId) {
+          const targetEvt = events.find((e) => e.eventId === lockedEventId);
+          const targetOwner = String(targetEvt?.ownerAdmin || platform.adminUsername || 'admin').trim();
+          if (targetEvt && targetOwner !== staffOwner) {
+            NFC.sound.beepError();
+            showToast(`此作業員帳號僅限操作管理者「${staffOwner}」建立的活動，請重新選擇活動`, 'error');
+            return;
+          }
+        }
       }
       state.selectedEventId = lockedEventId;
       DB.saveDeviceSettings({ selectedEventId: lockedEventId });
+    } else if (mode === 'admin') {
+      // 登入管理員時清除非本人建立的 selectedEventId
+      const defaultOwner = String(platform.adminUsername || 'admin').trim();
+      const ownEvents = events.filter((e) => (String(e.ownerAdmin || '').trim() || defaultOwner) === account.username);
+      if (!ownEvents.some((e) => e.eventId === state.selectedEventId)) {
+        state.selectedEventId = ownEvents[0]?.eventId || '';
+      }
     }
 
     state.session = {
@@ -491,16 +608,26 @@
     await reloadState();
 
     if (mode === 'admin') {
-      showToast(usedCloud ? '🛡️ 已驗證最高管理員並同步最新全平台資料' : '🛡️ 已登入最高管理員後台', 'success');
+      const ownCount = getAdminOwnEvents().length;
+      if (cloudLegacyFallback) {
+        showToast(`⚠️ 已以本機管理者「${account.username}」登入（請同步更新部署 gas/Code.gs 以啟用雲端多管理者隔離）`, 'warn');
+      } else {
+        showToast(
+          usedCloud
+            ? `🛡️ 已驗證管理者「${account.displayName || account.username}」（共 ${ownCount} 場本人活動）`
+            : `🛡️ 已登入管理後台：${account.displayName || account.username}（共 ${ownCount} 場本人活動）`,
+          'success'
+        );
+      }
       switchView('admin-workspace');
       switchAdminTab('events');
     } else {
       state.staffSubTab = account.role === 'writer' ? 'writer' : 'scan';
       const evt = getActiveEvent();
-      const cp = (evt?.checkpoints || []).find((c) => c.id === account.checkpointId);
+      const lockedCp = getLockedCheckpoint();
       const zoneName = account.role === 'writer'
         ? '共用 NFC 晶片寫入區'
-        : `${evt ? evt.name : lockedEventId} ／ ${cp ? cp.name : account.checkpointId}`;
+        : `${evt ? evt.name : lockedEventId} ／ ${lockedCp ? lockedCp.name : account.checkpointId}`;
       showToast(`✅ 登入成功！已鎖定進入「${zoneName}」`, 'success');
       switchView('staff-workspace');
     }
@@ -519,13 +646,24 @@
   }
 
   /* ========================================================================
-   * VIEW 4：晶片計時作業區（鎖定活動＋站點感應 / 共用晶片寫入）
+   * VIEW 4：晶片計時作業區（鎖定活動＋報到感應／站點感應 / 共用晶片寫入）
    * ======================================================================== */
   function getLockedCheckpoint() {
     const evt = getActiveEvent();
     const acc = state.session?.account;
     if (!acc) return null;
-    // 繞圈計時賽無中間管制點，任何合法感應作業員進入繞圈賽皆自動鎖定單一「繞圈計次感應區 (LAP)」
+    const accCp = String(acc.checkpointId || '').trim().toUpperCase();
+    // 選手報到感應組 (CHECKIN)：同時適用「一般距離路跑」與「繞圈計時賽」，優先鎖定為報到作業！
+    if (accCp === TE.CHECKIN_CP_ID) {
+      return {
+        id: TE.CHECKIN_CP_ID,
+        name: '選手報到感應區',
+        order: 0,
+        distanceKm: 0,
+        type: 'checkin'
+      };
+    }
+    // 繞圈計時賽無中間管制點，非報到組的感應作業員進入繞圈賽自動鎖定「繞圈計次感應區 (LAP)」
     if (evt && evt.eventType === 'lap_timed') {
       return (evt.checkpoints && evt.checkpoints[0]) || {
         id: 'LAP',
@@ -594,27 +732,42 @@
   }
 
   function renderScanPanel(evt, lockedCp) {
-    const isLap = evt?.eventType === 'lap_timed';
+    const isCheckIn = lockedCp?.id === TE.CHECKIN_CP_ID;
+    const isLap = !isCheckIn && evt?.eventType === 'lap_timed';
+    const evtRegs = state.allRegistrations.filter((r) => evt && r.eventId === evt.eventId);
+    const checkedInBibSet = new Set(
+      state.allScans
+        .filter((s) => !s.deleted && evt && s.eventId === evt.eventId && s.checkpointId === TE.CHECKIN_CP_ID)
+        .map((s) => s.bib)
+    );
+    const checkedInCount = evtRegs.filter((r) => checkedInBibSet.has(r.bib)).length;
+
     $('locked-event-title').textContent = evt
-      ? (isLap
-          ? `🔁 繞圈計時賽：${evt.name}（單圈 ${evt.lapDistanceKm} km • 無管制點，每刷 1 次累積 1 圈）`
-          : `🏟️ 鎖定活動：${evt.name}（${evt.date || ''}）`)
+      ? (isCheckIn
+          ? `📋 選手報到作業：${evt.name}（已報到 ${checkedInCount} / ${evtRegs.length} 人 • 未報到 ${Math.max(0, evtRegs.length - checkedInCount)} 人）`
+          : isLap
+            ? `🔁 繞圈計時賽：${evt.name}（單圈 ${evt.lapDistanceKm} km • 無管制點，每刷 1 次累積 1 圈）`
+            : `🏟️ 鎖定活動：${evt.name}（${evt.date || ''}）`)
       : '尚未選定活動';
     $('locked-cp-name').textContent = lockedCp
-      ? (isLap ? `🔁 ${lockedCp.name}` : `#${lockedCp.order || '-'} ${lockedCp.name}`)
+      ? (isCheckIn ? `✅ ${lockedCp.name}` : isLap ? `🔁 ${lockedCp.name}` : `#${lockedCp.order || '-'} ${lockedCp.name}`)
       : '未指派站點';
     $('locked-cp-meta').textContent = lockedCp
-      ? (isLap ? `代碼：${lockedCp.id} ｜ 每圈計程：${evt.lapDistanceKm} km` : `代碼：${lockedCp.id} ｜ 累計距離：${lockedCp.distanceKm} km`)
+      ? (isCheckIn
+          ? `代碼：CHECKIN ｜ 僅登記選手到場報到（不計入起跑或繞圈成績）`
+          : isLap
+            ? `代碼：${lockedCp.id} ｜ 每圈計程：${evt.lapDistanceKm} km`
+            : `代碼：${lockedCp.id} ｜ 累計距離：${lockedCp.distanceKm} km`)
       : '請確認本活動有對應站點代碼';
 
     const col3Label = $('hero-col3-label');
-    if (col3Label) col3Label.textContent = isLap ? '累積圈數 / 總里程' : '本場經過時間';
+    if (col3Label) {
+      col3Label.textContent = isCheckIn ? '報到狀態 / 本場已報到' : isLap ? '累積圈數 / 總里程' : '本場經過時間';
+    }
 
-    // 模擬器列出所有「共用晶片」（並標示該晶片是否已報名本活動，方便測試比對與未報名攔截！）
-    const evtRegIdSet = new Set(
-      state.allRegistrations
-        .filter((r) => evt && r.eventId === evt.eventId)
-        .map((r) => String(r.idNumber || '').toUpperCase())
+    // 模擬器列出所有「共用晶片」（並標示該晶片是否已報名本活動／是否已報到，方便測試比對與攔截！）
+    const evtRegById = new Map(
+      evtRegs.map((r) => [String(r.idNumber || '').toUpperCase(), r])
     );
     const mockSel = $('mock-chip-select');
     const prevVal = mockSel.value;
@@ -633,8 +786,14 @@
       '<option value="">-- 隨機刷過一張晶片 --</option>' +
       pool
         .map((c) => {
-          const inEvt = evtRegIdSet.has(c.idNumber);
-          return `<option value="${esc(c.idNumber)}">${esc(c.name)} (${esc(c.idNumber)}) ${inEvt ? '✅已報本場' : '⚠️未報本場'}</option>`;
+          const reg = evtRegById.get(c.idNumber);
+          let tag = '⚠️未報本場';
+          if (reg) {
+            tag = isCheckIn
+              ? (checkedInBibSet.has(reg.bib) ? '✅已報到' : '⏳未報到')
+              : '✅已報本場';
+          }
+          return `<option value="${esc(c.idNumber)}">${esc(c.name)} (${esc(c.idNumber)}) ${tag}</option>`;
         })
         .join('');
     if (prevVal && chipPoolMap.has(prevVal)) mockSel.value = prevVal;
@@ -734,6 +893,25 @@
     const cat = (evt.categories || []).find((c) => c.id === reg.categoryId);
     const displayCat = cat ? cat.name : reg.categoryId || '未分組';
 
+    // 報到感應模式：若該選手已報到則提醒略過，避免重複報到紀錄
+    if (lockedCp.id === TE.CHECKIN_CP_ID) {
+      const existingCheckIn = state.allScans.find(
+        (s) => !s.deleted && s.eventId === evt.eventId && s.bib === reg.bib && s.checkpointId === TE.CHECKIN_CP_ID
+      );
+      if (existingCheckIn) {
+        NFC.sound.beepWarning();
+        heroCard.classList.add('flash-warn');
+        $('scan-status-pill').className = 'inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-extrabold bg-amber-500 text-slate-950 mb-3';
+        $('scan-status-pill').textContent = `⚠️ 已完成報到（無須重複感應）`;
+        $('hero-bib-cat').textContent = `${reg.bib} • ${displayCat}`;
+        $('hero-name').textContent = reg.name;
+        $('hero-elapsed').textContent = `已報到`;
+        $('hero-subinfo').textContent = `原報到時間：${TE.formatClockSec(existingCheckIn.timestampMs)} ｜ 活動：${evt.name}`;
+        showToast(`${reg.name} (#${reg.bib}) 已於 ${TE.formatClockSec(existingCheckIn.timestampMs)} 完成報到`, 'info');
+        return;
+      }
+    }
+
     // 2. 寫入本活動感應紀錄（含防連點檢查）
     const res = await DB.addScan({
       eventId: evt.eventId,
@@ -743,8 +921,8 @@
       timestampMs: scanTs,
       source: tagData.source || 'nfc',
       operator,
-      note: tagData.note || (tagData.uidOnly ? `UID感應(${tagData.nfcUid})` : ''),
-      bypassDebounce
+      note: tagData.note || (lockedCp.id === TE.CHECKIN_CP_ID ? '現場晶片報到' : (tagData.uidOnly ? `UID感應(${tagData.nfcUid})` : '')),
+      bypassDebounce: bypassDebounce || lockedCp.id === TE.CHECKIN_CP_ID
     });
 
     if (!res.ok && res.duplicate) {
@@ -758,16 +936,33 @@
       return;
     }
 
-    // 3. 依活動性質計算顯示（繞圈計時賽顯示累積圈數＋總里程；一般距離賽顯示經過時間）
-    if (evt.eventType === 'lap_timed') {
+    // 3. 依站點與活動性質計算顯示（報到感應 / 繞圈計時賽 / 一般距離賽）
+    if (lockedCp.id === TE.CHECKIN_CP_ID) {
+      const evtRegs = state.allRegistrations.filter((r) => r.eventId === evt.eventId);
+      const prevCheckedBibs = new Set(
+        state.allScans
+          .filter((s) => !s.deleted && s.eventId === evt.eventId && s.checkpointId === TE.CHECKIN_CP_ID)
+          .map((s) => s.bib)
+      );
+      prevCheckedBibs.add(reg.bib);
+
+      NFC.sound.beepSuccess();
+      heroCard.classList.add('flash-success');
+      $('scan-status-pill').className = 'inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-extrabold bg-sky-400 text-slate-950 mb-3';
+      $('scan-status-pill').textContent = `✅ 報到成功！歡迎參加「${evt.name}」`;
+      $('hero-bib-cat').textContent = `${reg.bib} • ${displayCat}`;
+      $('hero-name').textContent = reg.name;
+      $('hero-elapsed').textContent = `已報到 (${prevCheckedBibs.size}/${evtRegs.length})`;
+      $('hero-subinfo').textContent = `報到時間：${TE.formatClockSec(scanTs)} ｜ 活動：${evt.name} ｜ 操作員：${operator}`;
+    } else if (evt.eventType === 'lap_timed') {
       const lapKm = Number(evt.lapDistanceKm || 2.54);
-      const gunMs = cat && cat.gunTimeMs ? Number(cat.gunTimeMs) : null;
+      const gunMs = cat && cat.gunTimeMs ? Number(cat.gunTimeMs) : (evt.unifiedGunTimeMs ? Number(evt.unifiedGunTimeMs) : null);
       const hrs = cat ? Number(cat.durationHours || cat.distanceKm || 6) : 6;
       const cutMs = gunMs !== null ? gunMs + hrs * 3600 * 1000 : null;
       const isOvertime = cutMs !== null && scanTs > cutMs;
 
       const prevValidLaps = state.allScans
-        .filter((s) => !s.deleted && s.eventId === evt.eventId && s.bib === reg.bib && (cutMs === null || s.timestampMs <= cutMs))
+        .filter((s) => !s.deleted && s.eventId === evt.eventId && s.bib === reg.bib && s.checkpointId !== TE.CHECKIN_CP_ID && (cutMs === null || s.timestampMs <= cutMs))
         .sort((a, b) => a.timestampMs - b.timestampMs);
 
       const newLapCount = isOvertime ? prevValidLaps.length : prevValidLaps.length + 1;
@@ -791,14 +986,8 @@
       $('hero-elapsed').textContent = `${newLapCount} 圈 • ${totalKm} km`;
       $('hero-subinfo').textContent = `感應時間：${TE.formatClockMs(scanTs)} ｜ 本圈耗時：${singleLapStr} ｜ 操作員：${operator}`;
     } else {
-      const startCp = [...(evt.checkpoints || [])].sort((a, b) => a.order - b.order).find((c) => c.type === 'start');
-      const startScan = startCp
-        ? state.allScans.find((s) => !s.deleted && s.eventId === evt.eventId && s.bib === reg.bib && s.checkpointId === startCp.id)
-        : null;
-
-      let elapsedStr = '尚未鳴槍';
-      if (cat && cat.gunTimeMs) elapsedStr = TE.formatDuration(scanTs - Number(cat.gunTimeMs), true);
-      else if (startScan) elapsedStr = TE.formatDuration(scanTs - Number(startScan.timestampMs), true);
+      const gunMs = cat && cat.gunTimeMs ? Number(cat.gunTimeMs) : (evt.unifiedGunTimeMs ? Number(evt.unifiedGunTimeMs) : null);
+      const elapsedStr = gunMs !== null ? TE.formatDuration(scanTs - gunMs, true) : '尚未設定起跑時間';
 
       NFC.sound.beepSuccess();
       heroCard.classList.add('flash-success');
@@ -1097,7 +1286,9 @@
   }
 
   function renderAdminEventsTab() {
-    const events = state.platform.events || [];
+    const adminUser = getCurrentAdminUsername();
+    const isSuper = isCurrentSuperAdmin();
+    const events = getAdminOwnEvents();
     const currentEvt = getActiveEvent();
     const statusBadge = {
       active: '<span class="px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500/20 text-emerald-300">進行中</span>',
@@ -1105,45 +1296,65 @@
       finished: '<span class="px-2 py-0.5 rounded-full text-[11px] font-bold bg-slate-700 text-slate-300">已結束</span>'
     };
 
-    $('admin-events-list').innerHTML = events
-      .map((ev) => {
-        const regCount = state.allRegistrations.filter((r) => r.eventId === ev.eventId).length;
-        const scanCount = state.allScans.filter((s) => !s.deleted && s.eventId === ev.eventId).length;
-        const isSelected = currentEvt && ev.eventId === currentEvt.eventId;
-        const isDefault = ev.eventId === state.platform.activeEventId;
-        return `
-          <div class="p-4 rounded-2xl border ${isSelected ? 'border-amber-400 bg-amber-950/20' : 'border-slate-800 bg-slate-950'} space-y-2.5">
-            <div class="flex items-start justify-between gap-2">
-              <div>
-                <div class="flex items-center gap-2 flex-wrap">
-                  <span class="font-black text-white text-base">${esc(ev.name)}</span>
-                  ${ev.eventType === 'lap_timed'
-                    ? `<span class="px-2 py-0.5 rounded-full text-[11px] font-black bg-purple-500/20 text-purple-300 border border-purple-500/40">🔁 繞圈計時 (${ev.lapDistanceKm}km/圈)</span>`
-                    : '<span class="px-2 py-0.5 rounded-full text-[11px] font-bold bg-sky-500/20 text-sky-300">🏃 距離賽</span>'}
-                  ${statusBadge[ev.status] || ''}
-                  ${isDefault ? '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-sky-600 text-white">公開預設</span>' : ''}
-                </div>
-                <div class="text-xs text-slate-400 font-mono-num mt-1">
-                  ${esc(ev.eventId)} ｜ ${esc(ev.date || '--')}${ev.location ? ` ｜ ${esc(ev.location)}` : ''}
+    const ownerBadge = $('admin-events-owner-badge');
+    if (ownerBadge) {
+      ownerBadge.textContent = `🔒 目前登入：${adminUser}（僅顯示本人建立的 ${events.length} 場活動）`;
+    }
+
+    if (events.length === 0) {
+      $('admin-events-list').innerHTML = `
+        <div class="md:col-span-2 p-6 rounded-2xl border border-dashed border-slate-700 bg-slate-950/60 text-center space-y-2">
+          <div class="text-base font-black text-white">尚無您建立的路跑活動</div>
+          <p class="text-xs text-slate-400">
+            目前登入帳號為 <code class="text-amber-300 font-bold">${esc(adminUser)}</code>；系統已啟用活動隔離，您只會看到自己建立的活動。<br />
+            請點擊上方「<strong class="text-emerald-400">＋ 建立新路跑活動</strong>」開始建立您的第一場賽事！
+          </p>
+        </div>
+      `;
+    } else {
+      $('admin-events-list').innerHTML = events
+        .map((ev) => {
+          const regCount = state.allRegistrations.filter((r) => r.eventId === ev.eventId).length;
+          const scanCount = state.allScans.filter((s) => !s.deleted && s.eventId === ev.eventId).length;
+          const isSelected = currentEvt && ev.eventId === currentEvt.eventId;
+          const isDefault = ev.eventId === state.platform.activeEventId;
+          return `
+            <div class="p-4 rounded-2xl border ${isSelected ? 'border-amber-400 bg-amber-950/20' : 'border-slate-800 bg-slate-950'} space-y-2.5">
+              <div class="flex items-start justify-between gap-2">
+                <div>
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <span class="font-black text-white text-base">${esc(ev.name)}</span>
+                    ${ev.eventType === 'lap_timed'
+                      ? `<span class="px-2 py-0.5 rounded-full text-[11px] font-black bg-purple-500/20 text-purple-300 border border-purple-500/40">🔁 繞圈計時 (${ev.lapDistanceKm}km/圈)</span>`
+                      : '<span class="px-2 py-0.5 rounded-full text-[11px] font-bold bg-sky-500/20 text-sky-300">🏃 距離賽</span>'}
+                    ${statusBadge[ev.status] || ''}
+                    ${isDefault ? '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-sky-600 text-white">公開預設</span>' : ''}
+                  </div>
+                  <div class="text-xs text-slate-400 font-mono-num mt-1">
+                    ${esc(ev.eventId)} ｜ ${esc(ev.date || '--')}${ev.location ? ` ｜ ${esc(ev.location)}` : ''} ｜ 建立者：${esc(getEventOwner(ev))}
+                  </div>
                 </div>
               </div>
+              <div class="text-xs text-slate-300 font-mono-num">
+                報名人數：<strong>${regCount}</strong> 人 ｜ 分組：<strong>${(ev.categories || []).length}</strong> 組 ｜ 感應：<strong>${scanCount}</strong> 筆
+              </div>
+              <div class="flex flex-wrap gap-1.5 pt-1">
+                <button type="button" data-select-event="${esc(ev.eventId)}" class="px-3 py-1.5 rounded-lg text-xs font-bold ${isSelected ? 'bg-amber-500 text-slate-950' : 'bg-slate-800 hover:bg-slate-700 text-white'}">
+                  ${isSelected ? '✓ 管理中' : '切換管理'}
+                </button>
+                <button type="button" data-default-event="${esc(ev.eventId)}" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 text-sky-300">
+                  設為公開預設
+                </button>
+                <button type="button" data-delete-event="${esc(ev.eventId)}" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-rose-600/20 hover:bg-rose-600/40 text-rose-300">刪除</button>
+              </div>
             </div>
-            <div class="text-xs text-slate-300 font-mono-num">
-              報名人數：<strong>${regCount}</strong> 人 ｜ 分組：<strong>${(ev.categories || []).length}</strong> 組 ｜ 感應：<strong>${scanCount}</strong> 筆
-            </div>
-            <div class="flex flex-wrap gap-1.5 pt-1">
-              <button type="button" data-select-event="${esc(ev.eventId)}" class="px-3 py-1.5 rounded-lg text-xs font-bold ${isSelected ? 'bg-amber-500 text-slate-950' : 'bg-slate-800 hover:bg-slate-700 text-white'}">
-                ${isSelected ? '✓ 管理中' : '切換管理'}
-              </button>
-              <button type="button" data-default-event="${esc(ev.eventId)}" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 text-sky-300">
-                設為公開預設
-              </button>
-              ${events.length > 1 ? `<button type="button" data-delete-event="${esc(ev.eventId)}" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-rose-600/20 hover:bg-rose-600/40 text-rose-300">刪除</button>` : ''}
-            </div>
-          </div>
-        `;
-      })
-      .join('');
+          `;
+        })
+        .join('');
+    }
+
+    $('form-event-basic').classList.toggle('hidden', !currentEvt);
+    $('admin-no-event-basic-hint').classList.toggle('hidden', Boolean(currentEvt));
 
     if (currentEvt) {
       $('cfg-evt-name').value = currentEvt.name || '';
@@ -1160,40 +1371,130 @@
       if (isLap) $('cfg-evt-lap-km').value = String(currentEvt.lapDistanceKm || 2.54);
     }
 
-    $('cfg-admin-user').value = state.platform.adminUsername || 'admin';
-    $('cfg-admin-pass').value = state.platform.adminPassword || 'admin1234';
+    const selfAcc = (state.platform.adminAccounts || []).find((a) => a.username === adminUser) || {
+      username: adminUser,
+      password: state.session?.auth?.password || '',
+      displayName: state.session?.account?.displayName || adminUser
+    };
+    const userInput = $('cfg-admin-user');
+    userInput.value = selfAcc.username;
+    userInput.readOnly = !isSuper;
+    userInput.className = isSuper
+      ? 'w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm font-mono-num text-white'
+      : 'w-full bg-slate-900/70 border border-slate-800 rounded-xl px-3 py-2 text-sm font-mono-num text-slate-400 cursor-not-allowed';
+    $('cfg-admin-displayname').value = selfAcc.displayName || selfAcc.username;
+    $('cfg-admin-pass').value = selfAcc.password || '';
+
+    // 最高管理員專用：多管理者帳號管理區塊
+    const manageCard = $('admin-accounts-manage-card');
+    if (manageCard) {
+      manageCard.classList.toggle('hidden', !isSuper);
+      if (isSuper) {
+        const admins = state.platform.adminAccounts || [];
+        $('admin-accounts-list').innerHTML = admins
+          .map((a, idx) => {
+            const isSelf = a.username === adminUser;
+            const ownEvtCount = (state.platform.events || []).filter((e) => getEventOwner(e) === a.username).length;
+            return `
+              <div class="grid grid-cols-1 sm:grid-cols-12 gap-2 items-end p-3.5 rounded-xl bg-slate-950 border ${isSelf ? 'border-amber-500/40' : 'border-slate-800'}" data-admin-row="${idx}" data-admin-orig-user="${esc(a.username)}">
+                <div class="sm:col-span-2">
+                  <label class="block text-[11px] text-slate-400 mb-1">登入帳號</label>
+                  <input type="text" value="${esc(a.username)}" data-admin-field="username" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs font-mono-num font-bold text-white" />
+                </div>
+                <div class="sm:col-span-2">
+                  <label class="block text-[11px] text-slate-400 mb-1">登入密碼</label>
+                  <input type="text" value="${esc(a.password)}" data-admin-field="password" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs font-mono-num text-white" />
+                </div>
+                <div class="sm:col-span-3">
+                  <label class="block text-[11px] text-slate-400 mb-1">管理者名稱（名下 ${ownEvtCount} 場活動）</label>
+                  <input type="text" value="${esc(a.displayName || a.username)}" data-admin-field="displayName" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs font-bold text-white" />
+                </div>
+                <div class="sm:col-span-3">
+                  <label class="block text-[11px] text-slate-400 mb-1">管理權限角色</label>
+                  <select data-admin-field="isSuperAdmin" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs font-bold text-amber-300" ${isSelf ? 'disabled' : ''}>
+                    <option value="0" ${!a.isSuperAdmin ? 'selected' : ''}>活動管理員（僅管自己活動）</option>
+                    <option value="1" ${a.isSuperAdmin ? 'selected' : ''}>最高管理員（可增刪管理者）</option>
+                  </select>
+                </div>
+                <div class="sm:col-span-2 flex items-center justify-between gap-2 pb-1">
+                  <label class="inline-flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer">
+                    <input type="checkbox" data-admin-field="enabled" ${a.enabled !== false ? 'checked' : ''} ${isSelf ? 'disabled' : ''} class="accent-emerald-500 w-4 h-4" />
+                    <span>啟用</span>
+                  </label>
+                  ${isSelf
+                    ? '<span class="px-2 py-1 rounded text-[11px] font-bold bg-amber-500/20 text-amber-300">目前登入</span>'
+                    : `<button type="button" data-del-admin="${idx}" class="px-2.5 py-1 rounded text-xs font-bold bg-rose-600/20 hover:bg-rose-600/40 text-rose-300">刪除</button>`}
+                </div>
+              </div>
+            `;
+          })
+          .join('');
+      }
+    }
   }
 
   function renderAdminRosterTab() {
     const evt = getActiveEvent();
-    if (!evt) return;
+    const tbody = $('admin-reg-tbody');
+    if (!evt) {
+      $('roster-import-event-name').textContent = '尚未建立活動';
+      $('admin-reg-count').textContent = '0';
+      $('admin-roster-checkin-summary').textContent = '✅ 已報到 0 / 0 人';
+      tbody.innerHTML = '<tr><td colspan="7" class="py-6 text-center text-slate-500">您尚未建立任何活動，請先點擊上方「＋ 建立新路跑活動」後再匯入選手名單</td></tr>';
+      return;
+    }
     $('roster-import-event-name').textContent = evt.name;
 
     const chipMap = new Map(state.chips.map((c) => [c.idNumber, c]));
     const catMap = new Map((evt.categories || []).map((c) => [c.id, c.name]));
-    const q = state.adminRegSearch.trim().toLowerCase();
+    const checkInMap = new Map();
+    state.allScans
+      .filter((s) => !s.deleted && s.eventId === evt.eventId && s.checkpointId === TE.CHECKIN_CP_ID)
+      .sort((a, b) => Number(a.timestampMs) - Number(b.timestampMs))
+      .forEach((s) => {
+        if (!checkInMap.has(s.bib) || s.source === 'admin') checkInMap.set(s.bib, s);
+      });
 
-    const evtRegs = state.allRegistrations
-      .filter((r) => r.eventId === evt.eventId)
-      .filter((r) => !q || r.bib.toLowerCase().includes(q) || r.name.toLowerCase().includes(q) || (r.idNumber || '').toLowerCase().includes(q))
+    const allEvtRegs = state.allRegistrations.filter((r) => r.eventId === evt.eventId);
+    const totalCount = allEvtRegs.length;
+    const checkedInCount = allEvtRegs.filter((r) => checkInMap.has(r.bib)).length;
+    $('admin-roster-checkin-summary').textContent = `✅ 已報到 ${checkedInCount} / ${totalCount} 人（未報到 ${Math.max(0, totalCount - checkedInCount)} 人）`;
+
+    const q = state.adminRegSearch.trim().toLowerCase();
+    const chkFilter = state.adminRegCheckinFilter || 'ALL';
+    const filterEl = $('admin-reg-checkin-filter');
+    if (filterEl) filterEl.value = chkFilter;
+
+    const evtRegs = allEvtRegs
+      .filter((r) => {
+        const isChk = checkInMap.has(r.bib);
+        if (chkFilter === 'checked_in' && !isChk) return false;
+        if (chkFilter === 'not_checked_in' && isChk) return false;
+        if (q) return r.bib.toLowerCase().includes(q) || r.name.toLowerCase().includes(q) || (r.idNumber || '').toLowerCase().includes(q);
+        return true;
+      })
       .sort((a, b) => a.bib.localeCompare(b.bib, 'zh-Hant', { numeric: true }));
 
-    $('admin-reg-count').textContent = String(evtRegs.length);
-    const tbody = $('admin-reg-tbody');
+    $('admin-reg-count').textContent = String(totalCount);
     if (evtRegs.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="6" class="py-6 text-center text-slate-500">本活動尚未匯入選手名單，請由上方貼上 CSV 或上傳 Excel 匯入</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" class="py-6 text-center text-slate-500">查無符合條件的選手名單（請匯入名單或切換報到篩選條件）</td></tr>';
       return;
     }
 
     tbody.innerHTML = evtRegs
       .map((r) => {
         const chip = r.idNumber ? chipMap.get(r.idNumber) : null;
+        const chkScan = checkInMap.get(r.bib);
+        const checkInCell = chkScan
+          ? `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-sky-500/20 text-sky-300 font-mono-num">✅ ${TE.formatClockSec(chkScan.timestampMs)}</span>`
+          : `<button type="button" data-quick-checkin-bib="${esc(r.bib)}" data-quick-checkin-idnum="${esc(r.idNumber || '')}" class="px-2 py-0.5 rounded-lg text-xs font-bold bg-slate-800 hover:bg-sky-600/40 text-slate-300 hover:text-sky-200 border border-slate-700">⏳ 未報到（點此補報到）</button>`;
         return `
           <tr class="hover:bg-slate-800/40">
             <td class="py-2.5 pr-3 font-mono-num font-black text-amber-300">${esc(r.bib)}</td>
             <td class="py-2.5 pr-3 font-bold text-white">${esc(r.name)}</td>
             <td class="py-2.5 pr-3 font-mono-num text-sky-300">${esc(r.idNumber || r.idMasked || '--')}</td>
             <td class="py-2.5 pr-3 text-slate-300">${esc(catMap.get(r.categoryId) || r.categoryId)}</td>
+            <td class="py-2.5 pr-3">${checkInCell}</td>
             <td class="py-2.5 pr-3 text-xs font-bold ${chip ? 'text-emerald-400' : 'text-slate-500'}">
               ${chip ? `✅ 共用晶片已建檔${chip.nfcUid ? ` (${esc(chip.nfcUid)})` : ''}` : '⏳ 尚未製卡'}
             </td>
@@ -1210,7 +1511,18 @@
   function renderAdminResultsTab() {
     const evt = getActiveEvent();
     const computed = state.computed;
-    if (!evt || !computed) return;
+    const tbody = $('results-tbody');
+    if (!evt || !computed) {
+      $('kpi-total').textContent = '0';
+      $('kpi-checkin').textContent = '0';
+      $('kpi-finished').textContent = '0';
+      $('kpi-oncourse').textContent = '0';
+      $('kpi-notstarted').textContent = '0';
+      $('results-category-filter').innerHTML = '<option value="ALL">全部組別</option>';
+      $('results-thead').innerHTML = '';
+      tbody.innerHTML = '<tr><td class="py-8 text-center text-slate-500">您尚未建立任何活動，請先點擊上方「＋ 建立新路跑活動」</td></tr>';
+      return;
+    }
 
     const isLap = evt.eventType === 'lap_timed';
     const s = computed.summary;
@@ -1220,8 +1532,6 @@
     catFilter.innerHTML = '<option value="ALL">全部組別</option>' + cats.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('');
     if (!cats.some((c) => c.id === state.resultsCatFilter)) state.resultsCatFilter = 'ALL';
     catFilter.value = state.resultsCatFilter;
-    $('results-rankby-select').value = state.rankBy;
-    $('results-rankby-select').classList.toggle('hidden', isLap);
 
     const q = state.resultsSearch.trim().toLowerCase();
     const filtered = computed.rows.filter((r) => {
@@ -1230,20 +1540,20 @@
       return true;
     });
 
-    const tbody = $('results-tbody');
-
     if (isLap) {
       $('kpi-label-1').textContent = '本場報名人數';
+      $('kpi-label-checkin').textContent = '已報到人數';
       $('kpi-label-2').textContent = '全場累積總圈數';
       $('kpi-label-3').textContent = '全場累積總里程 (km)';
       $('kpi-label-4').textContent = '領先最高里程 (km)';
 
       $('kpi-total').textContent = String(s.totalRunners);
+      $('kpi-checkin').textContent = String(s.checkedInCount ?? 0);
       $('kpi-finished').textContent = `${s.totalLapsAll} 圈`;
       $('kpi-oncourse').textContent = s.totalKmAll.toFixed(2);
       $('kpi-notstarted').textContent = s.topDistanceKm.toFixed(2);
 
-      $('results-edit-banner').textContent = `🔁 繞圈計時賽模式（單圈 ${evt.lapDistanceKm} km • 依累積總里程排名）：點擊任一選手的「🔁 逐圈明細 / 補刪圈」可檢視每圈耗時、補登漏圈或刪除誤感應。`;
+      $('results-edit-banner').textContent = `🔁 繞圈計時賽模式（單圈 ${evt.lapDistanceKm} km • 依統一律定起跑時間與累積總里程排名）：點擊「報到時間」可補改報到，點「逐圈明細」可補刪圈。`;
 
       $('results-thead').innerHTML = `
         <tr>
@@ -1253,6 +1563,7 @@
           <th class="px-3 py-3">姓名</th>
           <th class="px-3 py-3">身份證</th>
           <th class="px-3 py-3">限時組別</th>
+          <th class="px-3 py-3">報到時間</th>
           <th class="px-3 py-3">累積圈數</th>
           <th class="px-3 py-3">累積總里程</th>
           <th class="px-3 py-3">累積耗時</th>
@@ -1264,55 +1575,72 @@
       `;
 
       if (filtered.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="13" class="py-8 text-center text-slate-500">本場繞圈活動尚無成績資料</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="14" class="py-8 text-center text-slate-500">本場繞圈活動尚無成績資料</td></tr>';
         return;
       }
 
       tbody.innerHTML = filtered
-        .map((row) => `
-          <tr class="hover:bg-slate-800/40 align-middle">
-            <td class="px-3 py-2.5 font-mono-num font-black text-amber-400">${row.overallRank ?? '-'}</td>
-            <td class="px-3 py-2.5 font-mono-num font-bold text-sky-300">${row.categoryRank ?? '-'}</td>
-            <td class="px-3 py-2.5 font-mono-num font-bold text-white">${esc(row.bib)}</td>
-            <td class="px-3 py-2.5 font-bold text-white">${esc(row.name)}</td>
-            <td class="px-3 py-2.5 font-mono-num text-slate-400">${esc(row.idNumber || row.idMasked || '--')}</td>
-            <td class="px-3 py-2.5">
-              <span class="inline-flex items-center gap-1.5 text-xs font-bold">
-                <span class="w-2 h-2 rounded-full" style="background:${esc(row.categoryColor)}"></span>
-                ${esc(row.categoryName)} (${row.durationHours}H)
-              </span>
-            </td>
-            <td class="px-3 py-2.5 font-mono-num font-black text-purple-300 text-base">${row.lapCount} 圈${row.overtimeCount ? ` <span class="text-[10px] text-rose-400">(+${row.overtimeCount}超時)</span>` : ''}</td>
-            <td class="px-3 py-2.5 font-mono-num font-black text-emerald-400 text-base">${row.totalDistanceKm.toFixed(2)} km</td>
-            <td class="px-3 py-2.5 font-mono-num text-sky-300">${row.totalElapsedMs !== null ? TE.formatDuration(row.totalElapsedMs, false) : '--'}</td>
-            <td class="px-3 py-2.5 font-mono-num text-slate-300">${row.lastLapTimeMs ? TE.formatClockSec(row.lastLapTimeMs) : '--'}</td>
-            <td class="px-3 py-2.5 font-mono-num text-xs text-slate-300">
-              ${row.bestLapMs !== null ? TE.formatDuration(row.bestLapMs, false) : '--'} / ${row.avgLapMs !== null ? TE.formatDuration(row.avgLapMs, false) : '--'}
-            </td>
-            <td class="px-3 py-2.5 font-mono-num text-slate-300">${esc(row.avgPace)}</td>
-            <td class="px-3 py-2.5 text-right">
-              <button type="button" data-open-lap-bib="${esc(row.bib)}"
-                class="px-3 py-1.5 rounded-lg text-xs font-black bg-purple-600/30 hover:bg-purple-600/50 border border-purple-500/40 text-purple-200 transition">
-                🔁 逐圈明細 / 補刪圈
-              </button>
-            </td>
-          </tr>
-        `)
+        .map((row) => {
+          const regId = row.runner.regId || `${evt.eventId}__${row.idNumber || row.bib}`;
+          const chk = row.checkInScan;
+          return `
+            <tr class="hover:bg-slate-800/40 align-middle">
+              <td class="px-3 py-2.5 font-mono-num font-black text-amber-400">${row.overallRank ?? '-'}</td>
+              <td class="px-3 py-2.5 font-mono-num font-bold text-sky-300">${row.categoryRank ?? '-'}</td>
+              <td class="px-3 py-2.5 font-mono-num font-bold text-white">${esc(row.bib)}</td>
+              <td class="px-3 py-2.5 font-bold text-white">${esc(row.name)}</td>
+              <td class="px-3 py-2.5 font-mono-num text-slate-400">${esc(row.idNumber || row.idMasked || '--')}</td>
+              <td class="px-3 py-2.5">
+                <span class="inline-flex items-center gap-1.5 text-xs font-bold">
+                  <span class="w-2 h-2 rounded-full" style="background:${esc(row.categoryColor)}"></span>
+                  ${esc(row.categoryName)} (${row.durationHours}H)
+                </span>
+              </td>
+              <td class="px-3 py-2.5 font-mono-num">
+                <button type="button"
+                  data-edit-scan-reg="${esc(regId)}"
+                  data-edit-scan-bib="${esc(row.bib)}"
+                  data-edit-scan-idnum="${esc(row.idNumber || '')}"
+                  data-edit-scan-cp="CHECKIN"
+                  data-edit-scan-id="${esc(chk ? chk.id : '')}"
+                  class="px-2 py-1 rounded-lg border border-dashed ${chk ? 'border-sky-500/50 text-sky-300 hover:bg-sky-900/40' : 'border-slate-700 text-slate-500 hover:border-sky-400 hover:text-sky-300'} transition text-xs">
+                  ${chk ? `✅ ${TE.formatClockSec(chk.timestampMs)}` : '+ 補報到'}
+                </button>
+              </td>
+              <td class="px-3 py-2.5 font-mono-num font-black text-purple-300 text-base">${row.lapCount} 圈${row.overtimeCount ? ` <span class="text-[10px] text-rose-400">(+${row.overtimeCount}超時)</span>` : ''}</td>
+              <td class="px-3 py-2.5 font-mono-num font-black text-emerald-400 text-base">${row.totalDistanceKm.toFixed(2)} km</td>
+              <td class="px-3 py-2.5 font-mono-num text-sky-300">${row.totalElapsedMs !== null ? TE.formatDuration(row.totalElapsedMs, false) : '--'}</td>
+              <td class="px-3 py-2.5 font-mono-num text-slate-300">${row.lastLapTimeMs ? TE.formatClockSec(row.lastLapTimeMs) : '--'}</td>
+              <td class="px-3 py-2.5 font-mono-num text-xs text-slate-300">
+                ${row.bestLapMs !== null ? TE.formatDuration(row.bestLapMs, false) : '--'} / ${row.avgLapMs !== null ? TE.formatDuration(row.avgLapMs, false) : '--'}
+              </td>
+              <td class="px-3 py-2.5 font-mono-num text-slate-300">${esc(row.avgPace)}</td>
+              <td class="px-3 py-2.5 text-right">
+                <button type="button" data-open-lap-bib="${esc(row.bib)}"
+                  class="px-3 py-1.5 rounded-lg text-xs font-black bg-purple-600/30 hover:bg-purple-600/50 border border-purple-500/40 text-purple-200 transition">
+                  🔁 逐圈明細 / 補刪圈
+                </button>
+              </td>
+            </tr>
+          `;
+        })
         .join('');
       return;
     }
 
-    // 一般距離路跑
+    // 一般距離路跑（統一律定起跑時間計時，不另計個人淨時間）
     $('kpi-label-1').textContent = '本場報名人數';
+    $('kpi-label-checkin').textContent = '已報到人數';
     $('kpi-label-2').textContent = '已完賽';
     $('kpi-label-3').textContent = '賽道進行中';
-    $('kpi-label-4').textContent = '尚未出發';
-    $('results-edit-banner').textContent = '🛡️ 最高管理員修正模式：點擊下方任一選手的「站點時間」或「罰時」即可補登、修改或刪除，自動重算名次。';
+    $('kpi-label-4').textContent = '未報到';
+    $('results-edit-banner').textContent = '🛡️ 管理者修正模式（統一律定起跑時間計時）：點擊下方任一選手的「報到／站點時間」或「罰時」即可補登、修改或刪除，自動重算名次。';
 
     $('kpi-total').textContent = String(s.totalRunners);
+    $('kpi-checkin').textContent = String(s.checkedInCount ?? 0);
     $('kpi-finished').textContent = String(s.finishedCount);
     $('kpi-oncourse').textContent = String(s.onCourseCount);
-    $('kpi-notstarted').textContent = String(s.notStartedCount);
+    $('kpi-notstarted').textContent = String(s.notCheckedInCount ?? 0);
 
     const checkpoints = computed.checkpoints;
     $('results-thead').innerHTML = `
@@ -1324,11 +1652,11 @@
         <th class="px-3 py-3">身份證</th>
         <th class="px-3 py-3">本場組別</th>
         <th class="px-3 py-3">狀態</th>
+        <th class="px-3 py-3">報到時間</th>
         ${checkpoints.map((cp) => `<th class="px-3 py-3">${esc(cp.name)}</th>`).join('')}
         <th class="px-3 py-3">分段 / 配速</th>
         <th class="px-3 py-3">罰時</th>
-        <th class="px-3 py-3">大會時間</th>
-        <th class="px-3 py-3">淨時間</th>
+        <th class="px-3 py-3">完賽時間</th>
         <th class="px-3 py-3">平均配速</th>
       </tr>
     `;
@@ -1341,12 +1669,14 @@
     const statusMap = {
       finished: '<span class="px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500/20 text-emerald-300">已完賽</span>',
       on_course: '<span class="px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-500/20 text-amber-300">賽道上</span>',
-      not_started: '<span class="px-2 py-0.5 rounded-full text-[11px] font-bold bg-slate-800 text-slate-400">未出發</span>'
+      checked_in: '<span class="px-2 py-0.5 rounded-full text-[11px] font-bold bg-sky-500/20 text-sky-300">已報到</span>',
+      not_checked_in: '<span class="px-2 py-0.5 rounded-full text-[11px] font-bold bg-slate-800 text-slate-400">未報到</span>'
     };
 
     tbody.innerHTML = filtered
       .map((row) => {
         const regId = row.runner.regId || `${evt.eventId}__${row.idNumber || row.bib}`;
+        const chk = row.checkInScan;
         const cpCells = checkpoints
           .map((cp) => {
             const s = row.cpScanMap[cp.id];
@@ -1387,6 +1717,17 @@
               </span>
             </td>
             <td class="px-3 py-2.5">${statusMap[row.status] || row.status}</td>
+            <td class="px-3 py-2.5 font-mono-num">
+              <button type="button"
+                data-edit-scan-reg="${esc(regId)}"
+                data-edit-scan-bib="${esc(row.bib)}"
+                data-edit-scan-idnum="${esc(row.idNumber || '')}"
+                data-edit-scan-cp="CHECKIN"
+                data-edit-scan-id="${esc(chk ? chk.id : '')}"
+                class="px-2 py-1 rounded-lg border border-dashed ${chk ? 'border-sky-500/50 text-sky-300 hover:bg-sky-900/40' : 'border-slate-700 text-slate-500 hover:border-sky-400 hover:text-sky-300'} transition text-xs">
+                ${chk ? `✅ ${TE.formatClockSec(chk.timestampMs)}` : '+ 補報到'}
+              </button>
+            </td>
             ${cpCells}
             <td class="px-3 py-2.5">${splitSummary}</td>
             <td class="px-3 py-2.5">
@@ -1398,9 +1739,6 @@
             <td class="px-3 py-2.5 font-mono-num font-bold ${row.gunDurationMs !== null ? 'text-emerald-400' : 'text-slate-600'}">
               ${row.gunDurationMs !== null ? TE.formatDuration(row.gunDurationMs, true) : '--'}
             </td>
-            <td class="px-3 py-2.5 font-mono-num font-bold ${row.chipDurationMs !== null ? 'text-sky-300' : 'text-slate-600'}">
-              ${row.chipDurationMs !== null ? TE.formatDuration(row.chipDurationMs, true) : '--'}
-            </td>
             <td class="px-3 py-2.5 font-mono-num text-slate-300">${esc(row.avgPace)}</td>
           </tr>
         `;
@@ -1410,8 +1748,20 @@
 
   function renderAdminRaceTab() {
     const evt = getActiveEvent();
-    if (!evt) return;
+    if (!evt) {
+      $('unified-gun-display').textContent = '尚未建立活動';
+      $('unified-gun-input').value = '';
+      $('admin-lap-no-cp-banner').classList.add('hidden');
+      $('admin-checkpoints-card').classList.remove('hidden');
+      $('categories-list').innerHTML = '<div class="p-4 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-500 text-center">請先點擊上方「＋ 建立新路跑活動」後再設定起跑時間與分組</div>';
+      $('checkpoints-list').innerHTML = '<div class="p-4 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-500 text-center">尚無活動站點</div>';
+      return;
+    }
     const isLap = evt.eventType === 'lap_timed';
+    const unifiedGunMs = evt.unifiedGunTimeMs || (evt.categories || []).find((c) => c.gunTimeMs)?.gunTimeMs || null;
+    $('unified-gun-display').textContent = unifiedGunMs ? TE.formatClockSec(unifiedGunMs) : '尚未設定';
+    $('unified-gun-display').className = `font-mono-num text-2xl font-black ${unifiedGunMs ? 'text-emerald-400' : 'text-slate-500'}`;
+    $('unified-gun-input').value = unifiedGunMs ? TE.formatClockSec(unifiedGunMs) : '';
 
     $('admin-lap-no-cp-banner').classList.toggle('hidden', !isLap);
     $('admin-checkpoints-card').classList.toggle('hidden', isLap);
@@ -1419,7 +1769,8 @@
     $('categories-list').innerHTML = (evt.categories || [])
       .map((c, idx) => {
         const hrs = Number(c.durationHours || c.distanceKm || 6);
-        const cutoffStr = isLap && c.gunTimeMs ? ` ｜ 限時截止：${TE.formatClockSec(Number(c.gunTimeMs) + hrs * 3600000)}` : '';
+        const effGun = c.gunTimeMs || unifiedGunMs;
+        const cutoffStr = isLap && effGun ? ` ｜ 限時截止：${TE.formatClockSec(Number(effGun) + hrs * 3600000)}` : '';
         return `
         <div class="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-3" data-cat-index="${idx}">
           <div class="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-end">
@@ -1443,20 +1794,20 @@
 
           <div class="pt-2 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2.5">
             <div class="flex items-center gap-2 flex-wrap">
-              <span class="text-xs text-slate-400 font-bold">鳴槍起跑時間：</span>
-              <span class="font-mono-num text-base font-black ${c.gunTimeMs ? 'text-emerald-400' : 'text-slate-500'}">
-                ${c.gunTimeMs ? TE.formatClockSec(c.gunTimeMs) : '尚未鳴槍'}
+              <span class="text-xs text-slate-400 font-bold">律定起跑時間：</span>
+              <span class="font-mono-num text-base font-black ${effGun ? 'text-emerald-400' : 'text-slate-500'}">
+                ${effGun ? TE.formatClockSec(effGun) : '尚未設定'}
               </span>
               ${cutoffStr ? `<span class="text-xs font-mono-num text-amber-300">${cutoffStr}</span>` : ''}
             </div>
             <div class="flex flex-wrap items-center gap-2">
-              <button type="button" data-gun-now="${idx}" class="px-4 py-2 rounded-xl text-xs font-black bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow">
-                🔫 一鍵鳴槍起跑
+              <button type="button" data-gun-now="${idx}" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-800 hover:bg-emerald-600/30 border border-slate-700 text-emerald-300">
+                🔫 個別鳴槍
               </button>
-              <input type="text" placeholder="HH:mm:ss" value="${c.gunTimeMs ? TE.formatClockSec(c.gunTimeMs) : ''}" data-gun-manual-input="${idx}"
-                class="w-28 font-mono-num text-xs bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-white" />
-              <button type="button" data-gun-manual-set="${idx}" class="px-3 py-2 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 text-sky-300">手動套用</button>
-              <button type="button" data-gun-clear="${idx}" class="px-2.5 py-2 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-400">清除</button>
+              <input type="text" placeholder="HH:mm:ss" value="${effGun ? TE.formatClockSec(effGun) : ''}" data-gun-manual-input="${idx}"
+                class="w-28 font-mono-num text-xs bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-white" />
+              <button type="button" data-gun-manual-set="${idx}" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 text-sky-300">套用此組</button>
+              <button type="button" data-gun-clear="${idx}" class="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-400">清除</button>
             </div>
           </div>
         </div>
@@ -1464,7 +1815,9 @@
       })
       .join('');
 
-    const sortedCps = [...(evt.checkpoints || [])].sort((a, b) => a.order - b.order);
+    const sortedCps = [...(evt.checkpoints || [])]
+      .filter((cp) => cp && cp.type !== 'start' && String(cp.id || '').toUpperCase() !== 'START')
+      .sort((a, b) => a.order - b.order);
     $('checkpoints-list').innerHTML = sortedCps
       .map(
         (cp, idx) => `
@@ -1475,8 +1828,7 @@
           <div class="sm:col-span-2"><input type="number" step="0.1" value="${esc(cp.distanceKm)}" data-cp-field="distanceKm" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-sm font-mono-num text-white" /></div>
           <div class="sm:col-span-2">
             <select data-cp-field="type" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs font-bold text-white">
-              <option value="start" ${cp.type === 'start' ? 'selected' : ''}>起點 (Start)</option>
-              <option value="checkpoint" ${cp.type === 'checkpoint' ? 'selected' : ''}>中途補給/折返</option>
+              <option value="checkpoint" ${cp.type !== 'finish' ? 'selected' : ''}>中途補給/折返</option>
               <option value="finish" ${cp.type === 'finish' ? 'selected' : ''}>終點 (Finish)</option>
             </select>
           </div>
@@ -1488,74 +1840,98 @@
   }
 
   function renderAdminStaffTab() {
-    const list = state.platform.staffAccounts || [];
-    const events = state.platform.events || [];
+    const isSuper = isCurrentSuperAdmin();
+    const list = getAdminOwnStaffAccounts();
+    const events = getAdminOwnEvents();
     const evt = getActiveEvent();
     const cps = [...(evt?.checkpoints || [])].sort((a, b) => a.order - b.order);
 
-    $('staff-accounts-list').innerHTML = list
-      .map(
-        (s, idx) => `
-        <div class="grid grid-cols-1 sm:grid-cols-12 gap-2 items-end p-3.5 rounded-xl bg-slate-950 border border-slate-800" data-staff-row="${idx}">
-          <div class="sm:col-span-2">
-            <label class="block text-[11px] text-slate-400 mb-1">登入帳號</label>
-            <input type="text" value="${esc(s.username)}" data-staff-field="username" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs font-mono-num font-bold text-white" />
-          </div>
-          <div class="sm:col-span-1">
-            <label class="block text-[11px] text-slate-400 mb-1">密碼</label>
-            <input type="text" value="${esc(s.password)}" data-staff-field="password" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs font-mono-num text-white" />
-          </div>
-          <div class="sm:col-span-2">
-            <label class="block text-[11px] text-slate-400 mb-1">人員名稱</label>
-            <input type="text" value="${esc(s.displayName)}" data-staff-field="displayName" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs font-bold text-white" />
-          </div>
-          <div class="sm:col-span-2">
-            <label class="block text-[11px] text-slate-400 mb-1">作業權限</label>
-            <select data-staff-field="role" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs font-bold text-white">
-              <option value="scanner" ${s.role === 'scanner' ? 'selected' : ''}>鎖定感應站點</option>
-              <option value="writer" ${s.role === 'writer' ? 'selected' : ''}>僅共用晶片寫入</option>
-              <option value="both" ${s.role === 'both' ? 'selected' : ''}>寫入＋鎖定站點</option>
-            </select>
-          </div>
-          <div class="sm:col-span-2">
-            <label class="block text-[11px] text-slate-400 mb-1">限定活動</label>
-            <select data-staff-field="eventId" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs font-bold text-amber-300">
-              <option value="ALL" ${(!s.eventId || s.eventId === 'ALL') ? 'selected' : ''}>所有活動（登入選取）</option>
-              ${events.map((e) => `<option value="${esc(e.eventId)}" ${s.eventId === e.eventId ? 'selected' : ''}>僅限：${esc(e.name)}</option>`).join('')}
-            </select>
-          </div>
-          <div class="sm:col-span-2">
-            <label class="block text-[11px] text-slate-400 mb-1">鎖定站點代碼</label>
-            <input list="cp-datalist" type="text" value="${esc(s.checkpointId)}" data-staff-field="checkpointId" placeholder="START/CP1/FINISH"
-              class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs font-mono-num text-sky-300" />
-          </div>
-          <div class="sm:col-span-1 flex items-center justify-between gap-1 pb-1">
-            <input type="checkbox" data-staff-field="enabled" ${s.enabled !== false ? 'checked' : ''} class="accent-emerald-500 w-4 h-4" title="啟用" />
-            <button type="button" data-del-staff="${idx}" class="px-2 py-1 rounded text-xs font-bold bg-rose-600/20 text-rose-300">刪</button>
-          </div>
-        </div>
-      `
-      )
-      .join('') +
-      `<datalist id="cp-datalist">${cps.map((cp) => `<option value="${esc(cp.id)}">${esc(cp.name)}</option>`).join('')}</datalist>`;
+    const allOptionLabel = isSuper ? '所有活動（登入選取）' : '本人建立的所有活動';
+    const listHtml = list.length === 0
+      ? '<div class="p-5 rounded-xl bg-slate-950 border border-dashed border-slate-800 text-center text-xs text-slate-500">您尚未建立專屬作業員帳號，可點擊右上角「＋ 新增作業員帳號」建立（僅供您本人建立的活動使用）。</div>'
+      : list
+          .map(
+            (s, idx) => `
+            <div class="grid grid-cols-1 sm:grid-cols-12 gap-2 items-end p-3.5 rounded-xl bg-slate-950 border border-slate-800" data-staff-row="${idx}" data-staff-owner="${esc(s.ownerAdmin || '')}">
+              <div class="sm:col-span-2">
+                <label class="block text-[11px] text-slate-400 mb-1">登入帳號</label>
+                <input type="text" value="${esc(s.username)}" data-staff-field="username" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs font-mono-num font-bold text-white" />
+              </div>
+              <div class="sm:col-span-1">
+                <label class="block text-[11px] text-slate-400 mb-1">密碼</label>
+                <input type="text" value="${esc(s.password)}" data-staff-field="password" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs font-mono-num text-white" />
+              </div>
+              <div class="sm:col-span-2">
+                <label class="block text-[11px] text-slate-400 mb-1">人員名稱</label>
+                <input type="text" value="${esc(s.displayName)}" data-staff-field="displayName" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs font-bold text-white" />
+              </div>
+              <div class="sm:col-span-2">
+                <label class="block text-[11px] text-slate-400 mb-1">作業權限</label>
+                <select data-staff-field="role" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs font-bold text-white">
+                  <option value="scanner" ${s.role === 'scanner' ? 'selected' : ''}>鎖定感應站點</option>
+                  <option value="writer" ${s.role === 'writer' ? 'selected' : ''}>僅共用晶片寫入</option>
+                  <option value="both" ${s.role === 'both' ? 'selected' : ''}>寫入＋鎖定站點</option>
+                </select>
+              </div>
+              <div class="sm:col-span-2">
+                <label class="block text-[11px] text-slate-400 mb-1">限定活動</label>
+                <select data-staff-field="eventId" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs font-bold text-amber-300">
+                  <option value="ALL" ${(!s.eventId || s.eventId === 'ALL') ? 'selected' : ''}>${allOptionLabel}</option>
+                  ${events.map((e) => `<option value="${esc(e.eventId)}" ${s.eventId === e.eventId ? 'selected' : ''}>僅限：${esc(e.name)}</option>`).join('')}
+                </select>
+              </div>
+              <div class="sm:col-span-2">
+                <label class="block text-[11px] text-slate-400 mb-1">鎖定站點代碼</label>
+                <input list="cp-datalist" type="text" value="${esc(s.checkpointId)}" data-staff-field="checkpointId" placeholder="CHECKIN/CP1/FINISH"
+                  class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs font-mono-num text-sky-300" />
+              </div>
+              <div class="sm:col-span-1 flex items-center justify-between gap-1 pb-1">
+                <input type="checkbox" data-staff-field="enabled" ${s.enabled !== false ? 'checked' : ''} class="accent-emerald-500 w-4 h-4" title="啟用" />
+                <button type="button" data-del-staff="${esc(s.username)}" class="px-2 py-1 rounded text-xs font-bold bg-rose-600/20 text-rose-300">刪</button>
+              </div>
+            </div>
+          `
+          )
+          .join('');
+
+    $('staff-accounts-list').innerHTML =
+      listHtml +
+      `<datalist id="cp-datalist"><option value="CHECKIN">選手報到感應區 (CHECKIN)</option>${cps.filter((cp) => cp.type !== 'start' && String(cp.id || '').toUpperCase() !== 'START').map((cp) => `<option value="${esc(cp.id)}">${esc(cp.name)}</option>`).join('')}</datalist>`;
   }
 
   function renderAdminSyncTab() {
     const settings = DB.getDeviceSettings();
+    const isSuper = isCurrentSuperAdmin();
     document.querySelectorAll('input[name="sync-mode"]').forEach((radio) => {
       radio.checked = radio.value === settings.mode;
     });
     $('input-gas-url').value = settings.gasUrl || '';
+    const replaceLabel = $('btn-backup-replace-label');
+    if (replaceLabel) replaceLabel.classList.toggle('hidden', !isSuper);
+    const maintCard = $('admin-maintenance-card');
+    if (maintCard) maintCard.classList.toggle('hidden', !isSuper);
   }
 
   /* ========================================================================
-   * 輔助：更新當前活動並同步
+   * 輔助：更新當前活動並同步（嚴格驗證活動歸屬權）
    * ======================================================================== */
   async function updateCurrentEvent(mutator) {
     const events = [...(state.platform.events || [])];
     const idx = events.findIndex((e) => e.eventId === state.selectedEventId);
-    if (idx < 0) return;
-    events[idx] = { ...events[idx], ...mutator(events[idx]), updatedAt: Date.now() };
+    if (idx < 0) {
+      showToast('請先建立或選取您本人的路跑活動', 'warn');
+      return;
+    }
+    if (!isEventOwnedByCurrentAdmin(events[idx])) {
+      showToast('權限不足：不可修改其他管理者建立的活動', 'error');
+      return;
+    }
+    events[idx] = {
+      ...events[idx],
+      ...mutator(events[idx]),
+      ownerAdmin: getCurrentAdminUsername(),
+      updatedAt: Date.now()
+    };
     const updatedPlatform = await DB.savePlatform({ ...state.platform, events });
     if (Sync.isOnlineEnabled() && navigator.onLine && state.session?.mode === 'admin') {
       try {
@@ -1573,10 +1949,12 @@
     try {
       const res = await Sync.fullBidirectionalSync(state.session);
       await reloadState();
-      const evtCount = (state.platform?.events || []).length;
+      const evtCount = state.session?.mode === 'admin'
+        ? getAdminOwnEvents().length
+        : (state.platform?.events || []).length;
       if (!silent || res.platformSynced || res.uploadedScans > 0 || res.uploadedChips > 0 || res.uploadedRegs > 0) {
         showToast(
-          `☁️ 雙向同步完成！${res.platformSynced ? '活動設定已上傳、' : ''}晶片 ${res.uploadedChips}、報名 ${res.uploadedRegs}、感應 ${res.uploadedScans} 筆（雲端共 ${evtCount} 場活動）` +
+          `☁️ 雙向同步完成！${res.platformSynced ? '活動設定已上傳、' : ''}晶片 ${res.uploadedChips}、報名 ${res.uploadedRegs}、感應 ${res.uploadedScans} 筆（共 ${evtCount} 場活動）` +
             (res.skippedDuplicate ? `（略過重複 ${res.skippedDuplicate} 筆）` : ''),
           'success'
         );
@@ -1589,7 +1967,10 @@
   }
 
   async function downloadJsonBackup(prefix = '智慧路跑多場次完整備份') {
-    const backup = await DB.exportFullBackup();
+    const opts = state.session?.mode === 'admin'
+      ? { ownerAdmin: getCurrentAdminUsername(), isSuperAdmin: isCurrentSuperAdmin() }
+      : {};
+    const backup = await DB.exportFullBackup(opts);
     const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -1597,7 +1978,7 @@
     a.download = `${prefix}_${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.json`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-    showToast(`已下載完整備份（${backup.platform.events.length} 場活動、${backup.chips.length} 張晶片、${backup.scans.length} 筆感應）`, 'success');
+    showToast(`已下載備份（${backup.platform.events.length} 場活動、${backup.chips.length} 張晶片、${backup.scans.length} 筆感應）`, 'success');
   }
 
   async function importRegistrationsRows(rows) {
@@ -1623,7 +2004,7 @@
 
     if (valid.length === 0) return showToast('未偵測到有效名單（格式需為：參賽編號,姓名,身份證字號,分組代碼）', 'warn');
     const saved = await DB.upsertRegistrationsBulk(valid, false);
-    if (Sync.isOnlineEnabled() && navigator.onLine) Sync.pushRegistrations(saved).then(() => updatePendingSyncBadge());
+    if (Sync.isOnlineEnabled() && navigator.onLine) Sync.pushRegistrations(saved, state.session?.auth).then(() => updatePendingSyncBadge());
     await reloadState();
     showToast(`已成功匯入 ${valid.length} 位選手至「${evt.name}」！`, 'success');
   }
@@ -1632,18 +2013,21 @@
   function openEditScanModal(regId, bib, idNumber, cpId, scanId) {
     const evt = getActiveEvent();
     const reg = state.allRegistrations.find((r) => r.regId === regId);
-    const cp = (evt?.checkpoints || []).find((c) => c.id === cpId);
+    const isCheckIn = cpId === TE.CHECKIN_CP_ID;
+    const cp = isCheckIn ? { id: TE.CHECKIN_CP_ID, name: '選手報到感應區' } : (evt?.checkpoints || []).find((c) => c.id === cpId);
     const scan = scanId ? state.allScans.find((s) => s.id === scanId) : null;
 
     state.editMode = 'scan';
-    $('modal-edit-title').textContent = `人工修正 — ${bib} ${reg?.name || ''} @ ${cp?.name || cpId}`;
+    $('modal-edit-title').textContent = isCheckIn
+      ? `人工修正報到時間 — ${bib} ${reg?.name || ''}`
+      : `人工修正 — ${bib} ${reg?.name || ''} @ ${cp?.name || cpId}`;
     $('edit-reg-id').value = regId;
     $('edit-bib').value = bib;
     $('edit-idnumber').value = idNumber;
     $('edit-cp-id').value = cpId;
     $('edit-scan-id').value = scanId || '';
     $('edit-time-str').value = scan ? TE.formatClockMs(scan.timestampMs) : TE.formatClockMs(Date.now());
-    $('edit-note').value = scan?.note || '後台人工修正';
+    $('edit-note').value = scan?.note || (isCheckIn ? '後台人工補報到' : '後台人工修正');
 
     $('edit-scan-fields').classList.remove('hidden');
     $('edit-penalty-fields').classList.add('hidden');
@@ -1862,17 +2246,17 @@
     /* ==================== 後台管理區事件 ==================== */
     document.querySelectorAll('.admin-tab-btn').forEach((b) => b.addEventListener('click', () => switchAdminTab(b.dataset.adminTab)));
 
-    // 建立新路跑活動 Modal（支援一般距離賽與繞圈計時賽）
+    // 建立新路跑活動 Modal（支援一般距離賽與繞圈計時賽，依活動性質動態切換範例提示）
     const closeNewEvt = () => $('modal-new-event').classList.add('hidden');
     $('new-evt-type').addEventListener('change', (e) => {
-      $('new-evt-lap-km-box').classList.toggle('hidden', e.target.value !== 'lap_timed');
+      syncNewEventModalHints(e.target.value);
     });
     $('btn-open-new-event-modal').addEventListener('click', () => {
       $('new-evt-type').value = 'distance';
-      $('new-evt-lap-km-box').classList.add('hidden');
+      syncNewEventModalHints('distance');
       $('new-evt-lap-km').value = '2.54';
       $('new-evt-name').value = '';
-      $('new-evt-date').value = new Date().toISOString().slice(0, 10);
+      $('new-evt-date').value = getLocalDateStr();
       $('new-evt-location').value = '';
       $('modal-new-event').classList.remove('hidden');
     });
@@ -1881,6 +2265,8 @@
 
     $('form-new-event').addEventListener('submit', async (e) => {
       e.preventDefault();
+      const ownerAdmin = getCurrentAdminUsername();
+      if (!ownerAdmin) return showToast('請先登入管理者帳號', 'error');
       const evtType = $('new-evt-type').value;
       const lapKm = Number($('new-evt-lap-km').value || 2.54);
       const newEvt = DB.createEventTemplate(
@@ -1888,7 +2274,8 @@
         $('new-evt-date').value,
         $('new-evt-location').value.trim(),
         evtType,
-        lapKm
+        lapKm,
+        ownerAdmin
       );
       const updated = await DB.savePlatform({
         ...state.platform,
@@ -1896,7 +2283,9 @@
       });
       state.selectedEventId = newEvt.eventId;
       DB.saveDeviceSettings({ selectedEventId: newEvt.eventId });
-      if (Sync.isOnlineEnabled() && navigator.onLine) Sync.pushPlatform(updated, state.session.auth);
+      if (Sync.isOnlineEnabled() && navigator.onLine) {
+        try { await Sync.pushPlatform(updated, state.session.auth); } catch (err) { showToast(`活動已建於本機，雲端同步待重試：${err.message}`, 'warn'); }
+      }
       closeNewEvt();
       await reloadState();
       showToast(
@@ -1907,13 +2296,20 @@
       );
     });
 
-    // 活動卡片操作
+    // 活動卡片操作（嚴格檢查僅可操作本人建立的活動）
     $('admin-events-list').addEventListener('click', async (e) => {
       const selBtn = e.target.closest('[data-select-event]');
-      if (selBtn) { await onEventChange(selBtn.dataset.selectEvent); return; }
+      if (selBtn) {
+        const target = (state.platform.events || []).find((x) => x.eventId === selBtn.dataset.selectEvent);
+        if (!isEventOwnedByCurrentAdmin(target)) return showToast('無權限切換至其他管理者的活動', 'error');
+        await onEventChange(selBtn.dataset.selectEvent);
+        return;
+      }
 
       const defBtn = e.target.closest('[data-default-event]');
       if (defBtn) {
+        const target = (state.platform.events || []).find((x) => x.eventId === defBtn.dataset.defaultEvent);
+        if (!isEventOwnedByCurrentAdmin(target)) return showToast('無權限設定其他管理者的活動', 'error');
         const updated = await DB.savePlatform({ ...state.platform, activeEventId: defBtn.dataset.defaultEvent });
         if (Sync.isOnlineEnabled() && navigator.onLine) Sync.pushPlatform(updated, state.session.auth);
         await reloadState();
@@ -1925,14 +2321,16 @@
       if (delBtn) {
         const eid = delBtn.dataset.deleteEvent;
         const target = (state.platform.events || []).find((x) => x.eventId === eid);
+        if (!isEventOwnedByCurrentAdmin(target)) return showToast('無權限刪除其他管理者的活動', 'error');
         if (!confirm(`確定要刪除活動「${target?.name || eid}」嗎？`)) return;
         const remain = (state.platform.events || []).filter((x) => x.eventId !== eid);
+        const remainOwn = remain.filter((x) => isEventOwnedByCurrentAdmin(x));
         const updated = await DB.savePlatform({
           ...state.platform,
           events: remain,
-          activeEventId: state.platform.activeEventId === eid ? (remain[0]?.eventId || '') : state.platform.activeEventId
+          activeEventId: state.platform.activeEventId === eid ? (remainOwn[0]?.eventId || remain[0]?.eventId || '') : state.platform.activeEventId
         });
-        if (state.selectedEventId === eid) state.selectedEventId = remain[0]?.eventId || '';
+        if (state.selectedEventId === eid) state.selectedEventId = remainOwn[0]?.eventId || '';
         if (Sync.isOnlineEnabled() && navigator.onLine) Sync.pushPlatform(updated, state.session.auth);
         await reloadState();
         showToast('已刪除該場路跑活動', 'info');
@@ -1963,18 +2361,181 @@
 
     $('form-admin-credentials').addEventListener('submit', async (e) => {
       e.preventDefault();
-      const newU = $('cfg-admin-user').value.trim() || 'admin';
-      const newP = $('cfg-admin-pass').value || 'admin1234';
+      const oldU = getCurrentAdminUsername();
+      const isSuper = isCurrentSuperAdmin();
+      const newU = isSuper ? ($('cfg-admin-user').value.trim() || oldU) : oldU;
+      const newDisplay = $('cfg-admin-displayname').value.trim() || newU;
+      const newP = $('cfg-admin-pass').value;
+      if (!newP) return showToast('密碼不可為空', 'warn');
+
+      const existingAdmins = [...(state.platform.adminAccounts || [])];
+      if (newU !== oldU && existingAdmins.some((a) => a.username === newU)) {
+        return showToast(`管理者帳號「${newU}」已存在，請更換其他帳號`, 'error');
+      }
+
       const oldAuth = { ...state.session.auth };
-      const updated = await DB.savePlatform({ ...state.platform, adminUsername: newU, adminPassword: newP });
+      const nextAdmins = existingAdmins.map((a) =>
+        a.username === oldU
+          ? { ...a, username: newU, displayName: newDisplay, password: newP, updatedAt: Date.now() }
+          : a
+      );
+      if (!nextAdmins.some((a) => a.username === newU)) {
+        nextAdmins.push({ username: newU, password: newP, displayName: newDisplay, isSuperAdmin: isSuper, enabled: true, updatedAt: Date.now() });
+      }
+
+      const renamedAdmins = newU !== oldU ? { [oldU]: newU } : {};
+      const nextEvents = newU !== oldU
+        ? (state.platform.events || []).map((ev) => (getEventOwner(ev) === oldU ? { ...ev, ownerAdmin: newU } : ev))
+        : (state.platform.events || []);
+      const nextStaff = newU !== oldU
+        ? (state.platform.staffAccounts || []).map((s) => (s.ownerAdmin === oldU ? { ...s, ownerAdmin: newU } : s))
+        : (state.platform.staffAccounts || []);
+
+      const updated = await DB.savePlatform({
+        ...state.platform,
+        adminUsername: state.platform.adminUsername === oldU ? newU : state.platform.adminUsername,
+        adminPassword: state.platform.adminUsername === oldU ? newP : state.platform.adminPassword,
+        adminAccounts: nextAdmins,
+        events: nextEvents,
+        staffAccounts: nextStaff
+      });
+
       if (Sync.isOnlineEnabled() && navigator.onLine) {
-        try { await Sync.pushPlatform(updated, oldAuth); } catch (err) { showToast(`雲端同步失敗：${err.message}`, 'warn'); }
+        try {
+          await Sync.pushPlatform(updated, oldAuth, { targetOwner: newU, renamedAdmins });
+        } catch (err) {
+          showToast(`本機帳密已更新，雲端同步失敗：${err.message}`, 'warn');
+        }
       }
       state.session.auth = { username: newU, password: newP };
       state.session.account.username = newU;
+      state.session.account.displayName = newDisplay;
+      state.session.account.password = newP;
       DB.saveSession(state.session);
       await reloadState();
-      showToast('最高管理員帳密已更新', 'success');
+      showToast('您的管理者帳密已更新', 'success');
+    });
+
+    // 最高管理員：多管理者帳號增刪改
+    $('btn-add-admin-account').addEventListener('click', async () => {
+      if (!isCurrentSuperAdmin()) return;
+      const list = [...(state.platform.adminAccounts || [])];
+      let n = list.length + 1;
+      while (list.some((a) => a.username === `admin${n}`)) n++;
+      list.push({
+        username: `admin${n}`,
+        password: `pass${n}234`,
+        displayName: `活動管理者 ${n}`,
+        isSuperAdmin: false,
+        enabled: true,
+        updatedAt: Date.now()
+      });
+      await DB.savePlatform({ ...state.platform, adminAccounts: list });
+      await reloadState();
+    });
+
+    $('admin-accounts-list').addEventListener('click', async (e) => {
+      if (!isCurrentSuperAdmin()) return;
+      const delBtn = e.target.closest('[data-del-admin]');
+      if (!delBtn) return;
+      const idx = Number(delBtn.dataset.delAdmin);
+      const list = [...(state.platform.adminAccounts || [])];
+      const target = list[idx];
+      if (!target) return;
+      if (target.username === getCurrentAdminUsername()) {
+        return showToast('不可刪除目前登入中的管理者帳號', 'error');
+      }
+      if (!confirm(`確定刪除管理者帳號「${target.username} (${target.displayName})」嗎？\n（該管理者原本建立的活動資料仍會保留）`)) return;
+      list.splice(idx, 1);
+      if (!list.some((a) => a.isSuperAdmin && a.enabled !== false)) {
+        return showToast('系統至少需保留一位啟用中的最高管理員', 'error');
+      }
+      const updated = await DB.savePlatform({ ...state.platform, adminAccounts: list });
+      if (Sync.isOnlineEnabled() && navigator.onLine) {
+        try { await Sync.pushPlatform(updated, state.session.auth); } catch (err) { showToast(`雲端同步失敗：${err.message}`, 'warn'); }
+      }
+      await reloadState();
+      showToast(`已刪除管理者帳號「${target.username}」`, 'info');
+    });
+
+    $('btn-save-admin-accounts').addEventListener('click', async () => {
+      if (!isCurrentSuperAdmin()) return;
+      const rows = Array.from(document.querySelectorAll('#admin-accounts-list [data-admin-row]'));
+      const seen = new Set();
+      const nextAdmins = [];
+      const renamedAdmins = {};
+      const oldSelf = getCurrentAdminUsername();
+      let newSelf = oldSelf;
+      let newSelfPass = state.session.auth.password;
+      let newSelfDisplay = state.session.account.displayName;
+
+      for (const row of rows) {
+        const origUser = row.dataset.adminOrigUser || '';
+        const username = row.querySelector('[data-admin-field="username"]').value.trim();
+        const password = row.querySelector('[data-admin-field="password"]').value;
+        const displayName = row.querySelector('[data-admin-field="displayName"]').value.trim() || username;
+        const isSuperAdmin = row.querySelector('[data-admin-field="isSuperAdmin"]').value === '1';
+        const enabled = row.querySelector('[data-admin-field="enabled"]').checked;
+
+        if (!username) continue;
+        if (!password) return showToast(`管理者「${username}」密碼不可為空`, 'error');
+        if (seen.has(username)) return showToast(`管理者帳號「${username}」重複`, 'error');
+        seen.add(username);
+
+        if (origUser && origUser !== username) {
+          renamedAdmins[origUser] = username;
+        }
+        if (origUser === oldSelf) {
+          newSelf = username;
+          newSelfPass = password;
+          newSelfDisplay = displayName;
+        }
+        nextAdmins.push({
+          username,
+          password,
+          displayName,
+          isSuperAdmin: origUser === oldSelf ? true : isSuperAdmin,
+          enabled: origUser === oldSelf ? true : enabled,
+          updatedAt: Date.now()
+        });
+      }
+
+      if (!nextAdmins.some((a) => a.isSuperAdmin && a.enabled !== false)) {
+        return showToast('系統至少需保留一位啟用中的最高管理員', 'error');
+      }
+
+      const oldAuth = { ...state.session.auth };
+      const mapOwner = (o) => (renamedAdmins[o] ? renamedAdmins[o] : o);
+      const nextEvents = Object.keys(renamedAdmins).length
+        ? (state.platform.events || []).map((ev) => ({ ...ev, ownerAdmin: mapOwner(getEventOwner(ev)) }))
+        : (state.platform.events || []);
+      const nextStaff = Object.keys(renamedAdmins).length
+        ? (state.platform.staffAccounts || []).map((s) => (s.ownerAdmin ? { ...s, ownerAdmin: mapOwner(s.ownerAdmin) } : s))
+        : (state.platform.staffAccounts || []);
+
+      const updated = await DB.savePlatform({
+        ...state.platform,
+        adminAccounts: nextAdmins,
+        events: nextEvents,
+        staffAccounts: nextStaff
+      });
+
+      if (Sync.isOnlineEnabled() && navigator.onLine) {
+        try {
+          await Sync.pushPlatform(updated, oldAuth, { targetOwner: newSelf, renamedAdmins });
+        } catch (err) {
+          showToast(`本機已儲存，雲端同步失敗：${err.message}`, 'warn');
+        }
+      }
+
+      state.session.auth = { username: newSelf, password: newSelfPass };
+      state.session.account.username = newSelf;
+      state.session.account.password = newSelfPass;
+      state.session.account.displayName = newSelfDisplay;
+      DB.saveSession(state.session);
+
+      await reloadState();
+      showToast(`已儲存 ${nextAdmins.length} 組管理者帳號設定！每位管理者登入後僅可操作自己建立的活動`, 'success');
     });
 
     // 分頁 2：本活動選手名單匯入與編輯
@@ -2000,7 +2561,32 @@
 
     $('btn-admin-add-reg').addEventListener('click', () => openAdminRegModal(''));
     $('admin-reg-search').addEventListener('input', (e) => { state.adminRegSearch = e.target.value; renderAdminRosterTab(); });
+    $('admin-reg-checkin-filter').addEventListener('change', (e) => { state.adminRegCheckinFilter = e.target.value; renderAdminRosterTab(); });
     $('admin-reg-tbody').addEventListener('click', async (e) => {
+      const quickChk = e.target.closest('[data-quick-checkin-bib]');
+      if (quickChk) {
+        const evt = getActiveEvent();
+        if (!evt) return;
+        const bib = quickChk.dataset.quickCheckinBib;
+        const idNumber = quickChk.dataset.quickCheckinIdnum || '';
+        const res = await DB.addScan({
+          eventId: evt.eventId,
+          bib,
+          idNumber,
+          checkpointId: TE.CHECKIN_CP_ID,
+          timestampMs: Date.now(),
+          source: 'admin',
+          operator: state.session.account.username,
+          note: '後台人工補報到',
+          bypassDebounce: true
+        });
+        if (Sync.isOnlineEnabled() && navigator.onLine) {
+          try { await Sync.pushAdminEditScan(res.scan, state.session.auth); } catch {}
+        }
+        await reloadState();
+        showToast(`✅ 已完成 #${bib} 人工補報到！`, 'success');
+        return;
+      }
       const editBtn = e.target.closest('[data-edit-reg]');
       if (editBtn) { openAdminRegModal(editBtn.dataset.editReg); return; }
       const delBtn = e.target.closest('[data-del-reg]');
@@ -2027,7 +2613,7 @@
         idNumber: $('admin-reg-idnumber').value.trim().toUpperCase(),
         categoryId: $('admin-reg-cat').value
       }, false);
-      if (Sync.isOnlineEnabled() && navigator.onLine) Sync.pushRegistrations([saved]);
+      if (Sync.isOnlineEnabled() && navigator.onLine) Sync.pushRegistrations([saved], state.session?.auth);
       closeRegModal();
       await reloadState();
       showToast(`已儲存 ${saved.name} (#${saved.bib}) 至本活動名單`, 'success');
@@ -2043,10 +2629,10 @@
 
     // 分頁 3：成績管理與修正
     $('results-category-filter').addEventListener('change', (e) => { state.resultsCatFilter = e.target.value; renderAdminResultsTab(); });
-    $('results-rankby-select').addEventListener('change', async (e) => { state.rankBy = e.target.value; await reloadState(); });
     $('results-search').addEventListener('input', (e) => { state.resultsSearch = e.target.value; renderAdminResultsTab(); });
     $('btn-export-excel-quick').addEventListener('click', () => {
       const evt = getActiveEvent();
+      if (!evt || !state.computed) return showToast('請先建立或選取活動', 'warn');
       const f = Excel.exportResultsToExcel({
         event: evt,
         computed: state.computed,
@@ -2163,9 +2749,9 @@
 
       if (state.editMode === 'penalty') {
         const reg = state.allRegistrations.find((r) => r.regId === regId);
-        if (reg) {
+        if (reg && evt && reg.eventId === evt.eventId) {
           const updated = await DB.upsertRegistration({ ...reg, penaltySec: Number($('edit-penalty-sec').value || 0) }, false);
-          if (Sync.isOnlineEnabled() && navigator.onLine) Sync.pushRegistrations([updated]);
+          if (Sync.isOnlineEnabled() && navigator.onLine) Sync.pushRegistrations([updated], state.session?.auth);
         }
         closeEditModal();
         await reloadState();
@@ -2228,14 +2814,53 @@
       showToast('已刪除此站感應並重算名次', 'info');
     });
 
-    // 分頁 4：本活動分組鳴槍與站點
+    // 分頁 4：本活動統一律定起跑時間、分組與站點
+    $('btn-unified-gun-now').addEventListener('click', async () => {
+      const evt = getActiveEvent();
+      if (!evt) return showToast('請先建立或選取活動', 'warn');
+      const nowSec = Math.floor(Date.now() / 1000) * 1000;
+      const iso = new Date(nowSec).toISOString();
+      NFC.sound.beepGun();
+      await updateCurrentEvent((ev) => ({
+        unifiedGunTimeMs: nowSec,
+        categories: (ev.categories || []).map((c) => ({ ...c, gunTimeMs: nowSec, gunTimeIso: iso }))
+      }));
+      showToast(`🔫 「${evt.name}」全組已統一鳴槍起跑！(${TE.formatClockSec(nowSec)})`, 'success');
+    });
+
+    $('btn-unified-gun-set').addEventListener('click', async () => {
+      const evt = getActiveEvent();
+      if (!evt) return showToast('請先建立或選取活動', 'warn');
+      const tsMs = TE.parseDateTimeToMs(evt.date, $('unified-gun-input').value.trim());
+      if (tsMs === null) return showToast('請輸入 HH:mm:ss 格式（如 06:30:00）', 'error');
+      const iso = new Date(tsMs).toISOString();
+      await updateCurrentEvent((ev) => ({
+        unifiedGunTimeMs: tsMs,
+        categories: (ev.categories || []).map((c) => ({ ...c, gunTimeMs: tsMs, gunTimeIso: iso }))
+      }));
+      showToast(`✅ 已套用統一律定起跑時間 ${TE.formatClockSec(tsMs)} 至全活動所有分組！`, 'success');
+    });
+
+    $('btn-unified-gun-clear').addEventListener('click', async () => {
+      const evt = getActiveEvent();
+      if (!evt) return;
+      if (!confirm('確定清除本活動所有分組的起跑時間嗎？')) return;
+      await updateCurrentEvent((ev) => ({
+        unifiedGunTimeMs: null,
+        categories: (ev.categories || []).map((c) => ({ ...c, gunTimeMs: null, gunTimeIso: '' }))
+      }));
+      showToast('已清除本活動統一律定起跑時間', 'info');
+    });
+
     $('btn-add-category').addEventListener('click', async () => {
       await updateCurrentEvent((ev) => {
         const n = (ev.categories || []).length + 1;
+        const baseGun = ev.unifiedGunTimeMs || null;
+        const baseIso = baseGun ? new Date(baseGun).toISOString() : '';
         if (ev.eventType === 'lap_timed') {
-          return { categories: [...(ev.categories || []), { id: `H${n}`, name: `自訂 ${n * 3} 小時組`, durationHours: n * 3, distanceKm: n * 3, gunTimeMs: null, gunTimeIso: '', color: '#a855f7' }] };
+          return { categories: [...(ev.categories || []), { id: `H${n}`, name: `自訂 ${n * 3} 小時組`, durationHours: n * 3, distanceKm: n * 3, gunTimeMs: baseGun, gunTimeIso: baseIso, color: '#a855f7' }] };
         }
-        return { categories: [...(ev.categories || []), { id: `CAT${n}`, name: `新分組 ${n}`, distanceKm: 5, gunTimeMs: null, gunTimeIso: '', color: '#a855f7' }] };
+        return { categories: [...(ev.categories || []), { id: `CAT${n}`, name: `新分組 ${n}`, distanceKm: 5, gunTimeMs: baseGun, gunTimeIso: baseIso, color: '#a855f7' }] };
       });
     });
 
@@ -2317,7 +2942,9 @@
       if (!delBtn) return;
       const idx = Number(delBtn.dataset.delCp);
       await updateCurrentEvent((ev) => {
-        const sorted = [...(ev.checkpoints || [])].sort((a, b) => a.order - b.order);
+        const sorted = [...(ev.checkpoints || [])]
+          .filter((cp) => cp && cp.type !== 'start' && String(cp.id || '').toUpperCase() !== 'START')
+          .sort((a, b) => a.order - b.order);
         sorted.splice(idx, 1);
         return { checkpoints: sorted };
       });
@@ -2339,74 +2966,115 @@
       showToast('本活動站點設定已儲存！', 'success');
     });
 
-    // 分頁 5：作業員帳號與鎖定活動/站點管制
+    // 分頁 5：作業員帳號與鎖定活動/站點管制（僅管理本人名下作業員，不影響其他管理者帳號）
     $('btn-add-staff').addEventListener('click', async () => {
-      const list = [...(state.platform.staffAccounts || [])];
-      const n = list.length + 1;
-      list.push({ username: `staff${n}`, password: '1111', displayName: `作業員 ${n}`, role: 'scanner', eventId: 'ALL', checkpointId: 'START', enabled: true, updatedAt: Date.now() });
-      await DB.savePlatform({ ...state.platform, staffAccounts: list });
+      const adminUser = getCurrentAdminUsername();
+      const allStaff = [...(state.platform.staffAccounts || [])];
+      const existingUsers = new Set(allStaff.map((s) => s.username));
+      const prefix = isCurrentSuperAdmin() ? 'staff' : `${adminUser}_staff`;
+      let n = 1;
+      while (existingUsers.has(`${prefix}${n}`)) n++;
+      const evt = getActiveEvent();
+      allStaff.push({
+        username: `${prefix}${n}`,
+        password: '1111',
+        displayName: `作業員 ${n}`,
+        role: 'scanner',
+        eventId: evt ? evt.eventId : 'ALL',
+        checkpointId: evt?.eventType === 'lap_timed' ? 'LAP' : 'CHECKIN',
+        ownerAdmin: adminUser,
+        enabled: true,
+        updatedAt: Date.now()
+      });
+      await DB.savePlatform({ ...state.platform, staffAccounts: allStaff });
       await reloadState();
     });
 
     $('staff-accounts-list').addEventListener('click', async (e) => {
       const delBtn = e.target.closest('[data-del-staff]');
       if (!delBtn) return;
-      const idx = Number(delBtn.dataset.delStaff);
-      const list = [...(state.platform.staffAccounts || [])];
-      if (!confirm(`確定刪除作業員帳號「${list[idx]?.username}」？`)) return;
-      list.splice(idx, 1);
-      const updated = await DB.savePlatform({ ...state.platform, staffAccounts: list });
+      const targetUser = delBtn.dataset.delStaff;
+      const adminUser = getCurrentAdminUsername();
+      const isSuper = isCurrentSuperAdmin();
+      const allStaff = [...(state.platform.staffAccounts || [])];
+      const idx = allStaff.findIndex((s) => s.username === targetUser);
+      if (idx < 0) return;
+      const sOwner = String(allStaff[idx].ownerAdmin || '').trim();
+      const canManage = isSuper ? (!sOwner || sOwner === adminUser) : sOwner === adminUser;
+      if (!canManage) return showToast('無權限刪除此作業員帳號', 'error');
+      if (!confirm(`確定刪除作業員帳號「${targetUser}」？`)) return;
+      allStaff.splice(idx, 1);
+      const updated = await DB.savePlatform({ ...state.platform, staffAccounts: allStaff });
       if (Sync.isOnlineEnabled() && navigator.onLine) Sync.pushPlatform(updated, state.session.auth);
       await reloadState();
     });
 
     $('btn-save-staff-accounts').addEventListener('click', async () => {
+      const adminUser = getCurrentAdminUsername();
+      const isSuper = isCurrentSuperAdmin();
+      const otherStaff = (state.platform.staffAccounts || []).filter((s) => {
+        const sOwner = String(s.ownerAdmin || '').trim();
+        return isSuper ? (sOwner && sOwner !== adminUser) : sOwner !== adminUser;
+      });
+      const otherUserSet = new Set(otherStaff.map((s) => s.username));
+
       const rows = Array.from(document.querySelectorAll('#staff-accounts-list [data-staff-row]'));
       const seen = new Set();
-      const staffAccounts = [];
+      const ownStaff = [];
       for (const row of rows) {
         const username = row.querySelector('[data-staff-field="username"]').value.trim();
         if (!username) continue;
         if (seen.has(username)) return showToast(`帳號「${username}」重複`, 'error');
+        if (otherUserSet.has(username)) return showToast(`帳號「${username}」已被其他管理者使用，請更換其他名稱`, 'error');
         seen.add(username);
         const role = row.querySelector('[data-staff-field="role"]').value;
         const cpId = row.querySelector('[data-staff-field="checkpointId"]').value.trim();
         if (role !== 'writer' && !cpId) return showToast(`帳號「${username}」屬於感應角色，必須填寫鎖定站點代碼`, 'error');
-        staffAccounts.push({
+        const origOwner = String(row.dataset.staffOwner || '').trim();
+        ownStaff.push({
           username,
           password: row.querySelector('[data-staff-field="password"]').value || '1111',
           displayName: row.querySelector('[data-staff-field="displayName"]').value.trim() || username,
           role,
           eventId: row.querySelector('[data-staff-field="eventId"]').value || 'ALL',
           checkpointId: role === 'writer' ? '' : cpId,
+          ownerAdmin: isSuper ? (origOwner === '' ? '' : adminUser) : adminUser,
           enabled: row.querySelector('[data-staff-field="enabled"]').checked,
           updatedAt: Date.now()
         });
       }
-      const updated = await DB.savePlatform({ ...state.platform, staffAccounts });
-      if (Sync.isOnlineEnabled() && navigator.onLine) Sync.pushPlatform(updated, state.session.auth);
+      const mergedStaff = [...otherStaff, ...ownStaff];
+      const updated = await DB.savePlatform({ ...state.platform, staffAccounts: mergedStaff });
+      if (Sync.isOnlineEnabled() && navigator.onLine) {
+        try { await Sync.pushPlatform(updated, state.session.auth); } catch (err) { showToast(`本機已儲存，雲端同步失敗：${err.message}`, 'warn'); }
+      }
       await reloadState();
-      showToast(`已儲存 ${staffAccounts.length} 組作業員帳號設定！`, 'success');
+      showToast(`已儲存 ${ownStaff.length} 組作業員帳號設定！`, 'success');
     });
 
     // 分頁 6：備份、Excel 匯出與雲端同步
     $('btn-export-excel-full').addEventListener('click', () => {
       const evt = getActiveEvent();
+      if (!evt || !state.computed) return showToast('請先建立或選取活動', 'warn');
       const f = Excel.exportResultsToExcel({ event: evt, computed: state.computed, scans: state.allScans.filter((s) => s.eventId === evt.eventId), maskId: false });
       showToast(`已匯出完整 Excel：${f}`, 'success');
     });
     $('btn-export-excel-masked').addEventListener('click', () => {
       const evt = getActiveEvent();
+      if (!evt || !state.computed) return showToast('請先建立或選取活動', 'warn');
       const f = Excel.exportResultsToExcel({ event: evt, computed: state.computed, scans: state.allScans.filter((s) => s.eventId === evt.eventId), maskId: true });
       showToast(`已匯出隱碼公開 Excel：${f}`, 'success');
     });
 
-    $('btn-backup-download').addEventListener('click', () => downloadJsonBackup('智慧路跑多場次完整備份'));
+    $('btn-backup-download').addEventListener('click', () => downloadJsonBackup(`智慧路跑備份_${getCurrentAdminUsername() || 'all'}`));
     $('input-backup-merge').addEventListener('change', async (e) => {
       const f = e.target.files?.[0];
       if (f) {
         try {
-          const r = await DB.importFullBackup(JSON.parse(await f.text()), 'merge');
+          const r = await DB.importFullBackup(JSON.parse(await f.text()), 'merge', {
+            ownerAdmin: getCurrentAdminUsername(),
+            isSuperAdmin: isCurrentSuperAdmin()
+          });
           await reloadState();
           showToast(`合併完成！晶片 ${r.chipCount}、報名 ${r.regCount}、感應 ${r.scanCount} 筆`, 'success');
         } catch (err) { showToast(err.message, 'error'); }
@@ -2414,10 +3082,14 @@
       e.target.value = '';
     });
     $('input-backup-replace').addEventListener('change', async (e) => {
+      if (!isCurrentSuperAdmin()) return showToast('僅最高管理員可執行覆蓋還原', 'error');
       const f = e.target.files?.[0];
       if (f && confirm('確定以備份檔覆蓋還原整個本機資料庫嗎？')) {
         try {
-          const r = await DB.importFullBackup(JSON.parse(await f.text()), 'replace');
+          const r = await DB.importFullBackup(JSON.parse(await f.text()), 'replace', {
+            ownerAdmin: getCurrentAdminUsername(),
+            isSuperAdmin: true
+          });
           await reloadState();
           showToast(`覆蓋還原完成！晶片 ${r.chipCount}、報名 ${r.regCount}、感應 ${r.scanCount} 筆`, 'success');
         } catch (err) { showToast(err.message, 'error'); }
@@ -2487,13 +3159,15 @@
     });
 
     $('btn-load-demo-data').addEventListener('click', async () => {
+      if (!isCurrentSuperAdmin()) return showToast('僅最高管理員可載入模擬資料', 'error');
       if (!confirm('載入模擬資料將會覆蓋目前本機資料（包含距離賽與 2.54km 繞圈計時賽），確定繼續嗎？')) return;
-      await DB.loadDemoData();
+      await DB.loadDemoData(getCurrentAdminUsername());
       state.selectedEventId = 'EVT-2026-ULTRA';
       await reloadState();
       showToast('⚡ 已載入 3 場模擬活動（含 6H/12H/24H 環湖繞圈計時賽）！', 'success');
     });
     $('btn-clear-all-data').addEventListener('click', async () => {
+      if (!isCurrentSuperAdmin()) return showToast('僅最高管理員可清空本機資料庫', 'error');
       if (!confirm('確定清空本機所有活動、晶片與感應資料嗎？')) return;
       await DB.clearAllData(true);
       await reloadState();

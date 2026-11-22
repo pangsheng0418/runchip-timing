@@ -82,10 +82,14 @@
     <section class="space-y-4">
       <h2 class="text-base font-extrabold text-slate-200">📊 本場活動即時總覽看板</h2>
 
-      <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4">
           <div id="pub-kpi-label-1" class="text-xs text-slate-400 font-bold">本場報名人數</div>
           <div id="pub-kpi-total" class="text-3xl font-black text-white font-mono-num mt-1">0</div>
+        </div>
+        <div class="bg-slate-900 border border-sky-500/30 rounded-2xl p-4">
+          <div id="pub-kpi-label-checkin" class="text-xs text-sky-400 font-bold">已報到人數</div>
+          <div id="pub-kpi-checkin" class="text-3xl font-black text-sky-400 font-mono-num mt-1">0</div>
         </div>
         <div class="bg-slate-900 border border-emerald-500/30 rounded-2xl p-4">
           <div id="pub-kpi-label-2" class="text-xs text-emerald-400 font-bold">已完賽人數</div>
@@ -96,7 +100,7 @@
           <div id="pub-kpi-oncourse" class="text-3xl font-black text-amber-400 font-mono-num mt-1">0</div>
         </div>
         <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4">
-          <div id="pub-kpi-label-4" class="text-xs text-slate-400 font-bold">未出發</div>
+          <div id="pub-kpi-label-4" class="text-xs text-slate-400 font-bold">未報到人數</div>
           <div id="pub-kpi-notstarted" class="text-3xl font-black text-slate-300 font-mono-num mt-1">0</div>
         </div>
       </div>
@@ -121,10 +125,6 @@
         <div class="flex flex-wrap gap-2">
           <select id="pub-cat-filter" class="bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-white">
             <option value="ALL">全部組別</option>
-          </select>
-          <select id="pub-rankby" class="bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-white">
-            <option value="gun">依大會時間 (Gun Time)</option>
-            <option value="chip">依個人淨時間 (Chip Time)</option>
           </select>
         </div>
       </div>

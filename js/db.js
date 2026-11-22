@@ -19,34 +19,35 @@
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   }
 
-  function createDefaultEvent(eventId = 'EVT-2026-01', name = '2026 智慧城市馬拉松', date = getTodayStr(), location = '台北市政府廣場') {
+  function createDefaultEvent(eventId = 'EVT-2026-01', name = '2026 智慧城市馬拉松', date = getTodayStr(), location = '台北市政府廣場', ownerAdmin = 'admin') {
     return {
       eventId,
       name,
       date,
       location,
       status: 'active',
+      ownerAdmin: String(ownerAdmin || 'admin').trim() || 'admin',
       eventType: 'distance', // 'distance' (一般距離賽) | 'lap_timed' (繞圈計時賽)
       lapDistanceKm: 0,
       debounceSeconds: 30,
       rankBy: 'gun',
+      unifiedGunTimeMs: null,
       categories: [
         { id: '42K', name: '全馬組 42K', distanceKm: 42.195, gunTimeMs: null, gunTimeIso: '', color: '#ef4444' },
         { id: '21K', name: '半馬組 21K', distanceKm: 21.0975, gunTimeMs: null, gunTimeIso: '', color: '#3b82f6' },
         { id: '10K', name: '健康組 10K', distanceKm: 10, gunTimeMs: null, gunTimeIso: '', color: '#10b981' }
       ],
       checkpoints: [
-        { id: 'START', name: '起點感應門', order: 1, distanceKm: 0, type: 'start' },
-        { id: 'CP1', name: '補給站 1 (5K)', order: 2, distanceKm: 5, type: 'checkpoint' },
-        { id: 'CP2', name: '折返點 / 補給站 2 (10K)', order: 3, distanceKm: 10, type: 'checkpoint' },
-        { id: 'CP3', name: '補給站 3 (21K)', order: 4, distanceKm: 21.1, type: 'checkpoint' },
-        { id: 'FINISH', name: '終點衝線門', order: 5, distanceKm: 42.195, type: 'finish' }
+        { id: 'CP1', name: '補給站 1 (5K)', order: 1, distanceKm: 5, type: 'checkpoint' },
+        { id: 'CP2', name: '折返點 / 補給站 2 (10K)', order: 2, distanceKm: 10, type: 'checkpoint' },
+        { id: 'CP3', name: '補給站 3 (21K)', order: 3, distanceKm: 21.1, type: 'checkpoint' },
+        { id: 'FINISH', name: '終點衝線門', order: 4, distanceKm: 42.195, type: 'finish' }
       ],
       updatedAt: Date.now()
     };
   }
 
-  function createLapTimedEvent(eventId = 'EVT-2026-LAP', name = '2026 超馬繞圈計時賽', date = getTodayStr(), location = '大安森林公園環道', lapDistanceKm = 2.54) {
+  function createLapTimedEvent(eventId = 'EVT-2026-LAP', name = '2026 超馬繞圈計時賽', date = getTodayStr(), location = '大安森林公園環道', lapDistanceKm = 2.54, ownerAdmin = 'admin') {
     const lapKm = Number(lapDistanceKm || 2.54);
     return {
       eventId,
@@ -54,10 +55,12 @@
       date,
       location,
       status: 'active',
+      ownerAdmin: String(ownerAdmin || 'admin').trim() || 'admin',
       eventType: 'lap_timed',
       lapDistanceKm: lapKm,
       debounceSeconds: 30,
       rankBy: 'distance',
+      unifiedGunTimeMs: null,
       categories: [
         { id: '6H', name: '6小時繞圈組', durationHours: 6, distanceKm: 6, gunTimeMs: null, gunTimeIso: '', color: '#10b981' },
         { id: '12H', name: '12小時繞圈組', durationHours: 12, distanceKm: 12, gunTimeMs: null, gunTimeIso: '', color: '#3b82f6' },
@@ -70,25 +73,114 @@
     };
   }
 
-  function createDefaultStaffAccounts() {
+  function createDefaultAdminAccounts(adminUsername = 'admin', adminPassword = 'admin1234') {
     const now = Date.now();
     return [
-      { username: 'writer01', password: '1111', displayName: '晶片寫入報到組', role: 'writer', eventId: 'ALL', checkpointId: '', enabled: true, updatedAt: now },
-      { username: 'lap01', password: '1111', displayName: '繞圈計次感應組', role: 'scanner', eventId: 'ALL', checkpointId: 'LAP', enabled: true, updatedAt: now },
-      { username: 'start01', password: '1111', displayName: '起點感應組', role: 'scanner', eventId: 'ALL', checkpointId: 'START', enabled: true, updatedAt: now },
-      { username: 'cp1', password: '1111', displayName: '補給站 1 感應組', role: 'scanner', eventId: 'ALL', checkpointId: 'CP1', enabled: true, updatedAt: now },
-      { username: 'cp2', password: '1111', displayName: '補給站 2 / 折返點組', role: 'scanner', eventId: 'ALL', checkpointId: 'CP2', enabled: true, updatedAt: now },
-      { username: 'cp3', password: '1111', displayName: '補給站 3 感應組', role: 'scanner', eventId: 'ALL', checkpointId: 'CP3', enabled: true, updatedAt: now },
-      { username: 'finish01', password: '1111', displayName: '終點衝線感應組', role: 'scanner', eventId: 'ALL', checkpointId: 'FINISH', enabled: true, updatedAt: now }
+      {
+        username: String(adminUsername || 'admin').trim() || 'admin',
+        password: String(adminPassword || 'admin1234'),
+        displayName: '最高系統管理員',
+        isSuperAdmin: true,
+        enabled: true,
+        updatedAt: now
+      }
     ];
   }
 
+  function createDefaultStaffAccounts() {
+    const now = Date.now();
+    return [
+      { username: 'writer01', password: '1111', displayName: '晶片寫入發卡組', role: 'writer', eventId: 'ALL', checkpointId: '', ownerAdmin: '', enabled: true, updatedAt: now },
+      { username: 'checkin01', password: '1111', displayName: '選手報到感應組', role: 'scanner', eventId: 'ALL', checkpointId: 'CHECKIN', ownerAdmin: '', enabled: true, updatedAt: now },
+      { username: 'lap01', password: '1111', displayName: '繞圈計次感應組', role: 'scanner', eventId: 'ALL', checkpointId: 'LAP', ownerAdmin: '', enabled: true, updatedAt: now },
+      { username: 'cp1', password: '1111', displayName: '補給站 1 感應組', role: 'scanner', eventId: 'ALL', checkpointId: 'CP1', ownerAdmin: '', enabled: true, updatedAt: now },
+      { username: 'cp2', password: '1111', displayName: '補給站 2 / 折返點組', role: 'scanner', eventId: 'ALL', checkpointId: 'CP2', ownerAdmin: '', enabled: true, updatedAt: now },
+      { username: 'cp3', password: '1111', displayName: '補給站 3 感應組', role: 'scanner', eventId: 'ALL', checkpointId: 'CP3', ownerAdmin: '', enabled: true, updatedAt: now },
+      { username: 'finish01', password: '1111', displayName: '終點衝線感應組', role: 'scanner', eventId: 'ALL', checkpointId: 'FINISH', ownerAdmin: '', enabled: true, updatedAt: now }
+    ];
+  }
+
+  function normalizePlatform(raw) {
+    const base = raw || createDefaultPlatform();
+    const adminUsername = String(base.adminUsername || 'admin').trim() || 'admin';
+    const adminPassword = String(base.adminPassword || 'admin1234');
+
+    let adminAccounts = Array.isArray(base.adminAccounts)
+      ? base.adminAccounts
+          .filter((a) => a && String(a.username || '').trim())
+          .map((a) => ({
+            username: String(a.username).trim(),
+            password: String(a.password ?? ''),
+            displayName: String(a.displayName || a.username).trim(),
+            isSuperAdmin: Boolean(a.isSuperAdmin),
+            enabled: a.enabled !== false,
+            updatedAt: Number(a.updatedAt || Date.now())
+          }))
+      : [];
+
+    if (adminAccounts.length === 0) {
+      adminAccounts = createDefaultAdminAccounts(adminUsername, adminPassword);
+    } else if (!adminAccounts.some((a) => a.isSuperAdmin && a.enabled !== false)) {
+      const idx = adminAccounts.findIndex((a) => a.username === adminUsername);
+      if (idx >= 0) {
+        adminAccounts[idx] = { ...adminAccounts[idx], isSuperAdmin: true, enabled: true };
+      } else {
+        adminAccounts.unshift(createDefaultAdminAccounts(adminUsername, adminPassword)[0]);
+      }
+    }
+
+    const primarySuper = adminAccounts.find((a) => a.isSuperAdmin && a.enabled !== false) || adminAccounts[0];
+    const defaultOwner = primarySuper.username;
+
+    const events = (Array.isArray(base.events) ? base.events : []).map((ev) => {
+      const fallbackGun = (ev.categories || []).find((c) => c && c.gunTimeMs)?.gunTimeMs ?? null;
+      return {
+        ...ev,
+        ownerAdmin: String(ev.ownerAdmin || '').trim() || defaultOwner,
+        unifiedGunTimeMs: ev.unifiedGunTimeMs !== undefined && ev.unifiedGunTimeMs !== null
+          ? Number(ev.unifiedGunTimeMs)
+          : (fallbackGun ? Number(fallbackGun) : null)
+      };
+    });
+
+    const staffAccounts = (Array.isArray(base.staffAccounts) ? base.staffAccounts : createDefaultStaffAccounts()).map((s) => ({
+      ...s,
+      ownerAdmin: String(s.ownerAdmin || '').trim()
+    }));
+
+    // 升級相容：若既有資料庫尚無任何報到感應帳號 (CHECKIN)，自動補建預設報到感應組 (checkin01 / 1111)
+    if (staffAccounts.length > 0 && !staffAccounts.some((s) => String(s.checkpointId || '').toUpperCase() === 'CHECKIN' || s.username === 'checkin01')) {
+      staffAccounts.splice(1, 0, {
+        username: 'checkin01',
+        password: '1111',
+        displayName: '選手報到感應組',
+        role: 'scanner',
+        eventId: 'ALL',
+        checkpointId: 'CHECKIN',
+        ownerAdmin: '',
+        enabled: true,
+        updatedAt: Date.now()
+      });
+    }
+
+    return {
+      ...base,
+      id: 'main',
+      adminUsername: primarySuper.username,
+      adminPassword: primarySuper.password,
+      adminAccounts,
+      events,
+      staffAccounts
+    };
+  }
+
   function createDefaultPlatform() {
-    const defaultEvt = createDefaultEvent();
+    const defaultEvt = createDefaultEvent('EVT-2026-01', '2026 智慧城市馬拉松', getTodayStr(), '台北市政府廣場', 'admin');
     return {
       id: 'main',
       adminUsername: 'admin',
       adminPassword: 'admin1234',
+      adminAccounts: createDefaultAdminAccounts('admin', 'admin1234'),
       activeEventId: defaultEvt.eventId,
       events: [defaultEvt],
       staffAccounts: createDefaultStaffAccounts(),
@@ -228,22 +320,24 @@
 
     async getPlatform() {
       await this.init();
-      return this._req(this._tx('platform').get('main'));
+      const raw = await this._req(this._tx('platform').get('main'));
+      return raw ? normalizePlatform(raw) : null;
     }
 
     async savePlatform(platform, markSynced = false) {
       await this.init();
-      const record = { ...platform, id: 'main', synced: markSynced ? 1 : 0, updatedAt: Date.now() };
+      const normalized = normalizePlatform(platform);
+      const record = { ...normalized, id: 'main', synced: markSynced ? 1 : 0, updatedAt: Date.now() };
       await this._req(this._tx('platform', 'readwrite').put(record));
       return record;
     }
 
-    createEventTemplate(name, date, location, eventType = 'distance', lapDistanceKm = 2.54) {
+    createEventTemplate(name, date, location, eventType = 'distance', lapDistanceKm = 2.54, ownerAdmin = 'admin') {
       const id = 'EVT-' + Date.now().toString(36).toUpperCase().slice(-6);
       if (eventType === 'lap_timed') {
-        return createLapTimedEvent(id, name || '新繞圈計時賽', date || getTodayStr(), location || '', lapDistanceKm);
+        return createLapTimedEvent(id, name || '新繞圈計時賽', date || getTodayStr(), location || '', lapDistanceKm, ownerAdmin);
       }
-      return createDefaultEvent(id, name || '新路跑活動', date || getTodayStr(), location || '');
+      return createDefaultEvent(id, name || '新路跑活動', date || getTodayStr(), location || '', ownerAdmin);
     }
 
     async verifyLocalLogin(mode, username, password) {
@@ -252,10 +346,20 @@
       const pw = String(password || '');
 
       if (mode === 'admin') {
-        if (u === String(p.adminUsername || 'admin') && pw === String(p.adminPassword || 'admin1234')) {
+        const matchedAdmin = (p.adminAccounts || []).find((a) => a.username === u && a.password === pw);
+        if (matchedAdmin) {
+          if (matchedAdmin.enabled === false) {
+            return { ok: false, error: '此管理者帳號已停用' };
+          }
           return {
             ok: true,
-            account: { username: u, password: pw, displayName: '最高系統管理員', role: 'admin' }
+            account: {
+              username: matchedAdmin.username,
+              password: matchedAdmin.password,
+              displayName: matchedAdmin.displayName || matchedAdmin.username,
+              isSuperAdmin: Boolean(matchedAdmin.isSuperAdmin),
+              role: 'admin'
+            }
           };
         }
         return { ok: false, error: '管理員帳號或密碼錯誤' };
@@ -266,6 +370,24 @@
         return { ok: false, error: '作業員帳號或密碼錯誤（若為新帳號請先在有網路狀態登入同步一次）' };
       }
       return { ok: true, account: matched };
+    }
+
+    async cacheAdminAccount(account) {
+      if (!account || !account.username) return;
+      const p = await this.getPlatform();
+      const list = [...(p.adminAccounts || [])];
+      const idx = list.findIndex((a) => a.username === account.username);
+      const entry = {
+        username: String(account.username).trim(),
+        password: String(account.password ?? (idx >= 0 ? list[idx].password : '')),
+        displayName: String(account.displayName || account.username).trim(),
+        isSuperAdmin: Boolean(account.isSuperAdmin),
+        enabled: account.enabled !== false,
+        updatedAt: Date.now()
+      };
+      if (idx >= 0) list[idx] = { ...list[idx], ...entry };
+      else list.push(entry);
+      await this.savePlatform({ ...p, adminAccounts: list }, true);
     }
 
     async cacheStaffAccount(account) {
@@ -571,25 +693,89 @@
     }
 
     /**
-     * 將雲端完整快照合併至本機 IndexedDB（確保各裝置資料完全一致，同時保留本機未上傳之離線紀錄）
+     * 將雲端快照合併至本機 IndexedDB（支援多管理員活動隔離，不覆蓋其他管理員的本機活動與未上傳紀錄）
      */
-    async mergeCloudData(cloudData) {
+    async mergeCloudData(cloudData, { scopedOwnerAdmin = '', scopedAdminOnly = false } = {}) {
       await this.init();
       if (!cloudData) return;
 
       const cur = await this.getPlatform();
-      const hasCloudEvents = Array.isArray(cloudData.events) && cloudData.events.length > 0;
+      const defaultOwner = cloudData.globalConfig?.adminUsername || cur.adminUsername || 'admin';
+      const localEventMap = new Map((cur.events || []).map((e) => [e.eventId, e]));
+
+      // 1. 合併活動清單
+      let mergedEvents = cur.events || [];
+      if (Array.isArray(cloudData.events)) {
+        const normalizedCloudEvents = cloudData.events.map((ev) => ({
+          ...ev,
+          ownerAdmin: String(ev.ownerAdmin || '').trim() || localEventMap.get(ev.eventId)?.ownerAdmin || scopedOwnerAdmin || defaultOwner
+        }));
+        if (scopedOwnerAdmin) {
+          // 僅更新此管理員名下的活動，保留其他管理員的本機活動
+          const otherEvents = (cur.events || []).filter((e) => (e.ownerAdmin || defaultOwner) !== scopedOwnerAdmin);
+          mergedEvents = [...otherEvents, ...normalizedCloudEvents];
+        } else if (normalizedCloudEvents.length > 0) {
+          mergedEvents = normalizedCloudEvents;
+        }
+      }
+
+      // 2. 合併管理者帳號清單
+      let mergedAdmins = cur.adminAccounts || [];
+      if (Array.isArray(cloudData.adminAccounts) && cloudData.adminAccounts.length > 0) {
+        if (scopedAdminOnly) {
+          const map = new Map(mergedAdmins.map((a) => [a.username, a]));
+          cloudData.adminAccounts.forEach((a) => {
+            if (a && a.username) map.set(a.username, { ...(map.get(a.username) || {}), ...a });
+          });
+          mergedAdmins = Array.from(map.values());
+        } else {
+          mergedAdmins = cloudData.adminAccounts;
+        }
+      } else if (cloudData.globalConfig?.adminUsername && cloudData.globalConfig?.adminPassword) {
+        const map = new Map(mergedAdmins.map((a) => [a.username, a]));
+        const u = String(cloudData.globalConfig.adminUsername).trim();
+        map.set(u, {
+          ...(map.get(u) || {}),
+          username: u,
+          password: String(cloudData.globalConfig.adminPassword),
+          displayName: map.get(u)?.displayName || '最高系統管理員',
+          isSuperAdmin: true,
+          enabled: true,
+          updatedAt: Date.now()
+        });
+        mergedAdmins = Array.from(map.values());
+      }
+
+      // 3. 合併作業員帳號清單
+      let mergedStaff = cur.staffAccounts || [];
+      if (Array.isArray(cloudData.staffAccounts)) {
+        if (scopedOwnerAdmin) {
+          const keepOtherStaff = (cur.staffAccounts || []).filter((s) => {
+            const o = String(s.ownerAdmin || '').trim();
+            if (scopedAdminOnly) return o !== scopedOwnerAdmin;
+            return o && o !== scopedOwnerAdmin;
+          });
+          mergedStaff = [...keepOtherStaff, ...cloudData.staffAccounts];
+        } else if (cloudData.staffAccounts.length > 0) {
+          mergedStaff = cloudData.staffAccounts;
+        }
+      }
+
       const mergedPlatform = {
         ...cur,
         adminUsername: cloudData.globalConfig?.adminUsername || cur.adminUsername,
         adminPassword: cloudData.globalConfig?.adminPassword || cur.adminPassword,
-        activeEventId: cloudData.globalConfig?.activeEventId || (hasCloudEvents ? cloudData.events[0].eventId : cur.activeEventId),
-        events: hasCloudEvents ? cloudData.events : cur.events,
-        staffAccounts: Array.isArray(cloudData.staffAccounts) && cloudData.staffAccounts.length
-          ? cloudData.staffAccounts
-          : cur.staffAccounts
+        adminAccounts: mergedAdmins,
+        activeEventId: cloudData.globalConfig?.activeEventId || (mergedEvents[0]?.eventId || cur.activeEventId),
+        events: mergedEvents,
+        staffAccounts: mergedStaff
       };
       await this.savePlatform(mergedPlatform, true);
+
+      // 計算目前受此雲端同步管轄的活動集合（避免刪除其他管理員的報名與感應快取）
+      const scopedEventIds = scopedOwnerAdmin
+        ? new Set(mergedEvents.filter((e) => (e.ownerAdmin || defaultOwner) === scopedOwnerAdmin).map((e) => e.eventId))
+        : null;
 
       if (Array.isArray(cloudData.chips)) {
         const cloudChipSet = new Set(cloudData.chips.map((c) => String(c.idNumber || '').trim().toUpperCase()));
@@ -611,6 +797,7 @@
         const localMap = new Map(localAll.map((r) => [r.regId, r]));
         const cloudRegSet = new Set(cloudData.registrations.map((r) => r.regId));
         for (const lr of localAll) {
+          if (scopedEventIds && !scopedEventIds.has(lr.eventId)) continue;
           if (lr.synced && !cloudRegSet.has(lr.regId)) {
             await this.deleteRegistration(lr.regId);
           }
@@ -627,6 +814,7 @@
         const localMap = new Map(localAll.map((s) => [s.id, s]));
         const cloudScanSet = new Set(cloudData.scans.map((s) => s.id));
         for (const ls of localAll) {
+          if (scopedEventIds && !scopedEventIds.has(ls.eventId)) continue;
           if (ls.synced && !cloudScanSet.has(ls.id)) {
             await this._req(this._tx('scans', 'readwrite').delete(ls.id));
           }
@@ -641,15 +829,39 @@
 
     /* ---------------- 完整系統備份 / 還原合併 (JSON) ---------------- */
 
-    async exportFullBackup() {
+    async exportFullBackup({ ownerAdmin = '', isSuperAdmin = true } = {}) {
       const [platform, chips, registrations, scans] = await Promise.all([
         this.getPlatform(),
         this.getAllChips(),
         this.getAllRegistrations(),
         this.getAllScans()
       ]);
+
+      if (ownerAdmin) {
+        const ownEvents = (platform.events || []).filter((e) => (e.ownerAdmin || platform.adminUsername) === ownerAdmin);
+        const ownEventIds = new Set(ownEvents.map((e) => e.eventId));
+        const ownStaff = (platform.staffAccounts || []).filter((s) => {
+          const o = String(s.ownerAdmin || '').trim();
+          return isSuperAdmin ? (!o || o === ownerAdmin) : o === ownerAdmin;
+        });
+        return {
+          schemaVersion: '3.4',
+          exportedAt: new Date().toISOString(),
+          scopedOwnerAdmin: ownerAdmin,
+          platform: {
+            ...platform,
+            adminAccounts: isSuperAdmin ? platform.adminAccounts : (platform.adminAccounts || []).filter((a) => a.username === ownerAdmin),
+            events: ownEvents,
+            staffAccounts: ownStaff
+          },
+          chips,
+          registrations: registrations.filter((r) => ownEventIds.has(r.eventId)),
+          scans: scans.filter((s) => ownEventIds.has(s.eventId))
+        };
+      }
+
       return {
-        schemaVersion: '3.0',
+        schemaVersion: '3.4',
         exportedAt: new Date().toISOString(),
         platform,
         chips,
@@ -658,11 +870,11 @@
       };
     }
 
-    async importFullBackup(backupObj, strategy = 'replace') {
+    async importFullBackup(backupObj, strategy = 'replace', { ownerAdmin = '', isSuperAdmin = true } = {}) {
       if (!backupObj || (!backupObj.platform && !Array.isArray(backupObj.scans))) {
-        throw new Error('無效的 v3.0 系統備份檔格式');
+        throw new Error('無效的系統備份檔格式');
       }
-      if (strategy === 'replace') {
+      if (strategy === 'replace' && isSuperAdmin) {
         await this.clearAllData(false);
         if (backupObj.platform) {
           await this.savePlatform({ ...createDefaultPlatform(), ...backupObj.platform });
@@ -670,13 +882,30 @@
       } else if (backupObj.platform) {
         const cur = await this.getPlatform();
         const eventMap = new Map((cur.events || []).map((e) => [e.eventId, e]));
-        (backupObj.platform.events || []).forEach((e) => eventMap.set(e.eventId, e));
+        (backupObj.platform.events || []).forEach((e) => {
+          const existing = eventMap.get(e.eventId);
+          // 非最高管理員合併備份時，絕不覆蓋其他管理員的活動
+          if (ownerAdmin && existing && (existing.ownerAdmin || cur.adminUsername) !== ownerAdmin) return;
+          eventMap.set(e.eventId, ownerAdmin ? { ...e, ownerAdmin } : e);
+        });
+        const staffMap = new Map((cur.staffAccounts || []).map((s) => [s.username, s]));
+        (backupObj.platform.staffAccounts || []).forEach((s) => {
+          if (!s?.username) return;
+          const existing = staffMap.get(s.username);
+          if (ownerAdmin && existing && existing.ownerAdmin && existing.ownerAdmin !== ownerAdmin) return;
+          staffMap.set(s.username, ownerAdmin && !isSuperAdmin ? { ...s, ownerAdmin } : s);
+        });
         await this.savePlatform({
           ...cur,
           events: Array.from(eventMap.values()),
-          staffAccounts: backupObj.platform.staffAccounts?.length ? backupObj.platform.staffAccounts : cur.staffAccounts
+          staffAccounts: Array.from(staffMap.values())
         });
       }
+
+      const latestPlatform = await this.getPlatform();
+      const allowedEventIds = ownerAdmin
+        ? new Set((latestPlatform.events || []).filter((e) => (e.ownerAdmin || latestPlatform.adminUsername) === ownerAdmin).map((e) => e.eventId))
+        : null;
 
       let chipCount = 0, regCount = 0, scanCount = 0;
       for (const c of backupObj.chips || []) {
@@ -686,11 +915,13 @@
       }
       for (const r of backupObj.registrations || []) {
         if (!r?.eventId || !r?.bib) continue;
+        if (allowedEventIds && !allowedEventIds.has(r.eventId)) continue;
         await this.upsertRegistration(r, false);
         regCount++;
       }
       for (const s of backupObj.scans || []) {
         if (!s?.id || !s?.eventId || !s?.bib) continue;
+        if (allowedEventIds && !allowedEventIds.has(s.eventId)) continue;
         await this.putScan({ ...s, synced: 0 });
         scanCount++;
       }
@@ -700,23 +931,24 @@
     /**
      * 載入「雙場次共用晶片」完整模擬資料（展示同一選手持同一晶片參加不同活動與組別）
      */
-    async loadDemoData() {
+    async loadDemoData(ownerAdmin = '') {
       await this.init();
       const prev = await this.getPlatform();
+      const targetOwner = String(ownerAdmin || prev?.adminUsername || 'admin').trim() || 'admin';
       await this.clearAllData(false);
 
       const now = Date.now();
       const min = 60 * 1000;
-      const gunSpring42 = now - 225 * min;
-      const gunSpring21 = now - 130 * min;
-      const gunSpring10 = now - 75 * min;
-      const gunCoast12 = now - 85 * min;
-      const gunCoast5 = now - 40 * min;
+      const gunSpring = now - 225 * min;
+      const gunCoast = now - 85 * min;
+      const gunUltra = now - 250 * min;
 
-      const evt1 = createDefaultEvent('EVT-2026-SPRING', '2026 春季城市馬拉松', getTodayStr(), '台北市政府廣場');
-      evt1.categories[0].gunTimeMs = gunSpring42; evt1.categories[0].gunTimeIso = new Date(gunSpring42).toISOString();
-      evt1.categories[1].gunTimeMs = gunSpring21; evt1.categories[1].gunTimeIso = new Date(gunSpring21).toISOString();
-      evt1.categories[2].gunTimeMs = gunSpring10; evt1.categories[2].gunTimeIso = new Date(gunSpring10).toISOString();
+      const evt1 = createDefaultEvent('EVT-2026-SPRING', '2026 春季城市馬拉松', getTodayStr(), '台北市政府廣場', targetOwner);
+      evt1.unifiedGunTimeMs = gunSpring;
+      evt1.categories.forEach((c) => {
+        c.gunTimeMs = gunSpring;
+        c.gunTimeIso = new Date(gunSpring).toISOString();
+      });
 
       const evt2 = {
         eventId: 'EVT-2026-COAST',
@@ -724,31 +956,34 @@
         date: getTodayStr(),
         location: '淡水漁人碼頭',
         status: 'active',
+        ownerAdmin: targetOwner,
+        eventType: 'distance',
+        lapDistanceKm: 0,
         debounceSeconds: 30,
         rankBy: 'gun',
+        unifiedGunTimeMs: gunCoast,
         categories: [
-          { id: '12K', name: '挑戰組 12K', distanceKm: 12, gunTimeMs: gunCoast12, gunTimeIso: new Date(gunCoast12).toISOString(), color: '#8b5cf6' },
-          { id: '5K', name: '樂活組 5K', distanceKm: 5, gunTimeMs: gunCoast5, gunTimeIso: new Date(gunCoast5).toISOString(), color: '#f59e0b' }
+          { id: '12K', name: '挑戰組 12K', distanceKm: 12, gunTimeMs: gunCoast, gunTimeIso: new Date(gunCoast).toISOString(), color: '#8b5cf6' },
+          { id: '5K', name: '樂活組 5K', distanceKm: 5, gunTimeMs: gunCoast, gunTimeIso: new Date(gunCoast).toISOString(), color: '#f59e0b' }
         ],
         checkpoints: [
-          { id: 'START', name: '起點感應門', order: 1, distanceKm: 0, type: 'start' },
-          { id: 'CP1', name: '海岸折返點 (6K)', order: 2, distanceKm: 6, type: 'checkpoint' },
-          { id: 'FINISH', name: '終點衝線門', order: 3, distanceKm: 12, type: 'finish' }
+          { id: 'CP1', name: '海岸折返點 (6K)', order: 1, distanceKm: 6, type: 'checkpoint' },
+          { id: 'FINISH', name: '終點衝線門', order: 2, distanceKm: 12, type: 'finish' }
         ],
         updatedAt: now
       };
 
-      const evt3 = createLapTimedEvent('EVT-2026-ULTRA', '2026 環湖超級馬拉松繞圈賽', getTodayStr(), '碧潭環湖賽道 (單圈2.54K)', 2.54);
-      const gunUltra6 = now - 165 * min;  // 6H 組已開跑 2 小時 45 分
-      const gunUltra12 = now - 250 * min; // 12H 組已開跑 4 小時 10 分
-      const gunUltra24 = now - 320 * min; // 24H 組已開跑 5 小時 20 分
-      evt3.categories[0].gunTimeMs = gunUltra6; evt3.categories[0].gunTimeIso = new Date(gunUltra6).toISOString();
-      evt3.categories[1].gunTimeMs = gunUltra12; evt3.categories[1].gunTimeIso = new Date(gunUltra12).toISOString();
-      evt3.categories[2].gunTimeMs = gunUltra24; evt3.categories[2].gunTimeIso = new Date(gunUltra24).toISOString();
+      const evt3 = createLapTimedEvent('EVT-2026-ULTRA', '2026 環湖超級馬拉松繞圈賽', getTodayStr(), '碧潭環湖賽道 (單圈2.54K)', 2.54, targetOwner);
+      evt3.unifiedGunTimeMs = gunUltra;
+      evt3.categories.forEach((c) => {
+        c.gunTimeMs = gunUltra;
+        c.gunTimeIso = new Date(gunUltra).toISOString();
+      });
 
       const platform = createDefaultPlatform();
       platform.adminUsername = prev?.adminUsername || 'admin';
       platform.adminPassword = prev?.adminPassword || 'admin1234';
+      if (prev?.adminAccounts?.length) platform.adminAccounts = prev.adminAccounts;
       if (prev?.staffAccounts?.length) platform.staffAccounts = prev.staffAccounts;
       platform.activeEventId = evt3.eventId;
       platform.events = [evt1, evt2, evt3];
@@ -798,44 +1033,50 @@
       const addS = (eventId, bib, idNumber, checkpointId, timestampMs) =>
         this.addScan({ eventId, bib, idNumber, checkpointId, timestampMs, source: 'mock', operator: 'demo', bypassDebounce: true });
 
-      // 活動 1 感應紀錄
-      await addS(evt1.eventId, 'A001', 'A123456789', 'START', gunSpring42 + 8200);
-      await addS(evt1.eventId, 'A001', 'A123456789', 'CP1', gunSpring42 + 23 * min + 15000);
-      await addS(evt1.eventId, 'A001', 'A123456789', 'CP2', gunSpring42 + 47 * min + 5000);
-      await addS(evt1.eventId, 'A001', 'A123456789', 'CP3', gunSpring42 + 99 * min + 41000);
-      await addS(evt1.eventId, 'A001', 'A123456789', 'FINISH', gunSpring42 + 202 * min + 18450);
+      // 活動 1 報到與賽道感應紀錄（採統一律定起跑時間，無起點感應；B102 尚未報到以示範報到掌握）
+      await addS(evt1.eventId, 'A001', 'A123456789', 'CHECKIN', gunSpring - 32 * min);
+      await addS(evt1.eventId, 'A001', 'A123456789', 'CP1', gunSpring + 23 * min + 15000);
+      await addS(evt1.eventId, 'A001', 'A123456789', 'CP2', gunSpring + 47 * min + 5000);
+      await addS(evt1.eventId, 'A001', 'A123456789', 'CP3', gunSpring + 99 * min + 41000);
+      await addS(evt1.eventId, 'A001', 'A123456789', 'FINISH', gunSpring + 202 * min + 18450);
 
-      await addS(evt1.eventId, 'A002', 'B234567891', 'START', gunSpring42 + 14000);
-      await addS(evt1.eventId, 'A002', 'B234567891', 'CP1', gunSpring42 + 25 * min + 10000);
-      await addS(evt1.eventId, 'A002', 'B234567891', 'CP2', gunSpring42 + 51 * min + 32000);
-      await addS(evt1.eventId, 'A002', 'B234567891', 'CP3', gunSpring42 + 108 * min + 22000);
-      await addS(evt1.eventId, 'A002', 'B234567891', 'FINISH', gunSpring42 + 218 * min + 42310);
+      await addS(evt1.eventId, 'A002', 'B234567891', 'CHECKIN', gunSpring - 28 * min);
+      await addS(evt1.eventId, 'A002', 'B234567891', 'CP1', gunSpring + 25 * min + 10000);
+      await addS(evt1.eventId, 'A002', 'B234567891', 'CP2', gunSpring + 51 * min + 32000);
+      await addS(evt1.eventId, 'A002', 'B234567891', 'CP3', gunSpring + 108 * min + 22000);
+      await addS(evt1.eventId, 'A002', 'B234567891', 'FINISH', gunSpring + 218 * min + 42310);
 
-      await addS(evt1.eventId, 'A003', 'C145678912', 'START', gunSpring42 + 21000);
-      await addS(evt1.eventId, 'A003', 'C145678912', 'CP1', gunSpring42 + 29 * min + 5000);
-      await addS(evt1.eventId, 'A003', 'C145678912', 'CP2', gunSpring42 + 60 * min + 12000);
+      await addS(evt1.eventId, 'A003', 'C145678912', 'CHECKIN', gunSpring - 25 * min);
+      await addS(evt1.eventId, 'A003', 'C145678912', 'CP1', gunSpring + 29 * min + 5000);
+      await addS(evt1.eventId, 'A003', 'C145678912', 'CP2', gunSpring + 60 * min + 12000);
 
-      await addS(evt1.eventId, 'B101', 'F256789123', 'START', gunSpring21 + 6100);
-      await addS(evt1.eventId, 'B101', 'F256789123', 'CP1', gunSpring21 + 24 * min + 1200);
-      await addS(evt1.eventId, 'B101', 'F256789123', 'CP2', gunSpring21 + 48 * min + 21500);
-      await addS(evt1.eventId, 'B101', 'F256789123', 'FINISH', gunSpring21 + 101 * min + 9320);
+      await addS(evt1.eventId, 'B101', 'F256789123', 'CHECKIN', gunSpring - 21 * min);
+      await addS(evt1.eventId, 'B101', 'F256789123', 'CP1', gunSpring + 24 * min + 1200);
+      await addS(evt1.eventId, 'B101', 'F256789123', 'CP2', gunSpring + 48 * min + 21500);
+      await addS(evt1.eventId, 'B101', 'F256789123', 'FINISH', gunSpring + 101 * min + 9320);
 
-      await addS(evt1.eventId, 'C201', 'T189123456', 'START', gunSpring10 + 4200);
-      await addS(evt1.eventId, 'C201', 'T189123456', 'CP1', gunSpring10 + 23 * min + 11000);
-      await addS(evt1.eventId, 'C201', 'T189123456', 'FINISH', gunSpring10 + 46 * min + 55120);
+      await addS(evt1.eventId, 'C201', 'T189123456', 'CHECKIN', gunSpring - 18 * min);
+      await addS(evt1.eventId, 'C201', 'T189123456', 'CP1', gunSpring + 23 * min + 11000);
+      await addS(evt1.eventId, 'C201', 'T189123456', 'FINISH', gunSpring + 46 * min + 55120);
 
-      // 活動 2 感應紀錄（同一群選手參加第二場！）
-      await addS(evt2.eventId, 'S101', 'A123456789', 'START', gunCoast12 + 4500);
-      await addS(evt2.eventId, 'S101', 'A123456789', 'CP1', gunCoast12 + 28 * min + 12000);
-      await addS(evt2.eventId, 'S101', 'A123456789', 'FINISH', gunCoast12 + 57 * min + 34120);
+      // 活動 2 報到與賽道感應紀錄（L202 尚未報到以示範）
+      await addS(evt2.eventId, 'S101', 'A123456789', 'CHECKIN', gunCoast - 30 * min);
+      await addS(evt2.eventId, 'S101', 'A123456789', 'CP1', gunCoast + 28 * min + 12000);
+      await addS(evt2.eventId, 'S101', 'A123456789', 'FINISH', gunCoast + 57 * min + 34120);
 
-      await addS(evt2.eventId, 'S102', 'B234567891', 'START', gunCoast12 + 9200);
-      await addS(evt2.eventId, 'S102', 'B234567891', 'CP1', gunCoast12 + 32 * min + 5000);
+      await addS(evt2.eventId, 'S102', 'B234567891', 'CHECKIN', gunCoast - 22 * min);
+      await addS(evt2.eventId, 'S102', 'B234567891', 'CP1', gunCoast + 32 * min + 5000);
 
-      await addS(evt2.eventId, 'L201', 'F256789123', 'START', gunCoast5 + 3100);
-      await addS(evt2.eventId, 'L201', 'F256789123', 'FINISH', gunCoast5 + 26 * min + 48200);
+      await addS(evt2.eventId, 'L201', 'F256789123', 'CHECKIN', gunCoast - 15 * min);
+      await addS(evt2.eventId, 'L201', 'F256789123', 'FINISH', gunCoast + 26 * min + 48200);
 
-      // 活動 3 繞圈計時賽感應紀錄（每繞一圈 2.54 km 感應一次累積圈數與總里程）
+      // 活動 3 繞圈計時賽：先報到感應 (CHECKIN，不計入圈數)，再繞圈計次 (LAP)
+      await addS(evt3.eventId, 'U101', 'C145678912', 'CHECKIN', gunUltra - 35 * min);
+      await addS(evt3.eventId, 'U001', 'A123456789', 'CHECKIN', gunUltra - 30 * min);
+      await addS(evt3.eventId, 'U002', 'B234567891', 'CHECKIN', gunUltra - 26 * min);
+      await addS(evt3.eventId, 'U201', 'F256789123', 'CHECKIN', gunUltra - 20 * min);
+      await addS(evt3.eventId, 'U202', 'T189123456', 'CHECKIN', gunUltra - 18 * min);
+
       const addLaps = async (bib, idNum, startMs, count, avgLapMin) => {
         let cur = startMs;
         for (let i = 1; i <= count; i++) {
@@ -843,11 +1084,11 @@
           await addS(evt3.eventId, bib, idNum, 'LAP', cur);
         }
       };
-      await addLaps('U101', 'C145678912', gunUltra24, 18, 15.2); // 18圈 = 45.72 km (24H組)
-      await addLaps('U001', 'A123456789', gunUltra12, 15, 14.5); // 15圈 = 38.10 km (12H組)
-      await addLaps('U002', 'B234567891', gunUltra12, 13, 15.8); // 13圈 = 33.02 km (12H組)
-      await addLaps('U201', 'F256789123', gunUltra6, 10, 14.2);  // 10圈 = 25.40 km (6H組)
-      await addLaps('U202', 'T189123456', gunUltra6, 10, 14.9);  // 10圈 = 25.40 km (6H組，同里程比先後！)
+      await addLaps('U101', 'C145678912', gunUltra, 16, 15.2); // 16圈 (24H組)
+      await addLaps('U001', 'A123456789', gunUltra, 15, 14.5); // 15圈 (12H組)
+      await addLaps('U002', 'B234567891', gunUltra, 13, 15.8); // 13圈 (12H組)
+      await addLaps('U201', 'F256789123', gunUltra, 10, 14.2); // 10圈 (6H組)
+      await addLaps('U202', 'T189123456', gunUltra, 10, 14.9); // 10圈 (6H組，同里程比先後！)
 
       this.saveDeviceSettings({ selectedEventId: evt3.eventId });
       return true;

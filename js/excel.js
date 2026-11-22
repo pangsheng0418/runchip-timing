@@ -7,6 +7,8 @@
   const STATUS_LABELS = {
     finished: '已完賽',
     on_course: '賽道上',
+    checked_in: '已報到',
+    not_checked_in: '未報到',
     not_started: '未出發'
   };
 
@@ -15,7 +17,7 @@
     const wb = global.XLSX.utils.book_new();
     const maxLaps = computed.rows.reduce((m, r) => Math.max(m, r.lapCount || 0), 0);
 
-    // 工作表 1：繞圈成績總表（依總里程排名）
+    // 工作表 1：繞圈成績總表（依總里程排名，含報到狀態）
     const rows1 = computed.rows.map((row) => {
       const obj = {
         活動名稱: event?.name || '',
@@ -25,6 +27,8 @@
         選手姓名: row.name,
         身份證字號: maskId ? row.idMasked : (row.idNumber || row.idMasked),
         限時分組: `${row.categoryName} (${row.durationHours}H)`,
+        報到狀態: row.checkedIn ? '已報到' : '未報到',
+        報到時間: row.checkInTimeMs ? TE.formatClockSec(row.checkInTimeMs) : '',
         累積圈數: row.lapCount,
         單圈距離_km: row.lapDistanceKm,
         總里程_km: Number(row.totalDistanceKm.toFixed(3)),
@@ -52,9 +56,11 @@
       分組代碼: c.id,
       分組名稱: c.name,
       限時小時: c.durationHours,
-      鳴槍時間: c.gunTimeMs ? TE.formatClockSec(c.gunTimeMs) : '尚未鳴槍',
+      律定起跑時間: c.gunTimeMs ? TE.formatClockSec(c.gunTimeMs) : '尚未設定',
       截止時間: c.cutoffTimeMs ? TE.formatClockSec(c.cutoffTimeMs) : '--',
       參賽人數: c.total,
+      已報到人數: c.checkedIn ?? 0,
+      未報到人數: c.notCheckedIn ?? 0,
       已有圈數人數: c.withLaps,
       全組總圈數: c.sumLaps,
       最高里程_km: c.topKm,
@@ -117,8 +123,10 @@
         選手姓名: row.name,
         身份證字號: maskId ? row.idMasked : (row.idNumber || row.idMasked),
         參賽分組: row.categoryName,
+        報到狀態: row.checkedIn ? '已報到' : '未報到',
+        報到時間: row.checkInTimeMs ? TE.formatClockSec(row.checkInTimeMs) : '',
         狀態: STATUS_LABELS[row.status] || row.status,
-        分組起跑時間: row.gunTimeMs ? TE.formatClockSec(row.gunTimeMs) : ''
+        律定起跑時間: row.gunTimeMs ? TE.formatClockSec(row.gunTimeMs) : ''
       };
 
       checkpoints.forEach((cp) => {
@@ -133,8 +141,7 @@
       });
 
       obj['判罰加時(秒)'] = row.penaltySec || 0;
-      obj['大會時間 (Gun Time)'] = row.gunDurationMs !== null ? TE.formatDuration(row.gunDurationMs, true) : '';
-      obj['個人淨時間 (Chip Time)'] = row.chipDurationMs !== null ? TE.formatDuration(row.chipDurationMs, true) : '';
+      obj['完賽時間'] = row.gunDurationMs !== null ? TE.formatDuration(row.gunDurationMs, true) : '';
       obj['平均配速'] = row.avgPace !== '--' ? row.avgPace : '';
       return obj;
     });
@@ -148,11 +155,12 @@
       分組代碼: c.id,
       分組名稱: c.name,
       距離_km: c.distanceKm,
-      鳴槍時間: c.gunTimeMs ? TE.formatClockSec(c.gunTimeMs) : '尚未鳴槍',
+      律定起跑時間: c.gunTimeMs ? TE.formatClockSec(c.gunTimeMs) : '尚未設定',
       總人數: c.total,
+      已報到: c.checkedIn ?? 0,
+      未報到: c.notCheckedIn ?? 0,
       已完賽: c.finished,
       賽道上: c.onCourse,
-      未出發: c.notStarted,
       完賽率: c.total ? `${((c.finished / c.total) * 100).toFixed(1)}%` : '0%',
       最佳成績: c.bestMs !== null ? TE.formatDuration(c.bestMs, true) : '--',
       平均成績: c.avgMs !== null ? TE.formatDuration(c.avgMs, false) : '--'
@@ -162,7 +170,10 @@
     ws2['!cols'] = Object.keys(statRows[0] || { 分組名稱: '' }).map(() => ({ wch: 16 }));
     global.XLSX.utils.book_append_sheet(wb, ws2, '各分組統計');
 
-    const cpNameMap = new Map(checkpoints.map((cp) => [cp.id, cp.name]));
+    const cpNameMap = new Map([
+      ['CHECKIN', '選手報到感應區'],
+      ...checkpoints.map((cp) => [cp.id, cp.name])
+    ]);
     const rawRows = (scans || [])
       .filter((s) => !s.deleted)
       .sort((a, b) => a.timestampMs - b.timestampMs)

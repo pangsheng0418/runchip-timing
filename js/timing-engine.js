@@ -185,26 +185,43 @@
     return result;
   }
 
-  /**
-   * 完整計算所有選手成績、分段、配速、預估完賽時間、總名次與分組名次
-   * @param {Object} params
-   * @param {Array} params.runners
-   * @param {Array} params.scans
-   * @param {Array} params.categories
-   * @param {Array} params.checkpoints
-   * @param {'gun'|'chip'} params.rankBy
-   */
-  function computeResults({ runners = [], scans = [], categories = [], checkpoints = [], rankBy = 'gun' }) {
-    const sortedCheckpoints = [...checkpoints].sort((a, b) => Number(a.order) - Number(b.order));
-    const catMap = new Map(categories.map((c) => [c.id, c]));
+  const CHECKIN_CP_ID = 'CHECKIN';
 
-    const startCp = sortedCheckpoints.find((cp) => cp.type === 'start') || sortedCheckpoints[0] || null;
+  function isCheckInScan(scan) {
+    return String(scan?.checkpointId || '').trim().toUpperCase() === CHECKIN_CP_ID;
+  }
+
+  function pickPreferredScan(list) {
+    if (!list || !list.length) return null;
+    return list
+      .slice()
+      .sort((a, b) => {
+        if (a.source === 'admin' && b.source !== 'admin') return -1;
+        if (b.source === 'admin' && a.source !== 'admin') return 1;
+        return Number(a.timestampMs) - Number(b.timestampMs);
+      })[0];
+  }
+
+  /**
+   * 完整計算所有選手報到狀態、成績、分段、配速、預估完賽時間、總名次與分組名次
+   * 本系統統一採「律定起跑時間」計時，不設起跑感應亦不另計個人淨時間。
+   */
+  function computeResults({ runners = [], scans = [], categories = [], checkpoints = [], unifiedGunTimeMs = null }) {
+    // 排除報到點 (CHECKIN) 及舊版遺留之起點站 (START / type==='start')，僅保留賽道站點與終點
+    const sortedCheckpoints = [...checkpoints]
+      .filter((cp) => {
+        const id = String(cp?.id || '').trim().toUpperCase();
+        return cp && cp.type !== 'start' && cp.type !== 'checkin' && id !== 'START' && id !== CHECKIN_CP_ID;
+      })
+      .sort((a, b) => Number(a.order) - Number(b.order));
+
+    const catMap = new Map(categories.map((c) => [c.id, c]));
     const finishCp =
       [...sortedCheckpoints].reverse().find((cp) => cp.type === 'finish') ||
       sortedCheckpoints[sortedCheckpoints.length - 1] ||
       null;
 
-    // 彙整有效感應紀錄：每位選手在每個站點取最早的有效感應（或被人工編輯過最新一筆）
+    // 彙整有效感應紀錄
     const activeScans = scans.filter((s) => !s.deleted);
     const scansByBib = new Map();
     for (const s of activeScans) {
@@ -212,7 +229,7 @@
       scansByBib.get(s.bib).push(s);
     }
 
-    // 確保即使有「未事先建檔但已感應」的選手也能納入成績計算
+    // 確保即使有「未事先建檔但已感應」的選手也能納入計算
     const runnerMap = new Map();
     for (const r of runners) {
       runnerMap.set(r.bib, r);
@@ -230,33 +247,31 @@
       }
     }
 
+    const now = Date.now();
     const rows = [];
 
     for (const runner of runnerMap.values()) {
       const cat = catMap.get(runner.categoryId) || null;
-      const gunTimeMs = cat && cat.gunTimeMs ? Number(cat.gunTimeMs) : null;
+      const gunTimeMs = cat && cat.gunTimeMs
+        ? Number(cat.gunTimeMs)
+        : (unifiedGunTimeMs ? Number(unifiedGunTimeMs) : null);
       const penaltyMs = Number(runner.penaltySec || 0) * 1000;
       const runnerScans = scansByBib.get(runner.bib) || [];
 
-      // 每個站點取該站點最早的感應（若有人工修正 source==='admin' 優先）
+      // 報到感應紀錄 (CHECKIN)
+      const checkInScan = pickPreferredScan(runnerScans.filter((s) => isCheckInScan(s)));
+      const checkedIn = Boolean(checkInScan);
+
+      // 各賽道站點感應紀錄
       const cpScanMap = {};
       for (const cp of sortedCheckpoints) {
-        const list = runnerScans
-          .filter((s) => s.checkpointId === cp.id)
-          .sort((a, b) => {
-            if (a.source === 'admin' && b.source !== 'admin') return -1;
-            if (b.source === 'admin' && a.source !== 'admin') return 1;
-            return Number(a.timestampMs) - Number(b.timestampMs);
-          });
-        if (list.length > 0) {
-          cpScanMap[cp.id] = list[0];
-        }
+        const picked = pickPreferredScan(runnerScans.filter((s) => s.checkpointId === cp.id));
+        if (picked) cpScanMap[cp.id] = picked;
       }
 
-      const startScan = startCp ? cpScanMap[startCp.id] : null;
       const finishScan = finishCp ? cpScanMap[finishCp.id] : null;
 
-      // 找出最後通過的站點
+      // 找出最後通過的賽道站點
       let lastCheckpoint = null;
       let lastScan = null;
       for (const cp of sortedCheckpoints) {
@@ -266,14 +281,13 @@
         }
       }
 
-      // 計算分段成績 (Split Times)
+      // 計算分段成績 (一律以統一律定起跑時間 gunTimeMs 為起算基準)
       const splits = [];
-      let prevTimeMs = startScan ? Number(startScan.timestampMs) : gunTimeMs;
-      let prevDistKm = startCp ? Number(startCp.distanceKm || 0) : 0;
-      let prevName = startCp ? startCp.name : '起跑';
+      let prevTimeMs = gunTimeMs;
+      let prevDistKm = 0;
+      let prevName = '統一開跑';
 
       for (const cp of sortedCheckpoints) {
-        if (startCp && cp.id === startCp.id) continue;
         const scan = cpScanMap[cp.id];
         const targetDist = cp.type === 'finish' && cat && cat.distanceKm
           ? Number(cat.distanceKm)
@@ -305,48 +319,37 @@
         }
       }
 
-      // 計算大會時間 (Gun Time) 與 個人淨時間 (Chip Time)
+      // 計算統一成績 (完賽時間 = 終點感應時間 - 律定起跑時間 + 罰時)
       const gunDurationMs =
         finishScan && gunTimeMs !== null
           ? Number(finishScan.timestampMs) - gunTimeMs + penaltyMs
           : null;
 
-      const chipDurationMs =
-        finishScan && startScan
-          ? Number(finishScan.timestampMs) - Number(startScan.timestampMs) + penaltyMs
-          : gunDurationMs;
-
-      // 總距離與平均配速
       const totalDistanceKm = cat ? Number(cat.distanceKm || 0) : 0;
-      const primaryDurationMs = rankBy === 'chip'
-        ? (chipDurationMs !== null ? chipDurationMs : gunDurationMs)
-        : (gunDurationMs !== null ? gunDurationMs : chipDurationMs);
-
+      const primaryDurationMs = gunDurationMs;
       const avgPace = formatPace(primaryDurationMs, totalDistanceKm);
 
-      // 判斷選手狀態：finished / on_course / not_started
-      let status = 'not_started';
+      // 判斷選手狀態：finished(已完賽) / on_course(賽道上) / checked_in(已報到待起跑) / not_checked_in(未報到)
+      let status = 'not_checked_in';
       if (finishScan) {
         status = 'finished';
-      } else if (lastScan || (gunTimeMs !== null && Date.now() >= gunTimeMs && startScan)) {
+      } else if (lastScan) {
         status = 'on_course';
-      } else if (gunTimeMs !== null && Date.now() >= gunTimeMs) {
-        // 已鳴槍且有起點感應門以外的感應，或無起點感應門時已鳴槍視為賽道上
-        status = startCp ? 'not_started' : 'on_course';
+      } else if (checkedIn) {
+        status = (gunTimeMs !== null && now >= gunTimeMs) ? 'on_course' : 'checked_in';
       }
 
       // 預估完賽時間 (ETA)：在賽道上且有已知距離 > 0
       let etaTimestampMs = null;
       let etaDurationMs = null;
-      if (status === 'on_course' && lastScan && lastCheckpoint && totalDistanceKm > 0) {
+      if (status === 'on_course' && lastScan && lastCheckpoint && totalDistanceKm > 0 && gunTimeMs !== null) {
         const coveredKm = Number(lastCheckpoint.distanceKm || 0);
-        const refStartMs = startScan ? Number(startScan.timestampMs) : gunTimeMs;
-        if (coveredKm > 0 && coveredKm < totalDistanceKm && refStartMs !== null) {
-          const elapsed = Number(lastScan.timestampMs) - refStartMs;
+        if (coveredKm > 0 && coveredKm < totalDistanceKm) {
+          const elapsed = Number(lastScan.timestampMs) - gunTimeMs;
           if (elapsed > 0) {
             const estTotal = (elapsed / coveredKm) * totalDistanceKm;
             etaDurationMs = estTotal;
-            etaTimestampMs = refStartMs + estTotal;
+            etaTimestampMs = gunTimeMs + estTotal;
           }
         }
       }
@@ -364,14 +367,15 @@
         distanceKm: totalDistanceKm,
         gunTimeMs,
         penaltySec: Number(runner.penaltySec || 0),
+        checkedIn,
+        checkInScan,
+        checkInTimeMs: checkInScan ? Number(checkInScan.timestampMs) : null,
         cpScanMap,
-        startScan,
         finishScan,
         lastCheckpoint,
         lastScan,
         splits,
         gunDurationMs,
-        chipDurationMs,
         primaryDurationMs,
         avgPace,
         status,
@@ -382,7 +386,7 @@
       });
     }
 
-    // 排序與名次計算（已完賽者依 primaryDurationMs 升冪排名）
+    // 排序與名次計算（已完賽者依完賽時間升冪排名）
     const finishedRows = rows
       .filter((r) => r.status === 'finished' && r.primaryDurationMs !== null)
       .sort((a, b) => a.primaryDurationMs - b.primaryDurationMs);
@@ -399,9 +403,9 @@
       r.categoryRank = catCounter[cid];
     });
 
-    // 總表預設排序：已完賽（依名次） -> 賽道上（依最後站點順序降冪、最後通過時間升冪） -> 未出發（依編號）
+    // 總表預設排序：已完賽 -> 賽道上 -> 已報到待起跑 -> 未報到
     rows.sort((a, b) => {
-      const rankOrder = { finished: 0, on_course: 1, not_started: 2 };
+      const rankOrder = { finished: 0, on_course: 1, checked_in: 2, not_checked_in: 3 };
       if (rankOrder[a.status] !== rankOrder[b.status]) {
         return rankOrder[a.status] - rankOrder[b.status];
       }
@@ -417,22 +421,29 @@
       return String(a.bib).localeCompare(String(b.bib), 'zh-Hant', { numeric: true });
     });
 
-    // 統計看板資料
+    // 統計看板資料（含報到掌握統計）
+    const checkedInCount = rows.filter((r) => r.checkedIn || r.status === 'finished' || Boolean(r.lastScan)).length;
     const summary = {
       totalRunners: rows.length,
+      checkedInCount,
+      notCheckedInCount: rows.length - checkedInCount,
       finishedCount: rows.filter((r) => r.status === 'finished').length,
       onCourseCount: rows.filter((r) => r.status === 'on_course').length,
-      notStartedCount: rows.filter((r) => r.status === 'not_started').length,
+      checkedInWaitingCount: rows.filter((r) => r.status === 'checked_in').length,
+      notStartedCount: rows.filter((r) => r.status === 'checked_in' || r.status === 'not_checked_in').length,
       byCategory: categories.map((cat) => {
         const list = rows.filter((r) => r.categoryId === cat.id);
         const fin = list.filter((r) => r.status === 'finished');
         const onC = list.filter((r) => r.status === 'on_course');
+        const chk = list.filter((r) => r.checkedIn || r.status === 'finished' || Boolean(r.lastScan));
         const times = fin.map((r) => r.primaryDurationMs).filter((t) => t !== null);
         const bestMs = times.length ? Math.min(...times) : null;
         const avgMs = times.length ? times.reduce((a, b) => a + b, 0) / times.length : null;
         return {
           ...cat,
           total: list.length,
+          checkedIn: chk.length,
+          notCheckedIn: list.length - chk.length,
           finished: fin.length,
           onCourse: onC.length,
           notStarted: list.length - fin.length - onC.length,
@@ -454,7 +465,6 @@
       rows,
       summary,
       checkpoints: sortedCheckpoints,
-      startCp,
       finishCp
     };
   }
@@ -462,16 +472,17 @@
   /**
    * 繞圈計時賽專用運算引擎 (6H / 12H / 24H 或自訂時數)
    * 規則：
-   * - 無管制點，每次感應計 1 圈，累積里程 = 有效圈數 × 單圈公里數 (lapDistanceKm)
-   * - 若該組已設定鳴槍時間與限時小時數，超過截止時間 (gunTimeMs + durationHours * 3600s) 之感應標記為 overtime，不計入正式里程
-   * - 排名順序：依「總里程 / 圈數」降冪，同里程時依「累積耗時（達成最後一圈時間）」升冪
+   * - 報到感應 (CHECKIN) 僅記錄到場狀態，不計入繞圈次數
+   * - 賽道感應 (LAP) 每次計 1 圈，累積里程 = 有效圈數 × 單圈公里數 (lapDistanceKm)
+   * - 統一依律定起跑時間計算截止時間與累積耗時
    */
   function computeLapTimedResults({
     runners = [],
     scans = [],
     categories = [],
     checkpoints = [],
-    lapDistanceKm = 2.54
+    lapDistanceKm = 2.54,
+    unifiedGunTimeMs = null
   }) {
     const lapKm = Math.max(0.001, Number(lapDistanceKm || 2.54));
     const catMap = new Map(categories.map((c) => [c.id, c]));
@@ -503,13 +514,21 @@
 
     for (const runner of runnerMap.values()) {
       const cat = catMap.get(runner.categoryId) || null;
-      const gunTimeMs = cat && cat.gunTimeMs ? Number(cat.gunTimeMs) : null;
+      const gunTimeMs = cat && cat.gunTimeMs
+        ? Number(cat.gunTimeMs)
+        : (unifiedGunTimeMs ? Number(unifiedGunTimeMs) : null);
       const durationHours = cat ? Number(cat.durationHours || cat.distanceKm || 6) : 6;
       const cutoffTimeMs = gunTimeMs !== null && durationHours > 0
         ? gunTimeMs + durationHours * 3600 * 1000
         : null;
 
-      const sortedScans = (scansByBib.get(runner.bib) || [])
+      const allRunnerScans = scansByBib.get(runner.bib) || [];
+      const checkInScan = pickPreferredScan(allRunnerScans.filter((s) => isCheckInScan(s)));
+      const checkedIn = Boolean(checkInScan);
+
+      // 報到感應不計入繞圈次數
+      const sortedScans = allRunnerScans
+        .filter((s) => !isCheckInScan(s))
         .slice()
         .sort((a, b) => Number(a.timestampMs) - Number(b.timestampMs));
 
@@ -555,11 +574,13 @@
 
       const avgPace = formatPace(totalElapsedMs, totalDistanceKm);
 
-      let status = 'not_started';
+      let status = 'not_checked_in';
       if (cutoffTimeMs !== null && now >= cutoffTimeMs) {
-        status = lapCount > 0 ? 'finished' : 'not_started';
-      } else if (lapCount > 0 || (gunTimeMs !== null && now >= gunTimeMs)) {
+        status = lapCount > 0 ? 'finished' : (checkedIn ? 'checked_in' : 'not_checked_in');
+      } else if (lapCount > 0) {
         status = 'on_course';
+      } else if (checkedIn) {
+        status = (gunTimeMs !== null && now >= gunTimeMs) ? 'on_course' : 'checked_in';
       }
 
       rows.push({
@@ -576,6 +597,9 @@
         gunTimeMs,
         cutoffTimeMs,
         lapDistanceKm: lapKm,
+        checkedIn,
+        checkInScan,
+        checkInTimeMs: checkInScan ? Number(checkInScan.timestampMs) : null,
         laps,
         lapCount,
         overtimeCount: laps.length - lapCount,
@@ -614,26 +638,30 @@
       if (a.overallRank !== null && b.overallRank !== null) return a.overallRank - b.overallRank;
       if (a.overallRank !== null) return -1;
       if (b.overallRank !== null) return 1;
+      if (a.checkedIn !== b.checkedIn) return a.checkedIn ? -1 : 1;
       return String(a.bib).localeCompare(String(b.bib), 'zh-Hant', { numeric: true });
     });
 
     const totalLapsAll = rows.reduce((sum, r) => sum + r.lapCount, 0);
     const totalKmAll = Number(rows.reduce((sum, r) => sum + r.totalDistanceKm, 0).toFixed(2));
     const topDistanceKm = rows.length ? Math.max(...rows.map((r) => r.totalDistanceKm)) : 0;
+    const checkedInCount = rows.filter((r) => r.checkedIn || r.lapCount > 0).length;
 
     const summary = {
       totalRunners: rows.length,
+      checkedInCount,
+      notCheckedInCount: rows.length - checkedInCount,
       activeWithLaps: rows.filter((r) => r.lapCount > 0).length,
       finishedCount: rows.filter((r) => r.status === 'finished').length,
       onCourseCount: rows.filter((r) => r.status === 'on_course').length,
-      notStartedCount: rows.filter((r) => r.status === 'not_started').length,
+      notStartedCount: rows.filter((r) => r.status === 'checked_in' || r.status === 'not_checked_in').length,
       totalLapsAll,
       totalKmAll,
       topDistanceKm,
       lapDistanceKm: lapKm,
       byCategory: categories.map((cat) => {
         const list = rows.filter((r) => r.categoryId === cat.id);
-        const gunMs = cat.gunTimeMs ? Number(cat.gunTimeMs) : null;
+        const gunMs = cat.gunTimeMs ? Number(cat.gunTimeMs) : (unifiedGunTimeMs ? Number(unifiedGunTimeMs) : null);
         const hrs = Number(cat.durationHours || cat.distanceKm || 6);
         const cutMs = gunMs !== null ? gunMs + hrs * 3600 * 1000 : null;
         const remainingMs = cutMs !== null ? Math.max(0, cutMs - now) : null;
@@ -641,12 +669,15 @@
         const topKm = kms.length ? Math.max(...kms) : 0;
         const sumLaps = list.reduce((a, b) => a + b.lapCount, 0);
         const avgKm = list.length ? Number((kms.reduce((a, b) => a + b, 0) / list.length).toFixed(2)) : 0;
+        const chkCount = list.filter((r) => r.checkedIn || r.lapCount > 0).length;
         return {
           ...cat,
           durationHours: hrs,
           cutoffTimeMs: cutMs,
           remainingMs,
           total: list.length,
+          checkedIn: chkCount,
+          notCheckedIn: list.length - chkCount,
           withLaps: list.filter((r) => r.lapCount > 0).length,
           sumLaps,
           topKm,
@@ -668,14 +699,16 @@
   /**
    * 統一入口：依活動性質自動分派一般距離賽或繞圈計時賽引擎
    */
-  function computeEventResults({ event, runners = [], scans = [], rankBy = 'gun' }) {
+  function computeEventResults({ event, runners = [], scans = [] }) {
+    const unifiedGunTimeMs = event?.unifiedGunTimeMs ? Number(event.unifiedGunTimeMs) : null;
     if (event && event.eventType === 'lap_timed') {
       return computeLapTimedResults({
         runners,
         scans,
         categories: event.categories || [],
         checkpoints: event.checkpoints || [],
-        lapDistanceKm: Number(event.lapDistanceKm || 2.54)
+        lapDistanceKm: Number(event.lapDistanceKm || 2.54),
+        unifiedGunTimeMs
       });
     }
     return computeResults({
@@ -683,11 +716,12 @@
       scans,
       categories: event?.categories || [],
       checkpoints: event?.checkpoints || [],
-      rankBy
+      unifiedGunTimeMs
     });
   }
 
   global.TimingEngine = {
+    CHECKIN_CP_ID,
     formatClockMs,
     formatClockSec,
     formatDuration,

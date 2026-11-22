@@ -228,19 +228,18 @@
     state.computed = TE.computeEventResults({
       event: evt,
       runners: eventRegs,
-      scans: eventScans,
-      rankBy: state.rankBy
+      scans: eventScans
     });
 
     const isLap = evt.eventType === 'lap_timed';
+    const gunMs = evt.unifiedGunTimeMs || (evt.categories || []).find((c) => c.gunTimeMs)?.gunTimeMs || null;
+    const gunText = gunMs ? ` ｜ 統一律定起跑：${TE.formatClockSec(gunMs)}` : '';
     $('pub-race-name').textContent = (isLap ? '🔁 ' : '') + evt.name;
     $('pub-race-meta').textContent = isLap
-      ? `${evt.date || '--'}${evt.location ? ` ｜ ${evt.location}` : ''} ｜ 繞圈計時賽（單圈 ${evt.lapDistanceKm} km • 依累積總里程排名）`
-      : `${evt.date || '--'}${evt.location ? ` ｜ ${evt.location}` : ''} ｜ 活動代碼：${evt.eventId}`;
+      ? `${evt.date || '--'}${evt.location ? ` ｜ ${evt.location}` : ''}${gunText} ｜ 繞圈計時賽（單圈 ${evt.lapDistanceKm} km • 依累積總里程排名）`
+      : `${evt.date || '--'}${evt.location ? ` ｜ ${evt.location}` : ''}${gunText} ｜ 活動代碼：${evt.eventId}`;
 
-    // 繞圈賽依里程排名，不需 Gun/Chip 排序切換
-    $('pub-rankby').classList.toggle('hidden', isLap);
-    $('pub-lb-title').textContent = isLap ? '🏆 繞圈計時賽即時里程排行榜' : '🏆 本場即時成績排行榜';
+    $('pub-lb-title').textContent = isLap ? '🏆 繞圈計時賽即時里程排行榜' : '🏆 本場即時成績排行榜（依統一律定起跑時間計算）';
 
     renderOverview(evt);
     renderLeaderboard(evt);
@@ -253,11 +252,13 @@
 
     if (isLap) {
       $('pub-kpi-label-1').textContent = '本場報名人數';
+      $('pub-kpi-label-checkin').textContent = '已報到人數';
       $('pub-kpi-label-2').textContent = '全場累積總圈數';
       $('pub-kpi-label-3').textContent = '全場累積總里程 (km)';
       $('pub-kpi-label-4').textContent = '目前最高里程 (km)';
 
       $('pub-kpi-total').textContent = String(s.totalRunners);
+      $('pub-kpi-checkin').textContent = `${s.checkedInCount ?? 0}`;
       $('pub-kpi-finished').textContent = `${s.totalLapsAll} 圈`;
       $('pub-kpi-oncourse').textContent = `${s.totalKmAll.toFixed(2)}`;
       $('pub-kpi-notstarted').textContent = `${s.topDistanceKm.toFixed(2)}`;
@@ -270,7 +271,7 @@
         : s.byCategory
             .map((c) => {
               const remainText = c.gunTimeMs === null
-                ? '尚未鳴槍'
+                ? '尚未起跑'
                 : c.remainingMs > 0
                   ? `剩餘 ${TE.formatDuration(c.remainingMs, false)}`
                   : '限時已結束';
@@ -284,7 +285,7 @@
                     <span class="font-mono-num font-bold ${c.remainingMs > 0 ? 'text-amber-300' : 'text-slate-400'}">${remainText}</span>
                   </div>
                   <div class="flex items-center justify-between text-[11px] font-mono-num text-slate-300">
-                    <span>參賽 ${c.total} 人 ｜ 累積 ${c.sumLaps} 圈</span>
+                    <span>報到 <strong class="text-sky-400">${c.checkedIn ?? 0}</strong> / ${c.total} 人 ｜ 累積 ${c.sumLaps} 圈</span>
                     <span>領先 <strong class="text-emerald-400">${c.topKm.toFixed(2)} km</strong> ｜ 平均 ${c.avgKm.toFixed(2)} km</span>
                   </div>
                 </div>
@@ -314,16 +315,18 @@
             .join('');
     } else {
       $('pub-kpi-label-1').textContent = '本場報名人數';
+      $('pub-kpi-label-checkin').textContent = '已報到人數';
       $('pub-kpi-label-2').textContent = '已完賽人數';
       $('pub-kpi-label-3').textContent = '賽道上人數';
-      $('pub-kpi-label-4').textContent = '未出發';
+      $('pub-kpi-label-4').textContent = '未報到人數';
 
       $('pub-kpi-total').textContent = String(s.totalRunners);
+      $('pub-kpi-checkin').textContent = String(s.checkedInCount ?? 0);
       $('pub-kpi-finished').textContent = String(s.finishedCount);
       $('pub-kpi-oncourse').textContent = String(s.onCourseCount);
-      $('pub-kpi-notstarted').textContent = String(s.notStartedCount);
+      $('pub-kpi-notstarted').textContent = String(s.notCheckedInCount ?? 0);
 
-      $('pub-cat-card-title').textContent = '🏃 各分組完賽進度';
+      $('pub-cat-card-title').textContent = '🏃 各分組報到與完賽進度';
       $('pub-right-card-title').textContent = '📍 各補給站通過人數統計';
 
       $('pub-category-stats').innerHTML = !s.byCategory.length
@@ -339,6 +342,7 @@
                       ${esc(c.name)}
                     </span>
                     <span class="font-mono-num text-slate-300">
+                      報到 <strong class="text-sky-400">${c.checkedIn ?? 0}</strong> /
                       完賽 <strong class="text-emerald-400">${c.finished}</strong> /
                       賽道 <strong class="text-amber-400">${c.onCourse}</strong> /
                       總數 ${c.total} (${pct}%)
@@ -476,6 +480,9 @@
               <span class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-purple-500/20 text-purple-300 border border-purple-500/40">
                 🔁 ${esc(row.categoryName)} (${row.durationHours}H)
               </span>
+              ${row.checkedIn
+                ? `<span class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-sky-500/20 text-sky-300 border border-sky-500/40">✅ 已報到 ${TE.formatClockSec(row.checkInTimeMs)}</span>`
+                : '<span class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-slate-800 text-slate-400 border border-slate-700">⏳ 未報到</span>'}
             </div>
             <div class="text-xs text-slate-400 mt-1">
               單圈 ${row.lapDistanceKm} km ${row.idMasked ? ` ｜ 身份證：<code class="text-sky-300 font-mono-num">${esc(row.idMasked)}</code>` : ''}
@@ -537,12 +544,13 @@
     const statusBanner = {
       finished: { text: '🏁 已完賽', cls: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' },
       on_course: { text: '🏃 賽道進行中', cls: 'bg-amber-500/20 text-amber-300 border-amber-500/40' },
-      not_started: { text: '⏳ 尚未出發', cls: 'bg-slate-800 text-slate-300 border-slate-700' }
+      checked_in: { text: '✅ 已報到（待起跑）', cls: 'bg-sky-500/20 text-sky-300 border-sky-500/40' },
+      not_checked_in: { text: '⏳ 未報到', cls: 'bg-slate-800 text-slate-300 border-slate-700' }
     };
-    const st = statusBanner[row.status] || statusBanner.not_started;
+    const st = statusBanner[row.status] || statusBanner.not_checked_in;
     const lastLoc = row.lastCheckpoint
       ? `${row.lastCheckpoint.name}（${TE.formatClockSec(row.lastScan.timestampMs)}）`
-      : '尚未通過任何感應點';
+      : (row.checkedIn ? `已於 ${TE.formatClockSec(row.checkInTimeMs)} 報到` : '尚未報到');
 
     const etaBlock =
       row.status === 'on_course' && row.etaTimestampMs
@@ -597,22 +605,25 @@
             ${renderOtherEventChips(row)}
           </div>
           <div class="text-right">
-            <div class="text-[11px] text-slate-400">最後通過位置</div>
+            <div class="text-[11px] text-slate-400">最後動態位置</div>
             <div class="text-xs sm:text-sm font-bold text-sky-300">${esc(lastLoc)}</div>
           </div>
         </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div class="bg-slate-900 border border-slate-800 rounded-xl p-3">
-            <div class="text-[11px] text-slate-400 font-bold">大會時間 (Gun Time)</div>
-            <div class="text-lg font-black font-mono-num text-white mt-0.5">
-              ${row.gunDurationMs !== null ? TE.formatDuration(row.gunDurationMs, true) : '--:--:--.---'}
+            <div class="text-[11px] text-slate-400 font-bold">選手報到狀態</div>
+            <div class="text-lg font-black font-mono-num ${row.checkedIn ? 'text-sky-300' : 'text-slate-500'} mt-0.5">
+              ${row.checkedIn ? `✅ ${TE.formatClockSec(row.checkInTimeMs)}` : '⏳ 尚未報到'}
+            </div>
+            <div class="text-[11px] text-slate-400 font-mono-num">
+              律定起跑：${row.gunTimeMs ? TE.formatClockSec(row.gunTimeMs) : '尚未設定'}
             </div>
           </div>
           <div class="bg-slate-900 border border-slate-800 rounded-xl p-3">
-            <div class="text-[11px] text-slate-400 font-bold">個人淨時間 (Chip Time)</div>
-            <div class="text-lg font-black font-mono-num text-sky-300 mt-0.5">
-              ${row.chipDurationMs !== null ? TE.formatDuration(row.chipDurationMs, true) : '--:--:--.---'}
+            <div class="text-[11px] text-slate-400 font-bold">完賽時間（統一律定起跑計時）</div>
+            <div class="text-lg font-black font-mono-num text-emerald-400 mt-0.5">
+              ${row.gunDurationMs !== null ? TE.formatDuration(row.gunDurationMs, true) : '--:--:--.---'}
             </div>
           </div>
           ${etaBlock}
@@ -642,6 +653,7 @@
           <th class="py-2.5 pr-3">姓名</th>
           <th class="py-2.5 pr-3">身份證 (隱碼)</th>
           <th class="py-2.5 pr-3">限時組別</th>
+          <th class="py-2.5 pr-3">報到狀態</th>
           <th class="py-2.5 pr-3">累積圈數</th>
           <th class="py-2.5 pr-3">總里程 (km)</th>
           <th class="py-2.5 pr-3">累積耗時</th>
@@ -650,7 +662,7 @@
         </tr>
       `;
       if (rows.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="11" class="py-8 text-center text-slate-500">本場活動尚無繞圈成績資料</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="12" class="py-8 text-center text-slate-500">本場活動尚無繞圈成績資料</td></tr>';
         return;
       }
       tbody.innerHTML = rows
@@ -667,6 +679,7 @@
                 ${esc(row.categoryName)}
               </span>
             </td>
+            <td class="py-2.5 pr-3 font-mono-num text-xs">${row.checkedIn ? `<span class="text-sky-300 font-bold">✅ ${TE.formatClockSec(row.checkInTimeMs)}</span>` : '<span class="text-slate-500">未報到</span>'}</td>
             <td class="py-2.5 pr-3 font-mono-num font-black text-purple-300">${row.lapCount} 圈</td>
             <td class="py-2.5 pr-3 font-mono-num font-black text-emerald-400">${row.totalDistanceKm.toFixed(2)} km</td>
             <td class="py-2.5 pr-3 font-mono-num text-sky-300">${row.totalElapsedMs !== null ? TE.formatDuration(row.totalElapsedMs, false) : '--'}</td>
@@ -686,9 +699,9 @@
         <th class="py-2.5 pr-3">姓名</th>
         <th class="py-2.5 pr-3">身份證 (隱碼)</th>
         <th class="py-2.5 pr-3">組別</th>
+        <th class="py-2.5 pr-3">報到狀態</th>
         <th class="py-2.5 pr-3">最新動態 / 站點</th>
-        <th class="py-2.5 pr-3">大會時間</th>
-        <th class="py-2.5 pr-3">淨時間</th>
+        <th class="py-2.5 pr-3">完賽時間</th>
         <th class="py-2.5">平均配速 / ETA</th>
       </tr>
     `;
@@ -705,7 +718,11 @@
             ? '<span class="text-emerald-400 font-bold">🏁 已完賽</span>'
             : row.lastCheckpoint
               ? `<span class="text-amber-300 font-bold">🏃 ${esc(row.lastCheckpoint.name)}</span>`
-              : '<span class="text-slate-500">未出發</span>';
+              : row.status === 'on_course'
+                ? '<span class="text-amber-300 font-bold">🏃 賽道進行中</span>'
+                : row.checkedIn
+                  ? '<span class="text-sky-300 font-bold">✅ 已報到（待起跑）</span>'
+                  : '<span class="text-slate-500">未報到</span>';
 
         const paceOrEta =
           row.status === 'finished'
@@ -727,12 +744,10 @@
                 ${esc(row.categoryName)}
               </span>
             </td>
+            <td class="py-2.5 pr-3 font-mono-num text-xs">${row.checkedIn ? `<span class="text-sky-300 font-bold">✅ ${TE.formatClockSec(row.checkInTimeMs)}</span>` : '<span class="text-slate-500">未報到</span>'}</td>
             <td class="py-2.5 pr-3">${locStr}</td>
             <td class="py-2.5 pr-3 font-mono-num font-bold text-emerald-400">
               ${row.gunDurationMs !== null ? TE.formatDuration(row.gunDurationMs, true) : '--'}
-            </td>
-            <td class="py-2.5 pr-3 font-mono-num text-sky-300">
-              ${row.chipDurationMs !== null ? TE.formatDuration(row.chipDurationMs, true) : '--'}
             </td>
             <td class="py-2.5 font-mono-num text-slate-300">${paceOrEta}</td>
           </tr>
@@ -772,11 +787,6 @@
     $('pub-cat-filter').addEventListener('change', (e) => {
       state.catFilter = e.target.value;
       renderLeaderboard(getActiveEvent());
-    });
-
-    $('pub-rankby').addEventListener('change', (e) => {
-      state.rankBy = e.target.value;
-      recomputeAndRender();
     });
 
     $('pub-leaderboard-tbody').addEventListener('click', (e) => {
