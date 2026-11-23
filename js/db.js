@@ -767,7 +767,9 @@
       const categoryRank = item.categoryRank !== undefined && item.categoryRank !== null && String(item.categoryRank).trim() !== ''
         ? (parseInt(item.categoryRank, 10) || null)
         : null;
-      const finishTime = String(item.finishTime || '').trim();
+      const finishTime = global.TimingEngine?.normalizeTimeStr
+        ? global.TimingEngine.normalizeTimeStr(item.finishTime)
+        : String(item.finishTime || '').trim().replace(/^(-?\d{1,3}:\d{2}:\d{2})\.\d+$/, '$1');
       const rawStatus = String(item.status || '').trim();
       const status = rawStatus || ((finishTime || distanceKm > 0 || laps > 0) ? '完賽' : '未完賽');
       const id = String(item.id || makeHistoryId(eventDate, eventName, idNumber, bib, name, categoryName));
@@ -1197,7 +1199,7 @@
     }
 
     /**
-     * 載入 TUR (Taiwan Ultra Runners) 完整模擬資料（含進行中活動、八百壯士系統與歷年匯入成績）
+     * 載入 TUR (Taiwan Ultra Runners) 全情境完整測試資料（5 場不同性質／狀態活動、12 位跨場選手、DUV 欄位、分段與繞圈逾時測試、2023–2025 歷年與八百壯士英雄榜）
      */
     async loadDemoData(ownerAdmin = '') {
       await this.init();
@@ -1207,71 +1209,140 @@
 
       const now = Date.now();
       const min = 60 * 1000;
-      const gunSpring = now - 225 * min;
-      const gunCoast = now - 85 * min;
-      const gunUltra = now - 250 * min;
+      const gunEast = now - 660 * min;     // 進行中超馬距離賽（11小時前起跑）
+      const gunUltra = now - 390 * min;    // 進行中繞圈賽（6.5小時前起跑，讓 6H 組示範逾時圈判定！）
+      const gunWin25 = new Date('2025-11-16T05:00:00+08:00').getTime();
+      const gunLap25 = new Date('2025-08-10T06:00:00+08:00').getTime();
 
-      const evt1 = createDefaultEvent('EVT-2026-800-SPRING', '2026 TUR 八百壯士春季挑戰賽', getTodayStr(), '台北市政府廣場', targetOwner);
-      evt1.englishName = '800 Heroes Ultra Marathon - Spring Challenge';
-      evt1.organization = 'Taiwan Ultra Runners';
-      evt1.unifiedGunTimeMs = gunSpring;
-      evt1.categories.forEach((c) => {
-        c.gunTimeMs = gunSpring;
-        c.gunTimeIso = new Date(gunSpring).toISOString();
-      });
-
-      const evt2 = {
-        eventId: 'EVT-2026-COAST',
-        name: '2026 TUR 北海岸公益超馬',
-        englishName: 'TUR North Coast Charity Ultra Marathon',
+      // 活動 1：進行中一般超馬距離賽（含 101.3K / 54.2K / 21K、4 站分段成績、外籍與複姓、罰時與完整 DUV 欄位）
+      const evt1 = {
+        eventId: 'EVT-2026-800-EAST',
+        name: '2026 TUR 八百壯士極東霸主超級馬拉松',
+        englishName: '800 Heroes Ultra Marathon - Overlord of easternmost point',
         organization: 'Taiwan Ultra Runners',
         date: getTodayStr(),
-        location: '淡水漁人碼頭',
+        location: '新北貢寮三貂角燈塔廣場',
         status: 'active',
         ownerAdmin: targetOwner,
         eventType: 'distance',
         lapDistanceKm: 0,
         debounceSeconds: 30,
         rankBy: 'gun',
-        unifiedGunTimeMs: gunCoast,
+        unifiedGunTimeMs: gunEast,
         categories: [
-          { id: '12K', name: '挑戰組 12K', distanceKm: 12, gunTimeMs: gunCoast, gunTimeIso: new Date(gunCoast).toISOString(), color: '#8b5cf6' },
-          { id: '5K', name: '樂活組 5K', distanceKm: 5, gunTimeMs: gunCoast, gunTimeIso: new Date(gunCoast).toISOString(), color: '#f59e0b' }
+          { id: '101.3K', name: '超馬組 101.3K', distanceKm: 101.3, gunTimeMs: gunEast, gunTimeIso: new Date(gunEast).toISOString(), color: '#ef4444' },
+          { id: '54.2K', name: '挑戰組 54.2K', distanceKm: 54.2, gunTimeMs: gunEast, gunTimeIso: new Date(gunEast).toISOString(), color: '#3b82f6' },
+          { id: '21K', name: '半馬體驗組 21K', distanceKm: 21.1, gunTimeMs: gunEast, gunTimeIso: new Date(gunEast).toISOString(), color: '#10b981' }
         ],
         checkpoints: [
-          { id: 'CP1', name: '海岸折返點 (6K)', order: 1, distanceKm: 6, type: 'checkpoint' },
-          { id: 'FINISH', name: '終點衝線門', order: 2, distanceKm: 12, type: 'finish' }
+          { id: 'CP1', name: '補給站 1 (20K)', order: 1, distanceKm: 20, type: 'checkpoint' },
+          { id: 'CP2', name: '極東折返點 (50K)', order: 2, distanceKm: 50, type: 'checkpoint' },
+          { id: 'CP3', name: '補給站 3 (75K)', order: 3, distanceKm: 75, type: 'checkpoint' },
+          { id: 'FINISH', name: '終點衝線門', order: 4, distanceKm: 101.3, type: 'finish' }
         ],
         updatedAt: now
       };
 
-      const evt3 = createLapTimedEvent('EVT-2026-800-ULTRA', '2026 TUR 八百壯士環湖繞圈賽', getTodayStr(), '碧潭環湖賽道 (單圈2.54K)', 2.54, targetOwner);
-      evt3.englishName = '800 Heroes Ultra Marathon - Bitan Timed Loop';
-      evt3.organization = 'Taiwan Ultra Runners';
-      evt3.unifiedGunTimeMs = gunUltra;
-      evt3.categories.forEach((c) => {
+      // 活動 2：進行中繞圈計時賽（單圈 2.54km，6H/12H/24H，含逐圈明細與 6H 逾時圈示範）
+      const evt2 = createLapTimedEvent('EVT-2026-800-ULTRA', '2026 TUR 八百壯士環湖繞圈計時賽', getTodayStr(), '碧潭環湖賽道 (單圈 2.54K)', 2.54, targetOwner);
+      evt2.englishName = '800 Heroes Ultra Marathon - Bitan Timed Loop';
+      evt2.organization = 'Taiwan Ultra Runners';
+      evt2.unifiedGunTimeMs = gunUltra;
+      evt2.categories.forEach((c) => {
         c.gunTimeMs = gunUltra;
         c.gunTimeIso = new Date(gunUltra).toISOString();
       });
+
+      // 活動 3：籌備中一般距離賽（尚未鳴槍，含部分預先報到，方便測試賽前報到與一鍵鳴槍）
+      const evt3 = {
+        eventId: 'EVT-2026-COAST-PREP',
+        name: '2026 TUR 北海岸公益馬拉松（籌備中）',
+        englishName: 'TUR North Coast Charity Marathon',
+        organization: 'Taiwan Ultra Runners',
+        date: getTodayStr(),
+        location: '淡水漁人碼頭觀海廣場',
+        status: 'upcoming',
+        ownerAdmin: targetOwner,
+        eventType: 'distance',
+        lapDistanceKm: 0,
+        debounceSeconds: 30,
+        rankBy: 'gun',
+        unifiedGunTimeMs: null,
+        categories: [
+          { id: '42K', name: '全馬組 42K', distanceKm: 42.195, gunTimeMs: null, gunTimeIso: '', color: '#ef4444' },
+          { id: '21K', name: '半馬組 21K', distanceKm: 21.0975, gunTimeMs: null, gunTimeIso: '', color: '#3b82f6' },
+          { id: '10K', name: '健康組 10K', distanceKm: 10, gunTimeMs: null, gunTimeIso: '', color: '#10b981' }
+        ],
+        checkpoints: [
+          { id: 'CP1', name: '淺水灣補給站 (10K)', order: 1, distanceKm: 10, type: 'checkpoint' },
+          { id: 'CP2', name: '富貴角折返點 (21K)', order: 2, distanceKm: 21.1, type: 'checkpoint' },
+          { id: 'FINISH', name: '終點衝線門', order: 3, distanceKm: 42.195, type: 'finish' }
+        ],
+        updatedAt: now
+      };
+
+      // 活動 4：已結束距離賽（鎖定狀態＋自動歸檔至歷年成績、八百壯士英雄榜與證書列印）
+      const evt4 = {
+        eventId: 'EVT-2025-800-WINTER',
+        name: '2025 TUR 八百壯士冬季百公里挑戰賽',
+        englishName: '2025 800 Heroes Winter 100K Challenge',
+        organization: 'Taiwan Ultra Runners',
+        date: '2025-11-16',
+        location: '花蓮七星潭海岸步道',
+        status: 'finished',
+        ownerAdmin: targetOwner,
+        eventType: 'distance',
+        lapDistanceKm: 0,
+        debounceSeconds: 30,
+        rankBy: 'gun',
+        unifiedGunTimeMs: gunWin25,
+        categories: [
+          { id: '100K', name: '百公里組 100K', distanceKm: 100, gunTimeMs: gunWin25, gunTimeIso: new Date(gunWin25).toISOString(), color: '#ef4444' },
+          { id: '50K', name: '五十公里組 50K', distanceKm: 50, gunTimeMs: gunWin25, gunTimeIso: new Date(gunWin25).toISOString(), color: '#3b82f6' }
+        ],
+        checkpoints: [
+          { id: 'CP1', name: '海濱折返點 (25K)', order: 1, distanceKm: 25, type: 'checkpoint' },
+          { id: 'CP2', name: '鯉魚潭補給站 (50K)', order: 2, distanceKm: 50, type: 'checkpoint' },
+          { id: 'CP3', name: '溪口補給站 (75K)', order: 3, distanceKm: 75, type: 'checkpoint' },
+          { id: 'FINISH', name: '終點衝線門', order: 4, distanceKm: 100, type: 'finish' }
+        ],
+        updatedAt: now - 1000
+      };
+
+      // 活動 5：已結束繞圈計時賽（鎖定狀態＋自動歸檔至歷年成績與證書列印）
+      const evt5 = createLapTimedEvent('EVT-2025-TAIPEI-12H', '2025 TUR 台北河濱 12H 繞圈經典賽', '2025-08-10', '台北大佳河濱公園 (單圈 2.00K)', 2.0, targetOwner);
+      evt5.englishName = '2025 TUR Taipei Riverside 12H Classic';
+      evt5.organization = 'Taiwan Ultra Runners';
+      evt5.status = 'finished';
+      evt5.unifiedGunTimeMs = gunLap25;
+      evt5.categories = [
+        { id: '12H', name: '12小時繞圈組', durationHours: 12, distanceKm: 12, gunTimeMs: gunLap25, gunTimeIso: new Date(gunLap25).toISOString(), color: '#3b82f6' },
+        { id: '6H', name: '6小時繞圈組', durationHours: 6, distanceKm: 6, gunTimeMs: gunLap25, gunTimeIso: new Date(gunLap25).toISOString(), color: '#10b981' }
+      ];
 
       const platform = createDefaultPlatform();
       platform.adminUsername = prev?.adminUsername || 'admin';
       platform.adminPassword = prev?.adminPassword || 'admin1234';
       if (prev?.adminAccounts?.length) platform.adminAccounts = prev.adminAccounts;
       if (prev?.staffAccounts?.length) platform.staffAccounts = prev.staffAccounts;
-      platform.activeEventId = evt3.eventId;
-      platform.events = [evt1, evt2, evt3];
+      platform.activeEventId = evt1.eventId;
+      platform.events = [evt1, evt2, evt3, evt4, evt5];
       await this.savePlatform(platform);
 
-      // 共用晶片主檔（每人僅一張晶片：姓名 + 身份證字號，可跨場參加多項活動！）
+      // 12 位共用晶片選手主檔（涵蓋台灣男女、複姓、外籍選手與 1 位測試缺 DOB 選手）
       const people = [
         { idNumber: 'A123456789', name: '林志明', nfcUid: '04:A1:10:01', gender: 'M', dob: '1984-01-18', city: 'Taipei', country: 'Taiwan' },
-        { idNumber: 'B234567891', name: '陳怡君', nfcUid: '04:A1:10:02', gender: 'F', dob: '1980-02-07', city: 'Taipei', country: 'Taiwan' },
+        { idNumber: 'B234567891', name: '陳潔馨', nfcUid: '04:A1:10:02', gender: 'F', dob: '1980-02-07', city: 'Taipei', country: 'Taiwan' },
         { idNumber: 'C145678912', name: '張家豪', nfcUid: '04:A1:10:03', gender: 'M', dob: '1975-09-13', city: 'New Taipei', country: 'Taiwan' },
         { idNumber: 'F256789123', name: '王雅婷', nfcUid: '04:A1:10:04', gender: 'F', dob: '1990-03-15', city: 'Taichung', country: 'Taiwan' },
-        { idNumber: 'H167891234', name: '李俊傑', nfcUid: '04:A1:10:05', gender: 'M', dob: '1977-06-28', city: 'Taoyuan', country: 'Taiwan' },
+        { idNumber: 'H167891234', name: '鄭順元', nfcUid: '04:A1:10:05', gender: 'M', dob: '1977-06-28', city: 'Taoyuan', country: 'Taiwan' },
         { idNumber: 'T189123456', name: '吳冠宇', nfcUid: '04:A1:10:06', gender: 'M', dob: '1983-08-28', city: 'Kaohsiung', country: 'Taiwan' },
-        { idNumber: 'N291234567', name: '劉佳穎', nfcUid: '04:A1:10:07', gender: 'F', dob: '1988-11-22', city: 'Tainan', country: 'Taiwan' }
+        { idNumber: 'N291234567', name: '劉佳穎', nfcUid: '04:A1:10:07', gender: 'F', dob: '1988-11-22', city: 'Tainan', country: 'Taiwan' },
+        { idNumber: 'D155667788', name: '歐陽志遠', nfcUid: '04:A1:10:08', gender: 'M', dob: '1979-05-12', city: 'Taipei', country: 'Taiwan' },
+        { idNumber: 'E800012345', name: 'Emmanuel Lemire', lastName: 'Lemire', firstName: 'Emmanuel', nfcUid: '04:A1:10:09', gender: 'M', dob: '1993-07-15', city: 'Taipei', country: 'France' },
+        { idNumber: 'K277889900', name: '黃瓊華', nfcUid: '04:A1:10:10', gender: 'F', dob: '1980-08-28', city: 'Hsinchu', country: 'Taiwan' },
+        { idNumber: 'M133445566', name: '陳偉庭', nfcUid: '04:A1:10:11', gender: 'M', dob: '1984-01-18', city: 'Taipei', country: 'Taiwan' },
+        { idNumber: 'P199887766', name: '林柏翰', nfcUid: '04:A1:10:12', gender: 'M', dob: '', city: 'Keelung', country: 'Taiwan' }
       ];
       const peopleMap = new Map(people.map((p) => [p.idNumber, p]));
       for (const p of people) {
@@ -1279,107 +1350,181 @@
       }
       const withDemoBio = (reg) => {
         const p = peopleMap.get(reg.idNumber);
-        return p ? { ...reg, gender: p.gender, dob: p.dob, city: p.city, country: p.country } : reg;
+        return p
+          ? { ...reg, gender: p.gender, dob: p.dob, city: p.city, country: p.country, lastName: p.lastName || '', firstName: p.firstName || '' }
+          : reg;
       };
 
-      // 活動 1 名單
+      // 活動 1（進行中 101.3K/54.2K/21K）：10 位選手（完賽＋賽道上＋已報到＋未報到＋罰時＋缺DOB提醒）
       await this.upsertRegistrationsBulk([
-        withDemoBio({ eventId: evt1.eventId, bib: 'A001', name: '林志明', idNumber: 'A123456789', categoryId: '42K' }),
-        withDemoBio({ eventId: evt1.eventId, bib: 'A002', name: '陳怡君', idNumber: 'B234567891', categoryId: '42K' }),
-        withDemoBio({ eventId: evt1.eventId, bib: 'A003', name: '張家豪', idNumber: 'C145678912', categoryId: '42K' }),
-        withDemoBio({ eventId: evt1.eventId, bib: 'B101', name: '王雅婷', idNumber: 'F256789123', categoryId: '21K' }),
-        withDemoBio({ eventId: evt1.eventId, bib: 'B102', name: '李俊傑', idNumber: 'H167891234', categoryId: '21K' }),
-        withDemoBio({ eventId: evt1.eventId, bib: 'C201', name: '吳冠宇', idNumber: 'T189123456', categoryId: '10K' })
+        withDemoBio({ eventId: evt1.eventId, bib: 'A01', name: '陳偉庭', idNumber: 'M133445566', categoryId: '101.3K' }),
+        withDemoBio({ eventId: evt1.eventId, bib: 'A02', name: '林志明', idNumber: 'A123456789', categoryId: '101.3K' }),
+        withDemoBio({ eventId: evt1.eventId, bib: 'A03', name: '歐陽志遠', idNumber: 'D155667788', categoryId: '101.3K' }),
+        withDemoBio({ eventId: evt1.eventId, bib: 'A04', name: '陳潔馨', idNumber: 'B234567891', categoryId: '101.3K' }),
+        withDemoBio({ eventId: evt1.eventId, bib: 'A05', name: '張家豪', idNumber: 'C145678912', categoryId: '101.3K' }),
+        withDemoBio({ eventId: evt1.eventId, bib: 'B01', name: 'Emmanuel Lemire', idNumber: 'E800012345', categoryId: '54.2K' }),
+        withDemoBio({ eventId: evt1.eventId, bib: 'B02', name: '黃瓊華', idNumber: 'K277889900', categoryId: '54.2K' }),
+        withDemoBio({ eventId: evt1.eventId, bib: 'B03', name: '王雅婷', idNumber: 'F256789123', categoryId: '54.2K' }),
+        withDemoBio({ eventId: evt1.eventId, bib: 'C01', name: '吳冠宇', idNumber: 'T189123456', categoryId: '21K', penaltySec: 30 }),
+        withDemoBio({ eventId: evt1.eventId, bib: 'C02', name: '林柏翰', idNumber: 'P199887766', categoryId: '21K' }),
+        withDemoBio({ eventId: evt1.eventId, bib: 'C03', name: '劉佳穎', idNumber: 'N291234567', categoryId: '21K' })
       ], false);
 
-      // 活動 2 名單
+      // 活動 2（進行中繞圈賽 6H/12H/24H）：7 位選手
       await this.upsertRegistrationsBulk([
-        withDemoBio({ eventId: evt2.eventId, bib: 'S101', name: '林志明', idNumber: 'A123456789', categoryId: '12K' }),
-        withDemoBio({ eventId: evt2.eventId, bib: 'S102', name: '陳怡君', idNumber: 'B234567891', categoryId: '12K' }),
-        withDemoBio({ eventId: evt2.eventId, bib: 'L201', name: '王雅婷', idNumber: 'F256789123', categoryId: '5K' }),
-        withDemoBio({ eventId: evt2.eventId, bib: 'L202', name: '劉佳穎', idNumber: 'N291234567', categoryId: '5K' })
+        withDemoBio({ eventId: evt2.eventId, bib: 'U001', name: '林志明', idNumber: 'A123456789', categoryId: '12H' }),
+        withDemoBio({ eventId: evt2.eventId, bib: 'U002', name: '陳潔馨', idNumber: 'B234567891', categoryId: '12H' }),
+        withDemoBio({ eventId: evt2.eventId, bib: 'U101', name: '張家豪', idNumber: 'C145678912', categoryId: '24H' }),
+        withDemoBio({ eventId: evt2.eventId, bib: 'U102', name: '鄭順元', idNumber: 'H167891234', categoryId: '24H' }),
+        withDemoBio({ eventId: evt2.eventId, bib: 'U201', name: '王雅婷', idNumber: 'F256789123', categoryId: '6H' }),
+        withDemoBio({ eventId: evt2.eventId, bib: 'U202', name: '吳冠宇', idNumber: 'T189123456', categoryId: '6H' }),
+        withDemoBio({ eventId: evt2.eventId, bib: 'U203', name: '劉佳穎', idNumber: 'N291234567', categoryId: '6H' })
       ], false);
 
-      // 活動 3 名單（八百壯士繞圈計時賽）
+      // 活動 3（籌備中距離賽）：5 位選手（未開跑，2 人已預先報到）
       await this.upsertRegistrationsBulk([
-        withDemoBio({ eventId: evt3.eventId, bib: 'U001', name: '林志明', idNumber: 'A123456789', categoryId: '12H' }),
-        withDemoBio({ eventId: evt3.eventId, bib: 'U002', name: '陳怡君', idNumber: 'B234567891', categoryId: '12H' }),
-        withDemoBio({ eventId: evt3.eventId, bib: 'U101', name: '張家豪', idNumber: 'C145678912', categoryId: '24H' }),
-        withDemoBio({ eventId: evt3.eventId, bib: 'U201', name: '王雅婷', idNumber: 'F256789123', categoryId: '6H' }),
-        withDemoBio({ eventId: evt3.eventId, bib: 'U202', name: '吳冠宇', idNumber: 'T189123456', categoryId: '6H' })
+        withDemoBio({ eventId: evt3.eventId, bib: 'M001', name: '林志明', idNumber: 'A123456789', categoryId: '42K' }),
+        withDemoBio({ eventId: evt3.eventId, bib: 'M002', name: '陳偉庭', idNumber: 'M133445566', categoryId: '42K' }),
+        withDemoBio({ eventId: evt3.eventId, bib: 'H101', name: '黃瓊華', idNumber: 'K277889900', categoryId: '21K' }),
+        withDemoBio({ eventId: evt3.eventId, bib: 'H102', name: 'Emmanuel Lemire', idNumber: 'E800012345', categoryId: '21K' }),
+        withDemoBio({ eventId: evt3.eventId, bib: 'K201', name: '劉佳穎', idNumber: 'N291234567', categoryId: '10K' })
+      ], false);
+
+      // 活動 4（已結束 2025 八百壯士百公里）：6 位完賽選手
+      await this.upsertRegistrationsBulk([
+        withDemoBio({ eventId: evt4.eventId, bib: 'W001', name: '林志明', idNumber: 'A123456789', categoryId: '100K' }),
+        withDemoBio({ eventId: evt4.eventId, bib: 'W002', name: '張家豪', idNumber: 'C145678912', categoryId: '100K' }),
+        withDemoBio({ eventId: evt4.eventId, bib: 'W003', name: '歐陽志遠', idNumber: 'D155667788', categoryId: '100K' }),
+        withDemoBio({ eventId: evt4.eventId, bib: 'W101', name: '陳潔馨', idNumber: 'B234567891', categoryId: '50K' }),
+        withDemoBio({ eventId: evt4.eventId, bib: 'W102', name: '王雅婷', idNumber: 'F256789123', categoryId: '50K' }),
+        withDemoBio({ eventId: evt4.eventId, bib: 'W103', name: '鄭順元', idNumber: 'H167891234', categoryId: '50K' })
+      ], false);
+
+      // 活動 5（已結束 2025 台北河濱 12H 繞圈）：4 位完賽選手
+      await this.upsertRegistrationsBulk([
+        withDemoBio({ eventId: evt5.eventId, bib: 'R01', name: '林志明', idNumber: 'A123456789', categoryId: '12H' }),
+        withDemoBio({ eventId: evt5.eventId, bib: 'R02', name: '張家豪', idNumber: 'C145678912', categoryId: '12H' }),
+        withDemoBio({ eventId: evt5.eventId, bib: 'R11', name: '王雅婷', idNumber: 'F256789123', categoryId: '6H' }),
+        withDemoBio({ eventId: evt5.eventId, bib: 'R12', name: '吳冠宇', idNumber: 'T189123456', categoryId: '6H' })
       ], false);
 
       const addS = (eventId, bib, idNumber, checkpointId, timestampMs) =>
         this.addScan({ eventId, bib, idNumber, checkpointId, timestampMs, source: 'mock', operator: 'demo', bypassDebounce: true });
 
-      await addS(evt1.eventId, 'A001', 'A123456789', 'CHECKIN', gunSpring - 32 * min);
-      await addS(evt1.eventId, 'A001', 'A123456789', 'CP1', gunSpring + 23 * min + 15000);
-      await addS(evt1.eventId, 'A001', 'A123456789', 'CP2', gunSpring + 47 * min + 5000);
-      await addS(evt1.eventId, 'A001', 'A123456789', 'CP3', gunSpring + 99 * min + 41000);
-      await addS(evt1.eventId, 'A001', 'A123456789', 'FINISH', gunSpring + 202 * min + 18450);
+      // --- 活動 1 感應資料（101.3K / 54.2K / 21K 分段完整） ---
+      const addDistRun = async (evId, gun, bib, idNum, cpOffsets) => {
+        await addS(evId, bib, idNum, 'CHECKIN', gun - 30 * min);
+        for (const [cpId, offsetMs] of cpOffsets) {
+          await addS(evId, bib, idNum, cpId, gun + offsetMs);
+        }
+      };
+      await addDistRun(evt1.eventId, gunEast, 'A01', 'M133445566', [
+        ['CP1', 112 * min + 14000], ['CP2', 289 * min + 35000], ['CP3', 442 * min + 10000], ['FINISH', 609 * min + 28000]
+      ]);
+      await addDistRun(evt1.eventId, gunEast, 'A02', 'A123456789', [
+        ['CP1', 118 * min + 22000], ['CP2', 302 * min + 18000], ['CP3', 462 * min + 40000], ['FINISH', 636 * min + 15000]
+      ]);
+      await addDistRun(evt1.eventId, gunEast, 'A03', 'D155667788', [
+        ['CP1', 120 * min + 5000], ['CP2', 309 * min + 42000], ['CP3', 475 * min + 12000], ['FINISH', 648 * min + 29000]
+      ]);
+      await addDistRun(evt1.eventId, gunEast, 'A04', 'B234567891', [
+        ['CP1', 126 * min + 31000], ['CP2', 322 * min + 10000], ['CP3', 494 * min + 55000], ['FINISH', 655 * min + 42000]
+      ]);
+      // A05 賽道上（已通過 CP1、CP2，展示即時賽道動態與 ETA！）
+      await addDistRun(evt1.eventId, gunEast, 'A05', 'C145678912', [
+        ['CP1', 135 * min + 12000], ['CP2', 348 * min + 20000]
+      ]);
+      // 54.2K 完賽（外籍＋女選手）與已報到未通過
+      await addDistRun(evt1.eventId, gunEast, 'B01', 'E800012345', [
+        ['CP1', 114 * min + 8000], ['CP2', 298 * min + 44000], ['FINISH', 333 * min + 16000]
+      ]);
+      await addDistRun(evt1.eventId, gunEast, 'B02', 'K277889900', [
+        ['CP1', 138 * min + 15000], ['CP2', 378 * min + 20000], ['FINISH', 415 * min + 36000]
+      ]);
+      await addS(evt1.eventId, 'B03', 'F256789123', 'CHECKIN', gunEast - 20 * min);
+      // 21K 完賽（C01 含 +30s 罰時、C02 缺 DOB 測試 DUV 提醒、C03 未報到）
+      await addDistRun(evt1.eventId, gunEast, 'C01', 'T189123456', [
+        ['CP1', 96 * min + 20000], ['FINISH', 102 * min + 15000]
+      ]);
+      await addDistRun(evt1.eventId, gunEast, 'C02', 'P199887766', [
+        ['CP1', 108 * min + 40000], ['FINISH', 115 * min + 8000]
+      ]);
 
-      await addS(evt1.eventId, 'A002', 'B234567891', 'CHECKIN', gunSpring - 28 * min);
-      await addS(evt1.eventId, 'A002', 'B234567891', 'CP1', gunSpring + 25 * min + 10000);
-      await addS(evt1.eventId, 'A002', 'B234567891', 'CP2', gunSpring + 51 * min + 32000);
-      await addS(evt1.eventId, 'A002', 'B234567891', 'CP3', gunSpring + 108 * min + 22000);
-      await addS(evt1.eventId, 'A002', 'B234567891', 'FINISH', gunSpring + 218 * min + 42310);
-
-      await addS(evt1.eventId, 'A003', 'C145678912', 'CHECKIN', gunSpring - 25 * min);
-      await addS(evt1.eventId, 'A003', 'C145678912', 'CP1', gunSpring + 29 * min + 5000);
-      await addS(evt1.eventId, 'A003', 'C145678912', 'CP2', gunSpring + 60 * min + 12000);
-
-      await addS(evt1.eventId, 'B101', 'F256789123', 'CHECKIN', gunSpring - 21 * min);
-      await addS(evt1.eventId, 'B101', 'F256789123', 'CP1', gunSpring + 24 * min + 1200);
-      await addS(evt1.eventId, 'B101', 'F256789123', 'CP2', gunSpring + 48 * min + 21500);
-      await addS(evt1.eventId, 'B101', 'F256789123', 'FINISH', gunSpring + 101 * min + 9320);
-
-      await addS(evt1.eventId, 'C201', 'T189123456', 'CHECKIN', gunSpring - 18 * min);
-      await addS(evt1.eventId, 'C201', 'T189123456', 'CP1', gunSpring + 23 * min + 11000);
-      await addS(evt1.eventId, 'C201', 'T189123456', 'FINISH', gunSpring + 46 * min + 55120);
-
-      await addS(evt2.eventId, 'S101', 'A123456789', 'CHECKIN', gunCoast - 30 * min);
-      await addS(evt2.eventId, 'S101', 'A123456789', 'CP1', gunCoast + 28 * min + 12000);
-      await addS(evt2.eventId, 'S101', 'A123456789', 'FINISH', gunCoast + 57 * min + 34120);
-
-      await addS(evt2.eventId, 'S102', 'B234567891', 'CHECKIN', gunCoast - 22 * min);
-      await addS(evt2.eventId, 'S102', 'B234567891', 'CP1', gunCoast + 32 * min + 5000);
-
-      await addS(evt2.eventId, 'L201', 'F256789123', 'CHECKIN', gunCoast - 15 * min);
-      await addS(evt2.eventId, 'L201', 'F256789123', 'FINISH', gunCoast + 26 * min + 48200);
-
-      await addS(evt3.eventId, 'U101', 'C145678912', 'CHECKIN', gunUltra - 35 * min);
-      await addS(evt3.eventId, 'U001', 'A123456789', 'CHECKIN', gunUltra - 30 * min);
-      await addS(evt3.eventId, 'U002', 'B234567891', 'CHECKIN', gunUltra - 26 * min);
-      await addS(evt3.eventId, 'U201', 'F256789123', 'CHECKIN', gunUltra - 20 * min);
-      await addS(evt3.eventId, 'U202', 'T189123456', 'CHECKIN', gunUltra - 18 * min);
-
-      const addLaps = async (bib, idNum, startMs, count, avgLapMin) => {
+      // --- 活動 2 感應資料（繞圈計時賽，含 6H 組 1 筆逾時圈示範！） ---
+      for (const [bib, idNum] of [
+        ['U101', 'C145678912'], ['U102', 'H167891234'], ['U001', 'A123456789'],
+        ['U002', 'B234567891'], ['U201', 'F256789123'], ['U202', 'T189123456'], ['U203', 'N291234567']
+      ]) {
+        await addS(evt2.eventId, bib, idNum, 'CHECKIN', gunUltra - 25 * min);
+      }
+      const addLaps = async (evId, bib, idNum, startMs, count, avgLapMin) => {
         let cur = startMs;
         for (let i = 1; i <= count; i++) {
           cur += Math.round((avgLapMin + ((i % 3) - 1) * 0.6) * min);
-          await addS(evt3.eventId, bib, idNum, 'LAP', cur);
+          await addS(evId, bib, idNum, 'LAP', cur);
         }
+        return cur;
       };
-      await addLaps('U101', 'C145678912', gunUltra, 16, 15.2);
-      await addLaps('U001', 'A123456789', gunUltra, 15, 14.5);
-      await addLaps('U002', 'B234567891', gunUltra, 13, 15.8);
-      await addLaps('U201', 'F256789123', gunUltra, 10, 14.2);
-      await addLaps('U202', 'T189123456', gunUltra, 10, 14.9);
+      await addLaps(evt2.eventId, 'U101', 'C145678912', gunUltra, 18, 15.1);
+      await addLaps(evt2.eventId, 'U102', 'H167891234', gunUltra, 15, 16.0);
+      await addLaps(evt2.eventId, 'U001', 'A123456789', gunUltra, 17, 14.4);
+      await addLaps(evt2.eventId, 'U002', 'B234567891', gunUltra, 14, 15.7);
+      // U201 (6H 組)：跑完 16 圈在 6H 內，再補 1 筆第 6H12m 的「超時不計圈」示範！
+      await addLaps(evt2.eventId, 'U201', 'F256789123', gunUltra, 16, 21.5);
+      await addS(evt2.eventId, 'U201', 'F256789123', 'LAP', gunUltra + 372 * min);
+      await addLaps(evt2.eventId, 'U202', 'T189123456', gunUltra, 14, 22.8);
 
-      // 示範歷年匯入成績（含 2024 / 2025 TUR 八百壯士系列與一般 TUR 超馬，可與個人成績合併查詢及顯示八百壯士英雄榜！）
+      // --- 活動 3 感應資料（籌備中：僅預先報到 2 位） ---
+      await addS(evt3.eventId, 'M001', 'A123456789', 'CHECKIN', now - 12 * min);
+      await addS(evt3.eventId, 'H101', 'K277889900', 'CHECKIN', now - 8 * min);
+
+      // --- 活動 4 感應資料（已結束 2025 八百壯士冬季百公里） ---
+      await addDistRun(evt4.eventId, gunWin25, 'W001', 'A123456789', [
+        ['CP1', 136 * min], ['CP2', 280 * min], ['CP3', 428 * min], ['FINISH', 578 * min + 15000]
+      ]);
+      await addDistRun(evt4.eventId, gunWin25, 'W002', 'C145678912', [
+        ['CP1', 142 * min], ['CP2', 296 * min], ['CP3', 454 * min], ['FINISH', 612 * min + 40000]
+      ]);
+      await addDistRun(evt4.eventId, gunWin25, 'W003', 'D155667788', [
+        ['CP1', 148 * min], ['CP2', 308 * min], ['CP3', 470 * min], ['FINISH', 635 * min + 12000]
+      ]);
+      await addDistRun(evt4.eventId, gunWin25, 'W101', 'B234567891', [
+        ['CP1', 132 * min], ['CP2', 274 * min], ['FINISH', 282 * min + 10000]
+      ]);
+      await addDistRun(evt4.eventId, gunWin25, 'W102', 'F256789123', [
+        ['CP1', 140 * min], ['CP2', 295 * min], ['FINISH', 305 * min + 22000]
+      ]);
+      await addDistRun(evt4.eventId, gunWin25, 'W103', 'H167891234', [
+        ['CP1', 145 * min], ['CP2', 304 * min], ['FINISH', 318 * min + 45000]
+      ]);
+
+      // --- 活動 5 感應資料（已結束 2025 台北河濱 12H 繞圈） ---
+      await addS(evt5.eventId, 'R01', 'A123456789', 'CHECKIN', gunLap25 - 25 * min);
+      await addS(evt5.eventId, 'R02', 'C145678912', 'CHECKIN', gunLap25 - 22 * min);
+      await addS(evt5.eventId, 'R11', 'F256789123', 'CHECKIN', gunLap25 - 18 * min);
+      await addS(evt5.eventId, 'R12', 'T189123456', 'CHECKIN', gunLap25 - 15 * min);
+      await addLaps(evt5.eventId, 'R01', 'A123456789', gunLap25, 52, 13.4);
+      await addLaps(evt5.eventId, 'R02', 'C145678912', gunLap25, 48, 14.5);
+      await addLaps(evt5.eventId, 'R11', 'F256789123', gunLap25, 26, 13.5);
+      await addLaps(evt5.eventId, 'R12', 'T189123456', gunLap25, 24, 14.2);
+
+      // 歷年匯入成績（2023–2025 跨多年度八百壯士與一般超馬，完整展示個人歷年合併與英雄榜！）
       await this.upsertHistoryRecordsBulk([
-        { eventDate: '2025-11-16', eventName: '2025 TUR 八百壯士超級馬拉松', categoryName: '100K', bib: 'W001', name: '林志明', idNumber: 'A123456789', finishTime: '09:38:15', distanceKm: 100, laps: 0, overallRank: 1, categoryRank: 1, status: '完賽', ownerAdmin: targetOwner },
-        { eventDate: '2025-11-16', eventName: '2025 TUR 八百壯士超級馬拉松', categoryName: '100K', bib: 'W002', name: '張家豪', idNumber: 'C145678912', finishTime: '10:12:40', distanceKm: 100, laps: 0, overallRank: 2, categoryRank: 2, status: '完賽', ownerAdmin: targetOwner },
-        { eventDate: '2025-11-16', eventName: '2025 TUR 八百壯士超級馬拉松', categoryName: '50K', bib: 'W101', name: '陳怡君', idNumber: 'B234567891', finishTime: '04:42:10', distanceKm: 50, laps: 0, overallRank: 1, categoryRank: 1, status: '完賽', ownerAdmin: targetOwner },
-        { eventDate: '2025-11-16', eventName: '2025 TUR 八百壯士超級馬拉松', categoryName: '50K', bib: 'W102', name: '王雅婷', idNumber: 'F256789123', finishTime: '05:05:22', distanceKm: 50, laps: 0, overallRank: 2, categoryRank: 2, status: '完賽', ownerAdmin: targetOwner },
+        { eventDate: '2025-05-10', eventName: '2025 TUR 陽明山百公里越野賽', categoryName: '50K', bib: 'Y010', name: '林志明', idNumber: 'A123456789', finishTime: '05:18:40', distanceKm: 50, laps: 0, overallRank: 3, categoryRank: 2, status: '完賽', ownerAdmin: targetOwner },
+        { eventDate: '2025-05-10', eventName: '2025 TUR 陽明山百公里越野賽', categoryName: '50K', bib: 'Y011', name: '王雅婷', idNumber: 'F256789123', finishTime: '05:45:12', distanceKm: 50, laps: 0, overallRank: 6, categoryRank: 1, status: '完賽', ownerAdmin: targetOwner },
+        { eventDate: '2025-05-10', eventName: '2025 TUR 陽明山百公里越野賽', categoryName: '100K', bib: 'Y001', name: '陳偉庭', idNumber: 'M133445566', finishTime: '11:02:18', distanceKm: 100, laps: 0, overallRank: 1, categoryRank: 1, status: '完賽', ownerAdmin: targetOwner },
         { eventDate: '2024-11-17', eventName: '2024 TUR 八百壯士經典挑戰賽', categoryName: '100K', bib: 'H001', name: '林志明', idNumber: 'A123456789', finishTime: '09:55:08', distanceKm: 100, laps: 0, overallRank: 1, categoryRank: 1, status: '完賽', ownerAdmin: targetOwner },
         { eventDate: '2024-11-17', eventName: '2024 TUR 八百壯士經典挑戰賽', categoryName: '100K', bib: 'H002', name: '張家豪', idNumber: 'C145678912', finishTime: '10:25:33', distanceKm: 100, laps: 0, overallRank: 2, categoryRank: 2, status: '完賽', ownerAdmin: targetOwner },
-        { eventDate: '2024-11-17', eventName: '2024 TUR 八百壯士經典挑戰賽', categoryName: '50K', bib: 'H101', name: '陳怡君', idNumber: 'B234567891', finishTime: '04:51:19', distanceKm: 50, laps: 0, overallRank: 1, categoryRank: 1, status: '完賽', ownerAdmin: targetOwner },
-        { eventDate: '2025-05-10', eventName: '2025 TUR 陽明山百公里越野賽', categoryName: '50K', bib: 'Y010', name: '林志明', idNumber: 'A123456789', finishTime: '05:18:40', distanceKm: 50, laps: 0, overallRank: 3, categoryRank: 2, status: '完賽', ownerAdmin: targetOwner },
-        { eventDate: '2025-05-10', eventName: '2025 TUR 陽明山百公里越野賽', categoryName: '50K', bib: 'Y011', name: '王雅婷', idNumber: 'F256789123', finishTime: '05:45:12', distanceKm: 50, laps: 0, overallRank: 6, categoryRank: 1, status: '完賽', ownerAdmin: targetOwner }
+        { eventDate: '2024-11-17', eventName: '2024 TUR 八百壯士經典挑戰賽', categoryName: '100K', bib: 'H003', name: '陳偉庭', idNumber: 'M133445566', finishTime: '10:31:05', distanceKm: 100, laps: 0, overallRank: 3, categoryRank: 3, status: '完賽', ownerAdmin: targetOwner },
+        { eventDate: '2024-11-17', eventName: '2024 TUR 八百壯士經典挑戰賽', categoryName: '50K', bib: 'H101', name: '陳潔馨', idNumber: 'B234567891', finishTime: '04:51:19', distanceKm: 50, laps: 0, overallRank: 1, categoryRank: 1, status: '完賽', ownerAdmin: targetOwner },
+        { eventDate: '2024-11-17', eventName: '2024 TUR 八百壯士經典挑戰賽', categoryName: '50K', bib: 'H102', name: '歐陽志遠', idNumber: 'D155667788', finishTime: '05:08:44', distanceKm: 50, laps: 0, overallRank: 2, categoryRank: 1, status: '完賽', ownerAdmin: targetOwner },
+        { eventDate: '2023-11-19', eventName: '2023 TUR 八百壯士創始紀念超馬', categoryName: '24H', bib: 'G001', name: '林志明', idNumber: 'A123456789', finishTime: '23:48:10', distanceKm: 162.56, laps: 64, overallRank: 1, categoryRank: 1, status: '完賽', note: '單圈 2.54km', ownerAdmin: targetOwner },
+        { eventDate: '2023-11-19', eventName: '2023 TUR 八百壯士創始紀念超馬', categoryName: '24H', bib: 'G002', name: '張家豪', idNumber: 'C145678912', finishTime: '23:52:40', distanceKm: 154.94, laps: 61, overallRank: 2, categoryRank: 2, status: '完賽', note: '單圈 2.54km', ownerAdmin: targetOwner },
+        { eventDate: '2023-11-19', eventName: '2023 TUR 八百壯士創始紀念超馬', categoryName: '12H', bib: 'G101', name: '鄭順元', idNumber: 'H167891234', finishTime: '11:45:22', distanceKm: 96.52, laps: 38, overallRank: 1, categoryRank: 1, status: '完賽', note: '單圈 2.54km', ownerAdmin: targetOwner },
+        { eventDate: '2023-11-19', eventName: '2023 TUR 八百壯士創始紀念超馬', categoryName: '12H', bib: 'G102', name: '陳潔馨', idNumber: 'B234567891', finishTime: '11:50:15', distanceKm: 88.9, laps: 35, overallRank: 2, categoryRank: 1, status: '完賽', note: '單圈 2.54km', ownerAdmin: targetOwner }
       ], false);
 
-      this.saveDeviceSettings({ selectedEventId: evt3.eventId });
+      this.saveDeviceSettings({ selectedEventId: evt1.eventId });
       return true;
     }
 

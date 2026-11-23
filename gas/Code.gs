@@ -487,7 +487,7 @@ function formatTimeCell_(val) {
     }
     return Utilities.formatDate(val, tz, 'HH:mm:ss');
   }
-  return String(val).trim();
+  return String(val).trim().replace(/^(-?\d{1,3}:\d{2}:\d{2})\.\d+$/, '$1');
 }
 
 function readEventsList_(defaultOwner) {

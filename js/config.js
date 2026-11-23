@@ -13,7 +13,7 @@
  */
 window.APP_CONFIG = {
   // 請將部署完成的 GAS 網頁應用程式網址貼在引號內（留空則由各裝置於後台或 ?api= 網址設定）
-  DEFAULT_GAS_URL: 'https://script.google.com/macros/s/AKfycbz1HOjvj3A9Apu5p2Rzvl3VFQH-NNoFckmrI6L7u_ij9Nw5qMhwpt5XmdRisfv_EVh_/exec',
+  DEFAULT_GAS_URL: 'https://script.google.com/macros/s/AKfycbxKRjdihCUXfDsgBCwZlm3qKbwv0idFpBdVkCMkfa1QjB6FGVipklNQmrnim3vrmLkOMw/exec',
 
   // 當設定了雲端網址且偵測到網路正常時，進入系統自動切換連線並同步雲端最新資料
   AUTO_SYNC_ON_START: true

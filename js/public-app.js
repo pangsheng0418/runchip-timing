@@ -10,6 +10,7 @@
   const DB = window.RaceDB;
   const TE = window.TimingEngine;
   const Sync = window.CloudSync;
+  const Cert = window.CertificateGenerator;
 
   const state = {
     gasUrl: '',
@@ -17,7 +18,7 @@
     allRegistrations: [],
     allScans: [],
     historyRecords: [],
-    mode: 'live', // 'live' | 'history' | 'warriors800'
+    mode: 'live', // 'live' | 'history' | 'warriors800' | 'certificate'
     selectedEventId: '',
     initialParamEvent: '',
     computed: null,
@@ -28,7 +29,31 @@
     historyEventKey: 'ALL',
     historyQuery: '',
     w800Year: '',
-    w800HeroQuery: ''
+    w800HeroQuery: '',
+    cert: {
+      style: 'official', // 'official' | 'custom'
+      eventKey: 'ALL',
+      query: '',
+      selectedEntryKey: '',
+      entriesCache: [],
+      orientation: 'landscape',
+      theme: 'ivory_gold',
+      showSplits: true,
+      cOrientation: 'landscape',
+      cStyle: 'light_glass',
+      cShape: 'rounded',
+      cPos: 'left',
+      cZoom: 1,
+      cOffsetX: 0,
+      cOffsetY: 0,
+      cQuote: '',
+      cShowLogo: true,
+      cShowSeal: true,
+      cShowSplits: true,
+      bgImage: null,
+      photoImage: null,
+      photoBox: null
+    }
   };
 
   function $(id) {
@@ -132,7 +157,7 @@
           const cat = (ev.categories || []).find((c) => c.id === row.categoryId);
           distanceKm = completed ? Number(cat?.distanceKm || 0) : 0;
           finishTimeMs = row.gunDurationMs;
-          finishTimeText = row.gunDurationMs !== null ? TE.formatDuration(row.gunDurationMs, true) : '';
+          finishTimeText = row.gunDurationMs !== null ? TE.formatDuration(row.gunDurationMs, false) : '';
           statusText = completed ? '完賽' : (row.status === 'on_course' ? '賽道上' : (row.checkedIn ? '已報到' : '未完賽'));
         }
 
@@ -197,7 +222,7 @@
           idHash: h.idHash || '',
           completed,
           statusText: statusStr,
-          finishTimeText: h.finishTime || '',
+          finishTimeText: TE.normalizeTimeStr ? TE.normalizeTimeStr(h.finishTime) : String(h.finishTime || '').replace(/^(-?\d{1,3}:\d{2}:\d{2})\.\d+$/, '$1'),
           finishTimeMs,
           distanceKm: km,
           laps,
@@ -339,7 +364,7 @@
     state.gasUrl = paramApi || cfgApi || (saved.gasUrl || '').trim();
     state.initialParamEvent = paramEvent;
     state.selectedEventId = paramEvent || (saved.selectedEventId || '');
-    if (paramMode === 'history' || paramMode === 'warriors800') state.mode = paramMode;
+    if (paramMode === 'history' || paramMode === 'warriors800' || paramMode === 'certificate') state.mode = paramMode;
 
     bindEvents();
     await loadData(false);
@@ -458,6 +483,8 @@
       await runHistorySearch(state.historyQuery);
     } else if (state.mode === 'warriors800') {
       await renderWarriors800Tab();
+    } else if (state.mode === 'certificate') {
+      if (!silent) await renderPublicCertificateTab();
     }
     $('pub-last-updated').textContent = TE.formatClockSec(Date.now());
   }
@@ -502,7 +529,7 @@
   }
 
   function switchMode(mode) {
-    state.mode = ['live', 'history', 'warriors800'].includes(mode) ? mode : 'live';
+    state.mode = ['live', 'history', 'warriors800', 'certificate'].includes(mode) ? mode : 'live';
     renderModeUI();
     renderEventSelector();
     if (state.mode === 'history') {
@@ -510,6 +537,8 @@
       runHistorySearch(state.historyQuery);
     } else if (state.mode === 'warriors800') {
       renderWarriors800Tab();
+    } else if (state.mode === 'certificate') {
+      renderPublicCertificateTab();
     } else {
       recomputeAndRender();
     }
@@ -532,6 +561,10 @@
         btn.className = active
           ? 'pub-mode-btn px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-black bg-amber-500 text-slate-950 transition'
           : 'pub-mode-btn px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-bold text-slate-300 hover:bg-slate-800 transition';
+      } else if (m === 'certificate') {
+        btn.className = active
+          ? 'pub-mode-btn px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-black bg-emerald-500 text-slate-950 transition shadow'
+          : 'pub-mode-btn px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-bold text-emerald-300 hover:bg-slate-800 transition';
       } else {
         btn.className = active
           ? 'pub-mode-btn px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-black bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 transition shadow'
@@ -542,6 +575,7 @@
     $('pub-view-live').classList.toggle('hidden', state.mode !== 'live');
     $('pub-view-history').classList.toggle('hidden', state.mode !== 'history');
     $('pub-view-warriors800').classList.toggle('hidden', state.mode !== 'warriors800');
+    if ($('pub-view-certificate')) $('pub-view-certificate').classList.toggle('hidden', state.mode !== 'certificate');
 
     const openEvents = getOpenEvents();
     $('pub-live-selector-bar').classList.toggle('hidden', !(state.mode === 'live' && openEvents.length > 0));
@@ -552,6 +586,9 @@
     } else if (state.mode === 'warriors800') {
       $('pub-race-name').textContent = '⚔️ TUR 八百壯士系統';
       $('pub-race-meta').textContent = `當年度成績整合 ＋ 歷年英雄榜（共 ${w800EvtCount} 場）`;
+    } else if (state.mode === 'certificate') {
+      $('pub-race-name').textContent = '🏅 官方完賽證書列印';
+      $('pub-race-meta').textContent = '支援官方中英文對照樣式，或客製化上傳底圖與個人照片下載 PNG／PDF';
     }
   }
 
@@ -855,6 +892,7 @@
   }
 
   function renderOtherEventChips(row) {
+    const activeEvt = getActiveEvent();
     const openIdSet = new Set(getOpenEvents().map((e) => e.eventId));
     const otherOpenRegs = row.idHash
       ? state.allRegistrations.filter((r) => r.idHash === row.idHash && r.eventId !== state.selectedEventId && openIdSet.has(r.eventId))
@@ -870,7 +908,15 @@
       (row.idHash && e.idHash === row.idHash) || (!e.idHash && e.name === row.name)
     ).length;
 
-    if (!otherOpenRegs.length && !histCount && !w800Count) return '';
+    const canPrintLiveCert = Boolean(
+      activeEvt && isEventFinished(activeEvt) && ((activeEvt.eventType === 'lap_timed' && Number(row.lapCount || 0) > 0) || row.status === 'finished')
+    );
+
+    if (!otherOpenRegs.length && !histCount && !w800Count && !canPrintLiveCert) return '';
+
+    const certChip = canPrintLiveCert
+      ? `<button type="button" data-open-cert-eventkey="SYS__${esc(activeEvt.eventId)}" data-open-cert-bib="${esc(row.bib)}" data-open-cert-name="${esc(row.name)}" class="px-2.5 py-0.5 rounded bg-emerald-500/20 hover:bg-emerald-500/35 border border-emerald-500/50 text-emerald-300 font-black">🏅 證書列印</button>`
+      : '';
 
     const openChips = otherOpenRegs.map((or) => {
       const ev = state.events.find((e) => e.eventId === or.eventId);
@@ -885,7 +931,7 @@
       ? `<button type="button" data-open-800-hero="${esc(row.name)}" class="px-2.5 py-0.5 rounded bg-orange-500/20 hover:bg-orange-500/35 border border-orange-500/40 text-orange-300 font-bold">⚔️ 八百壯士 (${w800Count} 場)</button>`
       : '';
 
-    return `<div class="flex flex-wrap items-center gap-1.5 text-xs pt-1.5">${openChips}${historyChip}${w800Chip}</div>`;
+    return `<div class="flex flex-wrap items-center gap-1.5 text-xs pt-1.5">${certChip}${openChips}${historyChip}${w800Chip}</div>`;
   }
 
   function renderLapSearchCard(row) {
@@ -1054,7 +1100,7 @@
           <div class="bg-slate-900 border border-slate-800 rounded-xl p-3">
             <div class="text-[11px] text-slate-400 font-bold">完賽時間</div>
             <div class="text-lg font-black font-mono-num text-emerald-400 mt-0.5">
-              ${row.gunDurationMs !== null ? TE.formatDuration(row.gunDurationMs, true) : '--:--:--.---'}
+              ${row.gunDurationMs !== null ? TE.formatDuration(row.gunDurationMs, false) : '--:--:--'}
             </div>
           </div>
           ${etaBlock}
@@ -1178,7 +1224,7 @@
             <td class="py-2.5 pr-3 font-mono-num text-xs">${row.checkedIn ? `<span class="text-sky-300 font-bold">✅ ${TE.formatClockSec(row.checkInTimeMs)}</span>` : '<span class="text-slate-500">未報到</span>'}</td>
             <td class="py-2.5 pr-3">${locStr}</td>
             <td class="py-2.5 pr-3 font-mono-num font-bold text-emerald-400">
-              ${row.gunDurationMs !== null ? TE.formatDuration(row.gunDurationMs, true) : '--'}
+              ${row.gunDurationMs !== null ? TE.formatDuration(row.gunDurationMs, false) : '--'}
             </td>
             <td class="py-2.5 font-mono-num text-slate-300">${paceOrEta}</td>
           </tr>
@@ -1387,7 +1433,12 @@
 
         <div class="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400 font-mono-num">
           <span>名次：<strong class="text-amber-300">${rankText}</strong> ｜ 配速：<strong class="text-slate-200">${esc(e.avgPace)}</strong></span>
-          <span>${esc(e.statusText)}</span>
+          <div class="flex items-center gap-2">
+            <span>${esc(e.statusText)}</span>
+            ${e.completed && e.sourceType !== 'system_live'
+              ? `<button type="button" data-open-cert-eventkey="${esc(e.eventKey)}" data-open-cert-bib="${esc(e.bib || '')}" data-open-cert-name="${esc(e.name)}" class="px-2 py-0.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/35 border border-emerald-500/40 text-emerald-300 font-sans font-bold">🏅 印證書</button>`
+              : ''}
+          </div>
         </div>
 
         ${expandBlock}
@@ -1616,6 +1667,238 @@
   }
 
   /* ========================================================================
+   * 模式 4：🏅 公開選手證書列印（官方中英文對照樣式 ＋ 客製化上傳底圖與個人照片）
+   * ======================================================================== */
+
+  function makeCertEntryKey(e) {
+    return `${e.eventKey}__${e.bib || ''}__${e.name || ''}`;
+  }
+
+  function getPrintableEntries() {
+    // 證書列印僅包含「已結束」與「歷年」賽事，進行中與籌備中活動一律排除
+    const all = buildUnifiedEntries({ includeLive: false, includeFinished: true, includeImported: true });
+    return all
+      .filter((e) => e.completed)
+      .sort((a, b) =>
+        String(b.eventDate || '').localeCompare(String(a.eventDate || ''))
+        || (a.overallRank || 99999) - (b.overallRank || 99999)
+      );
+  }
+
+  function buildCertPayloadFromEntry(entry) {
+    if (!entry) return null;
+    if (entry.eventId) {
+      const sysEv = state.events.find((ev) => ev.eventId === entry.eventId);
+      if (sysEv && entry.systemRow) {
+        return { event: sysEv, row: entry.systemRow };
+      }
+    }
+    // 歷年匯入成績轉成標準證書資料結構
+    const isLap = Number(entry.laps || 0) > 0;
+    const syntheticEvent = {
+      eventId: entry.eventKey,
+      name: entry.eventName,
+      englishName: '',
+      organization: 'Taiwan Ultra Runners',
+      date: entry.eventDate,
+      location: '',
+      eventType: isLap ? 'lap_timed' : 'distance',
+      lapDistanceKm: isLap && entry.laps > 0 ? Number((entry.distanceKm / entry.laps).toFixed(2)) : 0
+    };
+    const syntheticRow = isLap
+      ? {
+          bib: entry.bib || '--',
+          name: entry.name,
+          categoryName: entry.categoryName || '一般組',
+          lapCount: entry.laps,
+          totalDistanceKm: Number(entry.distanceKm || 0),
+          totalElapsedMs: entry.finishTimeMs,
+          overallRank: entry.overallRank,
+          categoryRank: entry.categoryRank,
+          avgPace: entry.avgPace || '--',
+          laps: []
+        }
+      : {
+          bib: entry.bib || '--',
+          name: entry.name,
+          categoryName: entry.categoryName || '一般組',
+          distanceKm: Number(entry.distanceKm || 0),
+          gunDurationMs: entry.finishTimeMs,
+          overallRank: entry.overallRank,
+          categoryRank: entry.categoryRank,
+          avgPace: entry.avgPace || '--',
+          status: 'finished',
+          splits: []
+        };
+    return { event: syntheticEvent, row: syntheticRow };
+  }
+
+  async function renderPublicCertificateTab() {
+    const allPrintable = getPrintableEntries();
+    state.cert.entriesCache = allPrintable;
+
+    const badge = $('pub-cert-total-badge');
+    if (badge) badge.textContent = `可印製 ${allPrintable.length} 筆完賽成績`;
+
+    // 賽事篩選下拉選單（僅列已結束與歷年賽事）
+    const evMap = new Map();
+    for (const e of allPrintable) {
+      if (!evMap.has(e.eventKey)) {
+        evMap.set(e.eventKey, {
+          eventKey: e.eventKey,
+          eventDate: e.eventDate,
+          eventName: e.eventName,
+          sourceType: e.sourceType
+        });
+      }
+    }
+    const evList = Array.from(evMap.values()).sort((a, b) => String(b.eventDate || '').localeCompare(String(a.eventDate || '')));
+    const evSel = $('pub-cert-event-select');
+    if (evSel) {
+      evSel.innerHTML = '<option value="ALL">全部已結束與歷年賽事</option>' +
+        evList.map((ev) => {
+          const tag = ev.sourceType === 'imported' ? '[歷年]' : '[已結束]';
+          return `<option value="${esc(ev.eventKey)}">${tag} ${esc(ev.eventDate || '--')}｜${esc(ev.eventName)}</option>`;
+        }).join('');
+      if (state.cert.eventKey !== 'ALL' && !evMap.has(state.cert.eventKey)) {
+        state.cert.eventKey = 'ALL';
+      }
+      evSel.value = state.cert.eventKey;
+    }
+
+    if ($('pub-cert-search-input')) $('pub-cert-search-input').value = state.cert.query;
+    await runPublicCertSearch();
+  }
+
+  async function runPublicCertSearch() {
+    const all = state.cert.entriesCache || [];
+    const q = (state.cert.query || '').trim();
+    const qLower = q.toLowerCase();
+    const qHash = q ? await TE.sha256Hex(q.toUpperCase()) : '';
+
+    const matched = all.filter((e) => {
+      if (state.cert.eventKey !== 'ALL' && e.eventKey !== state.cert.eventKey) return false;
+      if (!q) return true;
+      return e.name.toLowerCase().includes(qLower)
+        || (e.bib || '').toLowerCase().includes(qLower)
+        || (e.idHash && e.idHash === qHash)
+        || (e.idMasked && e.idMasked.toLowerCase() === qLower)
+        || e.eventName.toLowerCase().includes(qLower);
+    });
+
+    if (!matched.some((e) => makeCertEntryKey(e) === state.cert.selectedEntryKey)) {
+      state.cert.selectedEntryKey = matched[0] ? makeCertEntryKey(matched[0]) : '';
+    }
+
+    const listEl = $('pub-cert-matches');
+    if (listEl) {
+      if (!matched.length) {
+        listEl.innerHTML = '<div class="text-xs text-slate-500 py-1">查無符合條件的完賽成績，請嘗試調整關鍵字或切換賽事。</div>';
+      } else {
+        listEl.innerHTML = matched.slice(0, 30).map((e) => {
+          const key = makeCertEntryKey(e);
+          const active = key === state.cert.selectedEntryKey;
+          const perf = e.laps > 0
+            ? `${e.distanceKm.toFixed(1)}km/${e.laps}圈`
+            : (e.finishTimeText || `${e.distanceKm}km`);
+          return `
+            <button type="button" data-pick-cert-entry="${esc(key)}"
+              class="px-3 py-1.5 rounded-xl border text-xs transition flex items-center gap-1.5 ${active ? 'bg-emerald-500/20 border-emerald-400 text-white font-black' : 'bg-slate-950 border-slate-800 hover:border-slate-600 text-slate-300 font-bold'}">
+              <span class="font-mono-num text-amber-300">${e.bib ? `#${esc(e.bib)}` : ''}</span>
+              <span>${esc(e.name)}</span>
+              <span class="text-[10px] text-slate-400 truncate max-w-[140px]">${esc(e.eventName)}</span>
+              <span class="font-mono-num text-emerald-400">${esc(perf)}</span>
+            </button>
+          `;
+        }).join('');
+      }
+    }
+
+    const selectedEntry = matched.find((e) => makeCertEntryKey(e) === state.cert.selectedEntryKey) || null;
+    $('pub-cert-empty').classList.toggle('hidden', Boolean(selectedEntry));
+    $('pub-cert-studio').classList.toggle('hidden', !selectedEntry);
+    if (!selectedEntry) return;
+
+    renderPublicCertStyleUI();
+    await renderPublicCertCanvas(selectedEntry);
+  }
+
+  function renderPublicCertStyleUI() {
+    document.querySelectorAll('.pub-cert-style-btn').forEach((btn) => {
+      const active = btn.dataset.pubCertStyle === state.cert.style;
+      btn.className = active
+        ? (state.cert.style === 'custom'
+            ? 'pub-cert-style-btn px-3.5 py-2 rounded-lg text-xs sm:text-sm font-black bg-emerald-500 text-slate-950 transition'
+            : 'pub-cert-style-btn px-3.5 py-2 rounded-lg text-xs sm:text-sm font-black bg-amber-500 text-slate-950 transition')
+        : 'pub-cert-style-btn px-3.5 py-2 rounded-lg text-xs sm:text-sm font-bold text-slate-300 hover:bg-slate-800 transition';
+    });
+    $('pub-cert-panel-official').classList.toggle('hidden', state.cert.style !== 'official');
+    $('pub-cert-panel-custom').classList.toggle('hidden', state.cert.style !== 'custom');
+    $('pub-cert-drag-hint').classList.toggle('hidden', state.cert.style !== 'custom');
+  }
+
+  function getSelectedPublicCertEntry() {
+    return (state.cert.entriesCache || []).find((e) => makeCertEntryKey(e) === state.cert.selectedEntryKey) || null;
+  }
+
+  async function renderPublicCertToCanvas(canvas, entry) {
+    if (!Cert || !canvas || !entry) return null;
+    const payload = buildCertPayloadFromEntry(entry);
+    if (!payload) return null;
+
+    if (state.cert.style === 'custom') {
+      return Cert.renderPersonalizedCertificate(canvas, {
+        event: payload.event,
+        row: payload.row,
+        bgImage: state.cert.bgImage,
+        photoImage: state.cert.photoImage,
+        options: {
+          orientation: state.cert.cOrientation,
+          cardStyle: state.cert.cStyle,
+          photoShape: state.cert.cShape,
+          photoPosition: state.cert.cPos,
+          photoZoom: state.cert.cZoom,
+          photoOffsetX: state.cert.cOffsetX,
+          photoOffsetY: state.cert.cOffsetY,
+          customQuote: state.cert.cQuote,
+          showLogo: state.cert.cShowLogo,
+          showSeal: state.cert.cShowSeal,
+          showSplits: state.cert.cShowSplits
+        }
+      });
+    }
+
+    return Cert.renderOfficialCertificate(canvas, {
+      event: payload.event,
+      row: payload.row,
+      options: {
+        orientation: state.cert.orientation,
+        theme: state.cert.theme,
+        showSplits: state.cert.showSplits
+      }
+    });
+  }
+
+  async function renderPublicCertCanvas(entryOverride = null) {
+    const entry = entryOverride || getSelectedPublicCertEntry();
+    const canvas = $('pub-cert-canvas');
+    if (!entry || !canvas || !Cert) return;
+
+    const res = await renderPublicCertToCanvas(canvas, entry);
+    state.cert.photoBox = res?.photoBox || null;
+
+    if ($('pub-cert-active-badge')) {
+      $('pub-cert-active-badge').textContent = `${entry.eventDate || '--'}｜${entry.eventName}`;
+    }
+    if ($('pub-cert-preview-caption')) {
+      const styleLabel = state.cert.style === 'custom'
+        ? `客製化個人證書（${state.cert.cOrientation === 'portrait' ? 'A4 直式' : 'A4 橫式'}）`
+        : `官方中英文對照樣式（${state.cert.orientation === 'portrait' ? 'A4 直式' : 'A4 橫式'}）`;
+      $('pub-cert-preview-caption').textContent = `${styleLabel} ｜ ${entry.name}${entry.bib ? ` (#${entry.bib})` : ''} • ${entry.categoryName || ''}`;
+    }
+  }
+
+  /* ========================================================================
    * 事件綁定
    * ======================================================================== */
   function bindEvents() {
@@ -1667,6 +1950,21 @@
     });
 
     const handleCrossJump = (e) => {
+      const certBtn = e.target.closest('[data-open-cert-eventkey]');
+      if (certBtn) {
+        const evKey = certBtn.dataset.openCertEventkey || 'ALL';
+        const bib = certBtn.dataset.openCertBib || '';
+        const name = certBtn.dataset.openCertName || '';
+        state.cert.eventKey = evKey;
+        state.cert.query = name;
+        state.cert.selectedEntryKey = `${evKey}__${bib}__${name}`;
+        state.mode = 'certificate';
+        renderModeUI();
+        renderPublicCertificateTab();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        return;
+      }
+
       const w800Btn = e.target.closest('[data-open-800-hero]');
       if (w800Btn) {
         const name = w800Btn.dataset.open800Hero || '';
@@ -1705,6 +2003,7 @@
 
     $('pub-search-results').addEventListener('click', handleCrossJump);
     $('pub-history-results').addEventListener('click', handleCrossJump);
+    $('pub-800-hero-list').addEventListener('click', handleCrossJump);
 
     // 歷年成績查詢事件
     $('pub-history-year-filter').addEventListener('change', (e) => {
@@ -1743,6 +2042,191 @@
       state.w800HeroQuery = e.target.value.trim();
       if (!state.w800HeroQuery) renderWarriors800HeroList();
     });
+
+    // 證書列印與客製化事件
+    $('pub-cert-event-select').addEventListener('change', (e) => {
+      state.cert.eventKey = e.target.value;
+      runPublicCertSearch();
+    });
+    $('form-pub-cert-search').addEventListener('submit', (e) => {
+      e.preventDefault();
+      state.cert.query = $('pub-cert-search-input').value.trim();
+      runPublicCertSearch();
+    });
+    $('pub-cert-search-input').addEventListener('input', (e) => {
+      state.cert.query = e.target.value.trim();
+      if (!state.cert.query) runPublicCertSearch();
+    });
+    $('pub-cert-matches').addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-pick-cert-entry]');
+      if (!btn) return;
+      state.cert.selectedEntryKey = btn.dataset.pickCertEntry;
+      runPublicCertSearch();
+    });
+
+    document.querySelectorAll('.pub-cert-style-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        state.cert.style = btn.dataset.pubCertStyle === 'custom' ? 'custom' : 'official';
+        renderPublicCertStyleUI();
+        renderPublicCertCanvas();
+      });
+    });
+
+    // 官方樣式控制
+    $('pub-cert-orientation').addEventListener('change', (e) => { state.cert.orientation = e.target.value; renderPublicCertCanvas(); });
+    $('pub-cert-theme').addEventListener('change', (e) => { state.cert.theme = e.target.value; renderPublicCertCanvas(); });
+    $('pub-cert-show-splits').addEventListener('change', (e) => { state.cert.showSplits = e.target.checked; renderPublicCertCanvas(); });
+
+    // 客製化：上傳底圖與上傳個人照片
+    const readFileAsImage = (file) => new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const img = await Cert.loadImage(reader.result);
+        if (!img) reject(new Error('不支援的圖片格式'));
+        else resolve(img);
+      };
+      reader.onerror = () => reject(new Error('圖片讀取失敗'));
+      reader.readAsDataURL(file);
+    });
+
+    $('input-pub-cert-bg').addEventListener('change', async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      try {
+        const img = await readFileAsImage(file);
+        state.cert.bgImage = img;
+        $('pub-cert-bg-status').textContent = `✅ 已套用底圖：${file.name} (${img.naturalWidth}×${img.naturalHeight})`;
+        $('btn-pub-cert-clear-bg').classList.remove('hidden');
+        await renderPublicCertCanvas();
+      } catch (err) {
+        alert(err.message);
+      }
+      e.target.value = '';
+    });
+
+    $('btn-pub-cert-clear-bg').addEventListener('click', () => {
+      state.cert.bgImage = null;
+      $('pub-cert-bg-status').textContent = '未上傳時自動套用官方經典底紋';
+      $('btn-pub-cert-clear-bg').classList.add('hidden');
+      renderPublicCertCanvas();
+    });
+
+    $('input-pub-cert-photo').addEventListener('change', async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      try {
+        const img = await readFileAsImage(file);
+        state.cert.photoImage = img;
+        state.cert.cOffsetX = 0;
+        state.cert.cOffsetY = 0;
+        $('pub-cert-photo-status').textContent = `✅ 已套用照片：${file.name} (${img.naturalWidth}×${img.naturalHeight})`;
+        $('btn-pub-cert-clear-photo').classList.remove('hidden');
+        await renderPublicCertCanvas();
+      } catch (err) {
+        alert(err.message);
+      }
+      e.target.value = '';
+    });
+
+    $('btn-pub-cert-clear-photo').addEventListener('click', () => {
+      state.cert.photoImage = null;
+      state.cert.cOffsetX = 0;
+      state.cert.cOffsetY = 0;
+      $('pub-cert-photo-status').textContent = '支援衝線照／完賽獎牌照（可拖曳構圖）';
+      $('btn-pub-cert-clear-photo').classList.add('hidden');
+      renderPublicCertCanvas();
+    });
+
+    // 客製化版面與相框調整
+    $('pub-cert-c-orientation').addEventListener('change', (e) => { state.cert.cOrientation = e.target.value; renderPublicCertCanvas(); });
+    $('pub-cert-c-style').addEventListener('change', (e) => { state.cert.cStyle = e.target.value; renderPublicCertCanvas(); });
+    $('pub-cert-c-shape').addEventListener('change', (e) => { state.cert.cShape = e.target.value; renderPublicCertCanvas(); });
+    $('pub-cert-c-pos').addEventListener('change', (e) => { state.cert.cPos = e.target.value; renderPublicCertCanvas(); });
+    $('pub-cert-c-zoom').addEventListener('input', (e) => {
+      const pct = Number(e.target.value || 100);
+      state.cert.cZoom = pct / 100;
+      $('pub-cert-c-zoom-label').textContent = `${pct}%`;
+      renderPublicCertCanvas();
+    });
+    $('btn-pub-cert-reset-photo').addEventListener('click', () => {
+      state.cert.cZoom = 1;
+      state.cert.cOffsetX = 0;
+      state.cert.cOffsetY = 0;
+      $('pub-cert-c-zoom').value = '100';
+      $('pub-cert-c-zoom-label').textContent = '100%';
+      renderPublicCertCanvas();
+    });
+    $('pub-cert-c-quote').addEventListener('input', (e) => { state.cert.cQuote = e.target.value; renderPublicCertCanvas(); });
+    $('pub-cert-c-show-logo').addEventListener('change', (e) => { state.cert.cShowLogo = e.target.checked; renderPublicCertCanvas(); });
+    $('pub-cert-c-show-seal').addEventListener('change', (e) => { state.cert.cShowSeal = e.target.checked; renderPublicCertCanvas(); });
+    $('pub-cert-c-show-splits').addEventListener('change', (e) => { state.cert.cShowSplits = e.target.checked; renderPublicCertCanvas(); });
+
+    // 客製化模式：於相框內直接拖曳調整個人照片構圖
+    let photoDrag = null;
+    const pubCanvas = $('pub-cert-canvas');
+    const getPubCanvasPt = (clientX, clientY) => {
+      const rect = pubCanvas.getBoundingClientRect();
+      return {
+        x: ((clientX - rect.left) / rect.width) * pubCanvas.width,
+        y: ((clientY - rect.top) / rect.height) * pubCanvas.height
+      };
+    };
+    const startPhotoDrag = (clientX, clientY) => {
+      if (state.cert.style !== 'custom' || !state.cert.photoImage || !state.cert.photoBox) return;
+      const pt = getPubCanvasPt(clientX, clientY);
+      const b = state.cert.photoBox;
+      if (pt.x >= b.x && pt.x <= b.x + b.w && pt.y >= b.y && pt.y <= b.y + b.h) {
+        photoDrag = { startX: pt.x, startY: pt.y, origX: state.cert.cOffsetX, origY: state.cert.cOffsetY, boxW: b.w, boxH: b.h };
+      }
+    };
+    const movePhotoDrag = (clientX, clientY) => {
+      if (!photoDrag) return;
+      const pt = getPubCanvasPt(clientX, clientY);
+      const dx = ((pt.x - photoDrag.startX) / photoDrag.boxW) * 100;
+      const dy = ((pt.y - photoDrag.startY) / photoDrag.boxH) * 100;
+      state.cert.cOffsetX = Math.max(-50, Math.min(50, photoDrag.origX + dx));
+      state.cert.cOffsetY = Math.max(-50, Math.min(50, photoDrag.origY + dy));
+      renderPublicCertCanvas();
+    };
+    const endPhotoDrag = () => { photoDrag = null; };
+
+    pubCanvas.addEventListener('mousedown', (e) => startPhotoDrag(e.clientX, e.clientY));
+    window.addEventListener('mousemove', (e) => movePhotoDrag(e.clientX, e.clientY));
+    window.addEventListener('mouseup', endPhotoDrag);
+    pubCanvas.addEventListener('touchstart', (e) => {
+      if (e.touches[0]) {
+        startPhotoDrag(e.touches[0].clientX, e.touches[0].clientY);
+        if (photoDrag) e.preventDefault();
+      }
+    }, { passive: false });
+    window.addEventListener('touchmove', (e) => {
+      if (photoDrag && e.touches[0]) {
+        movePhotoDrag(e.touches[0].clientX, e.touches[0].clientY);
+        e.preventDefault();
+      }
+    }, { passive: false });
+    window.addEventListener('touchend', endPhotoDrag);
+
+    // 下載圖檔 / PDF / 直接列印
+    const exportPublicCert = async (type) => {
+      const entry = getSelectedPublicCertEntry();
+      if (!entry) return;
+      const offscreen = document.createElement('canvas');
+      await renderPublicCertToCanvas(offscreen, entry);
+      const tag = state.cert.style === 'custom' ? '客製化證書' : '官方完賽證書';
+      const safeName = `${tag}_${entry.eventName}_${entry.bib || ''}_${entry.name}`.replace(/[\\/:*?"<>|]/g, '_');
+      if (type === 'png') {
+        await Cert.downloadPng(offscreen, `${safeName}.png`);
+      } else if (type === 'pdf') {
+        Cert.downloadPdfFromCanvas(offscreen, `${safeName}.pdf`);
+      } else if (type === 'print') {
+        Cert.printCanvasCertificate(offscreen, `${entry.name} - ${entry.eventName}`);
+      }
+    };
+
+    $('btn-pub-cert-png').addEventListener('click', () => exportPublicCert('png').catch((err) => alert(err.message)));
+    $('btn-pub-cert-pdf').addEventListener('click', () => exportPublicCert('pdf').catch((err) => alert(err.message)));
+    $('btn-pub-cert-print').addEventListener('click', () => exportPublicCert('print').catch((err) => alert(err.message)));
   }
 
   document.addEventListener('DOMContentLoaded', initPublicPage);

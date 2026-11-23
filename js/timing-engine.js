@@ -13,12 +13,21 @@
   }
 
   /**
-   * 格式化系統時間為 HH:mm:ss.SSS
+   * 去除時間字串「秒」的小數部分（如 03:45:12.450 -> 03:45:12）
+   */
+  function normalizeTimeStr(val) {
+    const s = String(val ?? '').trim();
+    if (!s) return '';
+    return s.replace(/^(-?\d{1,3}:\d{2}:\d{2})\.\d+$/, '$1');
+  }
+
+  /**
+   * 格式化系統時間為 HH:mm:ss（秒數不含小數點）
    */
   function formatClockMs(tsMs) {
-    if (tsMs === null || tsMs === undefined || Number.isNaN(Number(tsMs))) return '--:--:--.---';
+    if (tsMs === null || tsMs === undefined || Number.isNaN(Number(tsMs))) return '--:--:--';
     const d = new Date(Number(tsMs));
-    return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}.${pad3(d.getMilliseconds())}`;
+    return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
   }
 
   /**
@@ -31,22 +40,19 @@
   }
 
   /**
-   * 格式化時間長度 (毫秒) 為 HH:mm:ss.SSS 或 HH:mm:ss
+   * 格式化時間長度 (毫秒) 為 HH:mm:ss（全系統統一秒數不含小數點）
    */
-  function formatDuration(durationMs, includeMs = true) {
+  function formatDuration(durationMs) {
     if (durationMs === null || durationMs === undefined || Number.isNaN(Number(durationMs))) {
-      return includeMs ? '--:--:--.---' : '--:--:--';
+      return '--:--:--';
     }
     const neg = durationMs < 0;
-    const abs = Math.abs(Math.round(durationMs));
-    const hours = Math.floor(abs / 3600000);
-    const minutes = Math.floor((abs % 3600000) / 60000);
-    const seconds = Math.floor((abs % 60000) / 1000);
-    const ms = abs % 1000;
+    const absSec = Math.floor(Math.abs(Math.round(durationMs)) / 1000);
+    const hours = Math.floor(absSec / 3600);
+    const minutes = Math.floor((absSec % 3600) / 60);
+    const seconds = absSec % 60;
     const prefix = neg ? '-' : '';
-    return includeMs
-      ? `${prefix}${pad2(hours)}:${pad2(minutes)}:${pad2(seconds)}.${pad3(ms)}`
-      : `${prefix}${pad2(hours)}:${pad2(minutes)}:${pad2(seconds)}`;
+    return `${prefix}${pad2(hours)}:${pad2(minutes)}:${pad2(seconds)}`;
   }
 
   /**
@@ -734,6 +740,7 @@
 
   global.TimingEngine = {
     CHECKIN_CP_ID,
+    normalizeTimeStr,
     formatClockMs,
     formatClockSec,
     formatDuration,

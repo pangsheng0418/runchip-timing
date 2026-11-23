@@ -100,3 +100,163 @@ body.high-contrast .hc-card {
 .safe-bottom {
   padding-bottom: env(safe-area-inset-bottom, 12px);
 }
+
+/* ============================================================================
+ * TUR 專業運動計時平台 — 主畫面光影背景、頂部流光與三大玻璃質感入口方框
+ * ============================================================================ */
+.tur-stage-bg {
+  background-color: #030712;
+  background-image:
+    radial-gradient(ellipse 68% 48% at 18% 0%, rgba(132, 204, 22, 0.11), transparent 62%),
+    radial-gradient(ellipse 62% 45% at 85% 4%, rgba(14, 165, 233, 0.12), transparent 60%),
+    radial-gradient(ellipse 52% 40% at 50% 96%, rgba(245, 158, 11, 0.08), transparent 65%),
+    linear-gradient(rgba(148, 163, 184, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.045) 1px, transparent 1px);
+  background-size: 100% 100%, 100% 100%, 100% 100%, 36px 36px, 36px 36px;
+  background-attachment: fixed;
+}
+
+.tur-header-bar {
+  background: linear-gradient(180deg, rgba(10, 17, 34, 0.94) 0%, rgba(7, 13, 27, 0.88) 100%);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.tur-header-bar::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: linear-gradient(90deg, transparent 0%, rgba(132, 204, 22, 0.75) 22%, rgba(56, 189, 248, 0.85) 52%, rgba(245, 158, 11, 0.8) 80%, transparent 100%);
+  pointer-events: none;
+}
+
+.tur-control-bar {
+  background: linear-gradient(145deg, rgba(15, 23, 42, 0.88) 0%, rgba(8, 14, 28, 0.92) 100%);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  box-shadow: 0 18px 42px -18px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+
+/* 三大專業純文字質感方框入口 */
+.portal-entry-box {
+  position: relative;
+  overflow: hidden;
+  border-radius: 1.5rem;
+  min-height: 158px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  letter-spacing: 0.12em;
+  font-weight: 900;
+  background: linear-gradient(160deg, rgba(17, 26, 46, 0.92) 0%, rgba(9, 15, 30, 0.96) 100%);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  transition: transform 0.24s cubic-bezier(0.22, 1, 0.36, 1),
+              border-color 0.24s ease,
+              box-shadow 0.24s ease,
+              color 0.24s ease;
+  box-shadow: 0 20px 44px -20px rgba(0, 0, 0, 0.85), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+/* 頂部微光賽道線 */
+.portal-entry-box::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 16%;
+  right: 16%;
+  height: 2px;
+  border-radius: 9999px;
+  opacity: 0.85;
+  transition: left 0.28s ease, right 0.28s ease, opacity 0.28s ease;
+}
+
+/* 內層柔和環境光暈 */
+.portal-entry-box::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0.55;
+  transition: opacity 0.28s ease;
+  pointer-events: none;
+}
+
+.portal-entry-box:hover {
+  transform: translateY(-4px);
+}
+
+.portal-entry-box:hover::before {
+  left: 6%;
+  right: 6%;
+  opacity: 1;
+}
+
+.portal-entry-box:hover::after {
+  opacity: 1;
+}
+
+.portal-entry-box:active {
+  transform: translateY(-1px) scale(0.99);
+}
+
+.portal-entry-sky {
+  border: 1.5px solid rgba(56, 189, 248, 0.45);
+  color: #7dd3fc;
+}
+.portal-entry-sky::before {
+  background: linear-gradient(90deg, transparent, #38bdf8, #7dd3fc, transparent);
+}
+.portal-entry-sky::after {
+  background: radial-gradient(circle at 50% 0%, rgba(56, 189, 248, 0.16), transparent 68%);
+}
+.portal-entry-sky:hover {
+  border-color: rgba(56, 189, 248, 0.9);
+  color: #ffffff;
+  box-shadow: 0 24px 50px -16px rgba(14, 165, 233, 0.35), 0 0 0 1px rgba(56, 189, 248, 0.25) inset;
+}
+
+.portal-entry-emerald {
+  border: 1.5px solid rgba(52, 211, 153, 0.45);
+  color: #6ee7b7;
+}
+.portal-entry-emerald::before {
+  background: linear-gradient(90deg, transparent, #10b981, #84cc16, transparent);
+}
+.portal-entry-emerald::after {
+  background: radial-gradient(circle at 50% 0%, rgba(16, 185, 129, 0.16), transparent 68%);
+}
+.portal-entry-emerald:hover {
+  border-color: rgba(52, 211, 153, 0.9);
+  color: #ffffff;
+  box-shadow: 0 24px 50px -16px rgba(16, 185, 129, 0.35), 0 0 0 1px rgba(52, 211, 153, 0.25) inset;
+}
+
+.portal-entry-amber {
+  border: 1.5px solid rgba(251, 191, 36, 0.45);
+  color: #fcd34d;
+}
+.portal-entry-amber::before {
+  background: linear-gradient(90deg, transparent, #f59e0b, #fde047, transparent);
+}
+.portal-entry-amber::after {
+  background: radial-gradient(circle at 50% 0%, rgba(245, 158, 11, 0.16), transparent 68%);
+}
+.portal-entry-amber:hover {
+  border-color: rgba(251, 191, 36, 0.9);
+  color: #ffffff;
+  box-shadow: 0 24px 50px -16px rgba(245, 158, 11, 0.35), 0 0 0 1px rgba(251, 191, 36, 0.25) inset;
+}
+
+/* 戶外高對比模式停用漸層光影，維持純黑高對比 */
+body.high-contrast.tur-stage-bg {
+  background-image: none !important;
+}

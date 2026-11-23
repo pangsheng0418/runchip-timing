@@ -314,8 +314,8 @@
         累積圈數: row.lapCount,
         單圈距離_km: row.lapDistanceKm,
         總里程_km: Number(row.totalDistanceKm.toFixed(3)),
-        累積耗時: row.totalElapsedMs !== null ? TE.formatDuration(row.totalElapsedMs, true) : '',
-        最後通過時間: row.lastLapTimeMs ? TE.formatClockMs(row.lastLapTimeMs) : '',
+        累積耗時: row.totalElapsedMs !== null ? TE.formatDuration(row.totalElapsedMs, false) : '',
+        最後通過時間: row.lastLapTimeMs ? TE.formatClockSec(row.lastLapTimeMs) : '',
         最速單圈: row.bestLapMs !== null ? TE.formatDuration(row.bestLapMs, false) : '',
         平均單圈: row.avgLapMs !== null ? TE.formatDuration(row.avgLapMs, false) : '',
         平均配速: row.avgPace !== '--' ? row.avgPace : '',
@@ -423,7 +423,7 @@
       });
 
       obj['判罰加時(秒)'] = row.penaltySec || 0;
-      obj['完賽時間'] = row.gunDurationMs !== null ? TE.formatDuration(row.gunDurationMs, true) : '';
+      obj['完賽時間'] = row.gunDurationMs !== null ? TE.formatDuration(row.gunDurationMs, false) : '';
       obj['平均配速'] = row.avgPace !== '--' ? row.avgPace : '';
       return obj;
     });
@@ -444,7 +444,7 @@
       已完賽: c.finished,
       賽道上: c.onCourse,
       完賽率: c.total ? `${((c.finished / c.total) * 100).toFixed(1)}%` : '0%',
-      最佳成績: c.bestMs !== null ? TE.formatDuration(c.bestMs, true) : '--',
+      最佳成績: c.bestMs !== null ? TE.formatDuration(c.bestMs, false) : '--',
       平均成績: c.avgMs !== null ? TE.formatDuration(c.avgMs, false) : '--'
     }));
 

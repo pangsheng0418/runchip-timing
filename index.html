@@ -10,19 +10,19 @@
   <link rel="apple-touch-icon" href="./tur-icon.png" />
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
-  <link rel="stylesheet" href="./css/style.css" />
+  <link rel="stylesheet" href="./css/style.css?v=3.12.2" />
 </head>
-<body class="min-h-screen bg-slate-950 text-slate-100 pb-10">
+<body class="min-h-screen tur-stage-bg text-slate-100 pb-10">
 
   <!-- 頂部狀態列 -->
-  <header class="sticky top-0 z-40 bg-slate-900/95 backdrop-blur border-b border-slate-800">
-    <div class="max-w-7xl mx-auto px-3 sm:px-6 py-2.5 flex flex-wrap items-center justify-between gap-2">
+  <header class="tur-header-bar">
+    <div class="max-w-7xl mx-auto px-3 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-2">
       <div class="flex items-center gap-3 min-w-0 cursor-pointer" id="header-brand-home" title="返回大廳">
-        <div class="bg-white px-2.5 py-1 rounded-xl shadow shrink-0 flex items-center">
+        <div class="bg-white px-2.5 py-1 rounded-xl shadow-md ring-1 ring-lime-400/35 shrink-0 flex items-center">
           <img src="./tur-logo.jpg" alt="TUR Taiwan Ultra Runners" class="h-7 sm:h-8 w-auto object-contain" />
         </div>
         <div class="min-w-0">
-          <h1 id="header-race-name" class="text-sm sm:text-base font-black tracking-tight text-white truncate">
+          <h1 id="header-race-name" class="text-sm sm:text-base font-black tracking-wide text-white truncate">
             路跑晶片計時平台
           </h1>
           <div class="flex items-center gap-2 text-xs text-slate-400">
@@ -34,7 +34,7 @@
       </div>
 
       <div class="flex items-center gap-2 flex-wrap">
-        <span id="badge-network" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-slate-800 border border-slate-700 text-slate-300">
+        <span id="badge-network" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-slate-800/90 border border-slate-700/80 text-slate-300">
           <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
           <span>離線</span>
         </span>
@@ -45,9 +45,9 @@
           <span id="pending-sync-count" class="px-1.5 py-0.5 rounded bg-slate-950 text-amber-300 font-mono-num">0</span>
         </button>
 
-        <div id="header-user-box" class="hidden inline-flex items-center gap-2 pl-2.5 pr-1.5 py-1 rounded-xl bg-slate-800 border border-slate-700">
+        <div id="header-user-box" class="hidden inline-flex items-center gap-2 pl-2.5 pr-1.5 py-1 rounded-xl bg-slate-800/90 border border-slate-700/80">
           <span id="header-user-label" class="text-xs font-bold text-sky-300"></span>
-          <button id="btn-logout" type="button" class="px-2.5 py-1 rounded-lg text-xs font-extrabold bg-rose-600/80 hover:bg-rose-500 text-white transition">
+          <button id="btn-logout" type="button" class="px-2.5 py-1 rounded-lg text-xs font-extrabold bg-rose-600/85 hover:bg-rose-500 text-white transition">
             登出
           </button>
         </div>
@@ -58,35 +58,38 @@
   <!-- 全域 Toast -->
   <div id="toast-container" class="fixed top-20 right-4 z-50 flex flex-col gap-2 max-w-sm w-[calc(100vw-2rem)] pointer-events-none"></div>
 
-  <main class="max-w-7xl mx-auto px-3 sm:px-6 py-6 space-y-6">
+  <main class="max-w-7xl mx-auto px-3 sm:px-6 py-6 sm:py-10 space-y-6">
 
     <!-- ================================================================== -->
-    <!-- VIEW 1：大廳入口 -->
+    <!-- VIEW 1：大廳入口（專業運動科技極簡風格） -->
     <!-- ================================================================== -->
-    <section id="view-portal" class="app-view space-y-5 py-2 sm:py-4">
+    <section id="view-portal" class="app-view space-y-7 sm:space-y-9 py-4 sm:py-8">
       <div class="text-center">
-        <div id="portal-net-banner" class="inline-flex items-center gap-2 px-3.5 py-1 rounded-full text-xs font-bold bg-emerald-950/70 border border-emerald-500/40 text-emerald-300">
+        <div id="portal-net-banner" class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-bold bg-emerald-950/70 border border-emerald-500/40 text-emerald-300 shadow-lg">
           🟢 就緒
         </div>
       </div>
 
-      <!-- 活動選取列 -->
-      <div class="max-w-3xl mx-auto bg-slate-900 border border-slate-800 rounded-2xl p-3.5 space-y-2.5 shadow-lg">
-        <div class="flex flex-col sm:flex-row sm:items-center gap-2.5">
-          <label for="portal-event-select" class="text-sm font-black text-sky-300 shrink-0">🏟️ 活動</label>
+      <!-- 活動選取控制列 -->
+      <div class="max-w-4xl mx-auto tur-control-bar rounded-2xl p-4 sm:p-4.5 space-y-2.5">
+        <div class="flex flex-col sm:flex-row sm:items-center gap-3">
+          <label for="portal-event-select" class="inline-flex items-center gap-2 text-sm font-black tracking-wide text-sky-300 shrink-0">
+            <span class="w-2 h-2 rounded-full bg-lime-400 shadow-[0_0_8px_#a3e635]"></span>
+            <span>目前活動</span>
+          </label>
           <select id="portal-event-select"
-            style="background-color:#0f172a; color:#f8fafc;"
-            class="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm sm:text-base font-bold text-white focus:border-sky-400 focus:outline-none">
+            style="background-color:#070d1b; color:#f8fafc;"
+            class="flex-1 bg-slate-950 border border-slate-700/90 hover:border-sky-500/60 rounded-xl px-4 py-3 text-sm sm:text-base font-bold text-white focus:border-sky-400 focus:outline-none transition">
           </select>
-          <span id="portal-event-select-empty" class="hidden flex-1 text-sm font-bold text-slate-400 px-3 py-2 rounded-xl bg-slate-950/70 border border-slate-800">
+          <span id="portal-event-select-empty" class="hidden flex-1 text-sm font-bold text-slate-400 px-4 py-3 rounded-xl bg-slate-950/70 border border-slate-800">
             🔒 目前無開放活動
           </span>
           <button id="btn-portal-sync-now" type="button"
-            class="px-4 py-2.5 rounded-xl text-xs font-black bg-sky-600 hover:bg-sky-500 text-white shrink-0 transition">
+            class="px-5 py-3 rounded-xl text-xs sm:text-sm font-black bg-gradient-to-r from-sky-500 to-cyan-400 hover:from-sky-400 hover:to-cyan-300 text-slate-950 shrink-0 transition shadow-lg shadow-sky-950/60">
             🔄 同步
           </button>
         </div>
-        <div id="portal-cloud-tip" class="hidden text-xs text-amber-300 flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800">
+        <div id="portal-cloud-tip" class="hidden text-xs text-amber-300 flex flex-wrap items-center justify-between gap-2 pt-2.5 border-t border-slate-800/80">
           <span>⚠️ 尚未綁定雲端網址（目前為本機模式）</span>
           <button id="btn-portal-bind-url" type="button" class="px-3 py-1 rounded-lg text-xs font-black bg-amber-500 hover:bg-amber-400 text-slate-950">
             🔗 綁定網址
@@ -94,20 +97,20 @@
         </div>
       </div>
 
-      <!-- 三大作業區（精簡文字方框入口） -->
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-5 max-w-4xl mx-auto">
+      <!-- 三大作業區（專業質感文字方框入口） -->
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-4xl mx-auto">
         <a id="portal-link-public" href="./public.html"
-          class="bg-slate-900 border border-sky-500/50 hover:border-sky-400 hover:bg-sky-500/10 rounded-3xl py-9 px-6 flex items-center justify-center text-center text-2xl font-black text-sky-300 hover:text-white transition shadow-xl">
+          class="portal-entry-box portal-entry-sky text-2xl sm:text-3xl">
           公開查詢
         </a>
 
         <button id="btn-portal-staff" type="button"
-          class="bg-slate-900 border border-emerald-500/50 hover:border-emerald-400 hover:bg-emerald-500/10 rounded-3xl py-9 px-6 flex items-center justify-center text-center text-2xl font-black text-emerald-300 hover:text-white transition shadow-xl">
+          class="portal-entry-box portal-entry-emerald text-2xl sm:text-3xl">
           晶片作業
         </button>
 
         <button id="btn-portal-admin" type="button"
-          class="bg-slate-900 border border-amber-500/50 hover:border-amber-400 hover:bg-amber-500/10 rounded-3xl py-9 px-6 flex items-center justify-center text-center text-2xl font-black text-amber-300 hover:text-white transition shadow-xl">
+          class="portal-entry-box portal-entry-amber text-2xl sm:text-3xl">
           後台管理
         </button>
       </div>
@@ -268,7 +271,7 @@
 
           <div class="lg:col-span-5 hc-card bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col justify-center items-center text-center">
             <div id="live-clock" class="font-mono-num text-4xl sm:text-5xl font-black text-sky-400 tracking-tight">
-              00:00:00.000
+              00:00:00
             </div>
             <div id="scan-nfc-env-hint" class="text-xs text-slate-400 mt-1.5">檢查 NFC 中...</div>
           </div>
@@ -291,7 +294,7 @@
             </div>
             <div>
               <div id="hero-col3-label" class="text-xs font-bold text-slate-400">經過時間</div>
-              <div id="hero-elapsed" class="font-mono-num text-3xl sm:text-5xl font-black text-emerald-400 mt-1">--:--:--.---</div>
+              <div id="hero-elapsed" class="font-mono-num text-3xl sm:text-5xl font-black text-emerald-400 mt-1">--:--:--</div>
             </div>
           </div>
 
@@ -491,7 +494,7 @@
         </button>
       </div>
 
-      <!-- 7 大分頁導覽 -->
+      <!-- 8 大分頁導覽 -->
       <div class="bg-slate-900 border border-slate-800 rounded-2xl p-1.5 flex flex-wrap gap-1">
         <button type="button" data-admin-tab="events" class="admin-tab-btn px-3.5 py-2 rounded-xl text-xs sm:text-sm font-black bg-amber-500 text-slate-950">
           🏟️ 活動
@@ -510,6 +513,9 @@
         </button>
         <button type="button" data-admin-tab="history" class="admin-tab-btn px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold text-slate-300 hover:bg-slate-800">
           📜 歷年匯入
+        </button>
+        <button type="button" data-admin-tab="certificate" class="admin-tab-btn px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold text-slate-300 hover:bg-slate-800">
+          🏅 製作證書
         </button>
         <button type="button" data-admin-tab="sync" class="admin-tab-btn px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold text-slate-300 hover:bg-slate-800">
           ☁️ 匯出與同步
@@ -964,7 +970,227 @@
         </div>
       </div>
 
-      <!-- ==================== 分頁 7：匯出與同步 ==================== -->
+      <!-- ==================== 分頁 7：製作證書 ==================== -->
+      <div id="admin-tab-certificate" class="admin-panel hidden space-y-4">
+        <div id="admin-cert-empty" class="hidden bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center space-y-1.5">
+          <div class="text-3xl">🏅</div>
+          <div id="admin-cert-empty-title" class="text-base font-black text-white">尚無可製作證書之「已結束」或「歷年」活動</div>
+          <p id="admin-cert-empty-desc" class="text-xs text-slate-400">證書製作僅包含「已結束」與「歷年」活動（進行中賽事不列入）。請先至「🏟️ 活動」將賽事設為「已結束」，或至「📜 歷年成績」匯入歷史紀錄。</p>
+        </div>
+
+        <div id="admin-cert-content" class="space-y-4">
+          <!-- 證書來源活動選單（僅包含「已結束」與「歷年」活動，排除進行中） -->
+          <div class="bg-slate-900 border border-emerald-500/35 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3">
+            <div class="flex flex-wrap items-center gap-2.5 flex-1 min-w-[260px]">
+              <label for="cert-event-select" class="text-xs font-black text-emerald-300 shrink-0">🏅 證書活動來源</label>
+              <select id="cert-event-select"
+                style="background-color:#0f172a; color:#f8fafc;"
+                class="flex-1 min-w-[240px] bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs sm:text-sm font-bold text-white focus:border-emerald-400 focus:outline-none">
+              </select>
+            </div>
+            <div class="flex items-center gap-2 text-[11px] font-bold text-slate-400">
+              <span class="px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-300">僅列「已結束」與「歷年」活動（進行中不列入）</span>
+            </div>
+          </div>
+
+          <!-- 證書模式切換列（明確區分：官方中英公版 vs 上傳自訂底圖） -->
+          <div class="bg-slate-900 border border-amber-500/35 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3">
+            <div class="flex flex-wrap items-center gap-2">
+              <div class="inline-flex p-1 rounded-xl bg-slate-950 border border-slate-800 gap-1">
+                <button type="button" data-cert-mode="official"
+                  class="cert-mode-btn px-3.5 py-2 rounded-lg text-xs sm:text-sm font-black bg-amber-500 text-slate-950 transition">
+                  🏛️ 官方公版（中英文對照）
+                </button>
+                <button type="button" data-cert-mode="custom"
+                  class="cert-mode-btn px-3.5 py-2 rounded-lg text-xs sm:text-sm font-bold text-slate-300 hover:bg-slate-800 transition">
+                  🖼️ 上傳自訂底圖套印
+                </button>
+              </div>
+            </div>
+            <div class="flex items-center gap-2 text-xs font-mono-num text-slate-300">
+              <span id="cert-event-name-badge" class="font-bold text-white">--</span>
+              <span class="text-slate-600">•</span>
+              <span id="cert-event-date-badge" class="px-2 py-0.5 rounded bg-slate-800 text-amber-300 font-bold">📅 --</span>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+            <!-- 左側：選手清單 ＋ 證書樣式設定 -->
+            <div class="lg:col-span-4 space-y-4">
+              <!-- 1. 選手選取 -->
+              <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
+                <div class="flex items-center justify-between gap-2">
+                  <h3 class="text-sm font-extrabold text-white">🏃 選擇選手成績</h3>
+                  <span id="cert-runner-count" class="text-xs font-mono-num text-sky-300 font-bold">0 人</span>
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                  <select id="cert-cat-filter" class="bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-2 text-xs font-bold text-white">
+                    <option value="ALL">全部組別</option>
+                  </select>
+                  <input id="cert-runner-search" type="search" placeholder="搜尋編號 / 姓名"
+                    class="bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-2 text-xs text-white focus:border-amber-500 focus:outline-none" />
+                </div>
+                <label class="inline-flex items-center gap-2 text-xs text-slate-300 cursor-pointer select-none">
+                  <input id="cert-only-finished" type="checkbox" checked class="accent-amber-500 w-4 h-4" />
+                  <span>僅列出已完賽／有效成績選手</span>
+                </label>
+                <div id="cert-runner-list" class="max-h-52 overflow-y-auto space-y-1.5 pr-1"></div>
+              </div>
+
+              <!-- 2A. 官方公版設定 -->
+              <div id="cert-panel-official" class="bg-slate-900 border border-amber-500/30 rounded-2xl p-4 space-y-3">
+                <h3 class="text-sm font-extrabold text-amber-300">🏛️ 官方中英文公版設定</h3>
+                <div class="grid grid-cols-2 gap-2.5">
+                  <div>
+                    <label class="block text-[11px] font-bold text-slate-400 mb-1">證書方向</label>
+                    <select id="cert-orientation" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-2 text-xs font-bold text-white">
+                      <option value="landscape">A4 橫式（官方推薦）</option>
+                      <option value="portrait">A4 直式</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label class="block text-[11px] font-bold text-slate-400 mb-1">官方配色主題</label>
+                    <select id="cert-theme" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-2 text-xs font-bold text-white">
+                      <option value="ivory_gold">經典象牙金</option>
+                      <option value="navy_gold">尊榮深海藍金</option>
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label class="block text-[11px] font-bold text-slate-400 mb-1">英文活動名稱（中英對照）</label>
+                  <input id="cert-en-name" type="text" placeholder="800 Heroes Ultra Marathon"
+                    class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white" />
+                </div>
+                <div>
+                  <label class="block text-[11px] font-bold text-slate-400 mb-1">主辦單位 (Organizer)</label>
+                  <input id="cert-org-name" type="text" value="Taiwan Ultra Runners"
+                    class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white" />
+                </div>
+                <label class="inline-flex items-center gap-2 text-xs text-slate-300 cursor-pointer select-none pt-1">
+                  <input id="cert-show-splits" type="checkbox" checked class="accent-amber-500 w-4 h-4" />
+                  <span>列出各站分段成績（繞圈賽顯示圈次摘要）</span>
+                </label>
+              </div>
+
+              <!-- 2B. 自訂底圖套印設定 -->
+              <div id="cert-panel-custom" class="hidden bg-slate-900 border border-sky-500/30 rounded-2xl p-4 space-y-3">
+                <div class="flex items-center justify-between gap-2">
+                  <h3 class="text-sm font-extrabold text-sky-300">🖼️ 自訂底圖與成績套印</h3>
+                  <button id="btn-cert-clear-bg" type="button" class="hidden px-2 py-1 rounded-lg text-[11px] font-bold bg-rose-600/20 text-rose-300 hover:bg-rose-600/40">
+                    清除底圖
+                  </button>
+                </div>
+
+                <div class="flex items-center gap-2">
+                  <label class="flex-1 cursor-pointer text-center py-2.5 px-3 rounded-xl text-xs font-black bg-sky-500 hover:bg-sky-400 text-slate-950 transition">
+                    📤 上傳自訂底圖 (JPG / PNG)
+                    <input id="input-cert-bg-file" type="file" accept="image/png,image/jpeg,image/webp" class="hidden" />
+                  </label>
+                </div>
+                <div id="cert-bg-status" class="text-[11px] text-slate-400">尚未上傳底圖（支援 A4 橫式或直式高解析圖檔）</div>
+
+                <label class="inline-flex items-center gap-2 text-xs text-slate-300 cursor-pointer select-none">
+                  <input id="cert-custom-show-logo" type="checkbox" class="accent-sky-500 w-4 h-4" />
+                  <span>於底圖左上角疊加 TUR 官方 LOGO</span>
+                </label>
+
+                <div class="border-t border-slate-800 pt-2.5 space-y-2">
+                  <div class="flex items-center justify-between">
+                    <span class="text-[11px] font-bold text-slate-300">套印欄位開關（點擊欄位微調，或於預覽圖直接拖曳）</span>
+                  </div>
+                  <div id="cert-field-list" class="flex flex-wrap gap-1.5"></div>
+                </div>
+
+                <!-- 選中欄位細部調整 -->
+                <div id="cert-field-editor" class="rounded-xl bg-slate-950 border border-slate-800 p-3 space-y-2.5 text-xs">
+                  <div class="flex items-center justify-between">
+                    <span id="cert-f-title" class="font-black text-amber-300">選手姓名</span>
+                    <label class="inline-flex items-center gap-1.5 text-[11px] text-slate-300 cursor-pointer">
+                      <input id="cert-f-bold" type="checkbox" checked class="accent-amber-500" />
+                      <span>粗體</span>
+                    </label>
+                  </div>
+                  <div class="grid grid-cols-2 gap-2">
+                    <div>
+                      <label class="block text-[10px] text-slate-400 mb-0.5">水平 X (%)</label>
+                      <input id="cert-f-x" type="number" step="0.5" min="0" max="100" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 font-mono-num text-white" />
+                    </div>
+                    <div>
+                      <label class="block text-[10px] text-slate-400 mb-0.5">垂直 Y (%)</label>
+                      <input id="cert-f-y" type="number" step="0.5" min="0" max="100" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 font-mono-num text-white" />
+                    </div>
+                    <div>
+                      <label class="block text-[10px] text-slate-400 mb-0.5">字體大小</label>
+                      <input id="cert-f-size" type="number" step="2" min="16" max="220" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 font-mono-num text-white" />
+                    </div>
+                    <div>
+                      <label class="block text-[10px] text-slate-400 mb-0.5">文字顏色</label>
+                      <input id="cert-f-color" type="color" value="#0f172a" class="w-full h-8 bg-slate-900 border border-slate-700 rounded-lg px-1 cursor-pointer" />
+                    </div>
+                  </div>
+                  <div class="grid grid-cols-2 gap-2">
+                    <div>
+                      <label class="block text-[10px] text-slate-400 mb-0.5">前綴文字（選填）</label>
+                      <input id="cert-f-prefix" type="text" placeholder="如 BIB: " class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-white" />
+                    </div>
+                    <div>
+                      <label class="block text-[10px] text-slate-400 mb-0.5">對齊方式</label>
+                      <select id="cert-f-align" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-white">
+                        <option value="center">置中</option>
+                        <option value="left">靠左</option>
+                        <option value="right">靠右</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="flex gap-2">
+                  <button id="btn-cert-save-layout" type="button" class="flex-1 py-2 rounded-xl text-xs font-black bg-emerald-500 hover:bg-emerald-400 text-slate-950">
+                    💾 儲存底圖與版面
+                  </button>
+                  <button id="btn-cert-reset-layout" type="button" class="px-3 py-2 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700">
+                    ↺ 重設
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- 右側：高畫質即時預覽 ＋ PNG / PDF 下載區 -->
+            <div class="lg:col-span-8 bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 space-y-4">
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h3 class="text-sm sm:text-base font-extrabold text-white">🖼️ 證書即時預覽</h3>
+                  <div id="cert-preview-caption" class="text-xs text-slate-400 mt-0.5">--</div>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                  <button id="btn-cert-download-png" type="button"
+                    class="px-3.5 py-2 rounded-xl text-xs font-black bg-sky-500 hover:bg-sky-400 text-slate-950 transition shadow">
+                    🖼️ 下載圖檔 (.png)
+                  </button>
+                  <button id="btn-cert-download-pdf" type="button"
+                    class="px-3.5 py-2 rounded-xl text-xs font-black bg-amber-500 hover:bg-amber-400 text-slate-950 transition shadow">
+                    📄 下載 PDF (.pdf)
+                  </button>
+                  <button id="btn-cert-batch-pdf" type="button"
+                    class="px-3.5 py-2 rounded-xl text-xs font-black bg-emerald-500 hover:bg-emerald-400 text-slate-950 transition shadow">
+                    📚 批次下載 PDF (<span id="cert-batch-count">0</span>)
+                  </button>
+                </div>
+              </div>
+
+              <div class="rounded-2xl bg-slate-950 border border-slate-800 p-3 sm:p-4 flex items-center justify-center overflow-hidden">
+                <canvas id="cert-preview-canvas"
+                  class="max-w-full max-h-[620px] w-auto h-auto rounded-lg shadow-2xl border border-slate-700/70 select-none"></canvas>
+              </div>
+              <div id="cert-drag-hint" class="hidden text-center text-xs text-sky-300">
+                💡 自訂底圖模式：可直接於上方證書畫布按住拖曳各成績文字微調位置（下載時會自動隱藏虛線定位框）
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ==================== 分頁 8：匯出與同步 ==================== -->
       <div id="admin-tab-sync" class="admin-panel hidden space-y-4">
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <div id="admin-sync-excel-card" class="bg-slate-900 border border-emerald-500/30 rounded-2xl p-4 sm:p-5 space-y-3">
@@ -1054,14 +1280,25 @@
         </div>
 
         <details id="admin-maintenance-card" class="bg-slate-900 border border-rose-500/30 rounded-2xl p-4 sm:p-5">
-          <summary class="cursor-pointer text-sm font-extrabold text-rose-300 select-none">🧪 測試資料與重置</summary>
-          <div class="flex flex-wrap gap-2 mt-3">
-            <button id="btn-load-demo-data" type="button" class="px-4 py-2 rounded-xl text-xs font-black bg-indigo-600 hover:bg-indigo-500 text-white">
-              ⚡ 載入模擬資料
-            </button>
-            <button id="btn-clear-all-data" type="button" class="px-4 py-2 rounded-xl text-xs font-bold bg-rose-600/20 hover:bg-rose-600/40 text-rose-300 border border-rose-500/50">
-              🗑️ 清空本機資料
-            </button>
+          <summary class="cursor-pointer text-sm font-extrabold text-rose-300 select-none">🧪 測試資料與重置（含全情境 5 場示範活動）</summary>
+          <div class="mt-3 space-y-3">
+            <div class="rounded-xl bg-slate-950 border border-slate-800 p-3 text-xs text-slate-300 space-y-1.5">
+              <div class="font-bold text-indigo-300">一鍵載入完整測試情境（共 5 場活動 ＋ 12 位跨場選手 ＋ 2023–2025 歷年與八百壯士資料）：</div>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-[11px] text-slate-400">
+                <div>• <strong class="text-emerald-300">[進行中・超馬距離]</strong> 八百壯士極東霸主 101.3K/54.2K/21K（4站分段、外籍/複姓、罰時、DUV與證書）</div>
+                <div>• <strong class="text-purple-300">[進行中・繞圈計時]</strong> 八百壯士環湖繞圈 6H/12H/24H（單圈 2.54K、逐圈與超時圈示範）</div>
+                <div>• <strong class="text-sky-300">[籌備中・距離賽]</strong> 北海岸公益馬拉松（未鳴槍、預先報到，可測現場報到與一鍵鳴槍）</div>
+                <div>• <strong class="text-slate-300">[已結束・雙類型歸檔]</strong> 2025 冬季百公里＋台北河濱 12H（鎖定保護、歷年合併與英雄榜）</div>
+              </div>
+            </div>
+            <div class="flex flex-wrap gap-2">
+              <button id="btn-load-demo-data" type="button" class="px-4 py-2 rounded-xl text-xs font-black bg-indigo-600 hover:bg-indigo-500 text-white shadow">
+                ⚡ 載入全情境測試資料（5 場活動）
+              </button>
+              <button id="btn-clear-all-data" type="button" class="px-4 py-2 rounded-xl text-xs font-bold bg-rose-600/20 hover:bg-rose-600/40 text-rose-300 border border-rose-500/50">
+                🗑️ 清空本機資料
+              </button>
+            </div>
           </div>
         </details>
       </div>
@@ -1124,8 +1361,8 @@
 
         <div id="edit-scan-fields" class="space-y-3">
           <div>
-            <label class="block text-xs font-bold text-slate-400 mb-1">時間 (HH:mm:ss.SSS)</label>
-            <input id="edit-time-str" type="text" placeholder="08:35:12.450"
+            <label class="block text-xs font-bold text-slate-400 mb-1">時間 (HH:mm:ss)</label>
+            <input id="edit-time-str" type="text" placeholder="08:35:12"
               class="w-full font-mono-num text-lg font-bold bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-white" />
           </div>
           <div>
@@ -1252,8 +1489,8 @@
         <input type="hidden" id="lap-modal-bib" />
         <input type="hidden" id="lap-modal-idnumber" />
         <div class="flex-1 min-w-[140px]">
-          <label class="block text-[11px] font-bold text-slate-400 mb-1">補登時間 (HH:mm:ss.SSS)</label>
-          <input id="lap-manual-time" required type="text" placeholder="09:42:15.200"
+          <label class="block text-[11px] font-bold text-slate-400 mb-1">補登時間 (HH:mm:ss)</label>
+          <input id="lap-manual-time" required type="text" placeholder="09:42:15"
             class="w-full font-mono-num text-sm font-bold bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white" />
         </div>
         <div class="flex-1 min-w-[120px]">
@@ -1343,12 +1580,13 @@
     </div>
   </div>
 
-  <script src="./js/config.js"></script>
-  <script src="./js/timing-engine.js"></script>
-  <script src="./js/db.js"></script>
-  <script src="./js/nfc.js"></script>
-  <script src="./js/sync.js"></script>
-  <script src="./js/excel.js"></script>
-  <script src="./js/app.js"></script>
+  <script src="./js/config.js?v=3.12.2"></script>
+  <script src="./js/timing-engine.js?v=3.12.2"></script>
+  <script src="./js/db.js?v=3.12.2"></script>
+  <script src="./js/nfc.js?v=3.12.2"></script>
+  <script src="./js/sync.js?v=3.12.2"></script>
+  <script src="./js/excel.js?v=3.12.2"></script>
+  <script src="./js/certificate.js?v=3.12.2"></script>
+  <script src="./js/app.js?v=3.12.2"></script>
 </body>
 </html>

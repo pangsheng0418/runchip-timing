@@ -8,7 +8,7 @@
   <link rel="icon" type="image/png" href="./tur-icon.png" />
   <link rel="apple-touch-icon" href="./tur-icon.png" />
   <script src="https://cdn.tailwindcss.com"></script>
-  <link rel="stylesheet" href="./css/style.css" />
+  <link rel="stylesheet" href="./css/style.css?v=3.12.2" />
 </head>
 <body class="min-h-screen bg-slate-950 text-slate-100 pb-12">
 
@@ -45,7 +45,7 @@
         </div>
       </div>
 
-      <!-- 三模式切換：即時賽事 / 歷年成績 / 八百壯士 -->
+      <!-- 四模式切換：即時賽事 / 歷年成績 / 八百壯士 / 證書列印 -->
       <div class="flex flex-wrap items-center gap-2">
         <div class="inline-flex flex-wrap p-1 rounded-xl bg-slate-950 border border-slate-800 gap-1">
           <button type="button" data-pub-mode="live"
@@ -59,6 +59,10 @@
           <button type="button" data-pub-mode="warriors800"
             class="pub-mode-btn px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-bold text-slate-300 hover:bg-slate-800 transition">
             ⚔️ 八百壯士 <span id="pub-800-count-badge" class="ml-1 px-1.5 py-0.5 rounded bg-slate-800 text-amber-300 font-mono-num text-[11px]">0</span>
+          </button>
+          <button type="button" data-pub-mode="certificate"
+            class="pub-mode-btn px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-bold text-emerald-300 hover:bg-slate-800 transition">
+            🏅 證書列印
           </button>
         </div>
       </div>
@@ -300,15 +304,224 @@
       </div>
     </div>
 
+    <!-- ================================================================== -->
+    <!-- 模式 4：🏅 選手證書列印（官方樣式 ＋ 客製化上傳底圖與個人照片整合） -->
+    <!-- ================================================================== -->
+    <div id="pub-view-certificate" class="hidden space-y-5">
+      <!-- 步驟 1：查詢並選擇個人完賽成績 -->
+      <section class="bg-slate-900 border border-emerald-500/40 rounded-3xl p-4 sm:p-5 space-y-3.5 shadow-xl">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <h2 class="text-base sm:text-lg font-black text-emerald-300">🏅 選手完賽證書列印與客製化</h2>
+          <span id="pub-cert-total-badge" class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-slate-800 text-slate-300 font-mono-num">
+            可印製 0 筆成績
+          </span>
+        </div>
+
+        <form id="form-pub-cert-search" class="grid grid-cols-1 sm:grid-cols-12 gap-2.5">
+          <select id="pub-cert-event-select"
+            style="background-color:#0f172a; color:#f8fafc;"
+            class="sm:col-span-5 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs sm:text-sm font-bold text-white focus:border-emerald-400 focus:outline-none">
+            <option value="ALL">全部已結束與歷年賽事</option>
+          </select>
+          <input id="pub-cert-search-input" type="search" placeholder="🔍 輸入姓名、參賽編號或完整身份證字號查詢"
+            class="sm:col-span-5 bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm font-bold text-white focus:border-emerald-400 focus:outline-none" />
+          <button type="submit"
+            class="sm:col-span-2 py-2.5 px-4 rounded-xl text-sm font-black bg-emerald-500 hover:bg-emerald-400 text-slate-950 transition">
+            查詢成績
+          </button>
+        </form>
+
+        <div id="pub-cert-matches" class="flex flex-wrap gap-2 max-h-40 overflow-y-auto pt-1"></div>
+      </section>
+
+      <!-- 步驟 2：證書樣式切換、客製化上傳與下載 -->
+      <div id="pub-cert-empty" class="hidden bg-slate-900 border border-slate-800 rounded-3xl p-10 text-center space-y-2">
+        <div class="text-4xl">🏅</div>
+        <div class="text-lg font-black text-white">尚未選取完賽成績</div>
+        <p class="text-xs text-slate-400">僅提供「已結束」與「歷年」賽事之完賽證書列印（進行中賽事不列入）。請於上方搜尋並點選完賽場次。</p>
+      </div>
+
+      <div id="pub-cert-studio" class="hidden space-y-4">
+        <!-- 兩大證書模式切換：官方樣式 vs 客製化（底圖＋個人照片） -->
+        <div class="bg-slate-900 border border-amber-500/35 rounded-2xl p-3.5 sm:p-4 flex flex-wrap items-center justify-between gap-3">
+          <div class="inline-flex flex-wrap p-1 rounded-xl bg-slate-950 border border-slate-800 gap-1">
+            <button type="button" data-pub-cert-style="official"
+              class="pub-cert-style-btn px-3.5 py-2 rounded-lg text-xs sm:text-sm font-black bg-amber-500 text-slate-950 transition">
+              🏛️ 官方樣式（中英文對照）
+            </button>
+            <button type="button" data-pub-cert-style="custom"
+              class="pub-cert-style-btn px-3.5 py-2 rounded-lg text-xs sm:text-sm font-bold text-slate-300 hover:bg-slate-800 transition">
+              ✨ 客製化（上傳底圖＋個人照片）
+            </button>
+          </div>
+          <div id="pub-cert-active-badge" class="text-xs font-mono-num text-amber-300 font-bold">--</div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+          <!-- 左側設定面板 -->
+          <div class="lg:col-span-4 space-y-4">
+            <!-- 官方樣式設定 -->
+            <div id="pub-cert-panel-official" class="bg-slate-900 border border-amber-500/30 rounded-2xl p-4 space-y-3">
+              <h3 class="text-sm font-extrabold text-amber-300">🏛️ 官方樣式設定</h3>
+              <div>
+                <label class="block text-[11px] font-bold text-slate-400 mb-1">證書方向</label>
+                <select id="pub-cert-orientation" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-white">
+                  <option value="landscape">A4 橫式（官方推薦）</option>
+                  <option value="portrait">A4 直式</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-[11px] font-bold text-slate-400 mb-1">官方配色主題</label>
+                <select id="pub-cert-theme" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-white">
+                  <option value="ivory_gold">經典象牙金</option>
+                  <option value="navy_gold">尊榮深海藍金</option>
+                </select>
+              </div>
+              <label class="inline-flex items-center gap-2 text-xs text-slate-300 cursor-pointer select-none pt-1">
+                <input id="pub-cert-show-splits" type="checkbox" checked class="accent-amber-500 w-4 h-4" />
+                <span>列出分段成績（繞圈賽顯示圈次摘要）</span>
+              </label>
+            </div>
+
+            <!-- 客製化設定（上傳底圖 ＋ 上傳個人照片） -->
+            <div id="pub-cert-panel-custom" class="hidden bg-slate-900 border border-emerald-500/35 rounded-2xl p-4 space-y-3.5">
+              <h3 class="text-sm font-extrabold text-emerald-300">✨ 客製化個人證書</h3>
+
+              <!-- 1. 上傳底圖 -->
+              <div class="rounded-xl bg-slate-950 border border-slate-800 p-3 space-y-2">
+                <div class="flex items-center justify-between gap-2">
+                  <span class="text-xs font-bold text-sky-300">1. 自訂底圖（選填）</span>
+                  <button id="btn-pub-cert-clear-bg" type="button" class="hidden text-[11px] font-bold text-rose-300 hover:text-rose-200">清除</button>
+                </div>
+                <label class="block cursor-pointer text-center py-2 px-3 rounded-xl text-xs font-black bg-sky-600 hover:bg-sky-500 text-white transition">
+                  🖼️ 上傳自訂底圖 (JPG / PNG)
+                  <input id="input-pub-cert-bg" type="file" accept="image/png,image/jpeg,image/webp" class="hidden" />
+                </label>
+                <div id="pub-cert-bg-status" class="text-[11px] text-slate-400">未上傳時自動套用官方經典底紋</div>
+              </div>
+
+              <!-- 2. 上傳個人照片 -->
+              <div class="rounded-xl bg-slate-950 border border-slate-800 p-3 space-y-2">
+                <div class="flex items-center justify-between gap-2">
+                  <span class="text-xs font-bold text-emerald-300">2. 個人完賽照片（選填）</span>
+                  <button id="btn-pub-cert-clear-photo" type="button" class="hidden text-[11px] font-bold text-rose-300 hover:text-rose-200">清除</button>
+                </div>
+                <label class="block cursor-pointer text-center py-2 px-3 rounded-xl text-xs font-black bg-emerald-500 hover:bg-emerald-400 text-slate-950 transition">
+                  📸 上傳個人照片 (JPG / PNG)
+                  <input id="input-pub-cert-photo" type="file" accept="image/png,image/jpeg,image/webp" class="hidden" />
+                </label>
+                <div id="pub-cert-photo-status" class="text-[11px] text-slate-400">支援衝線照／完賽獎牌照（可拖曳構圖）</div>
+              </div>
+
+              <!-- 版面與相框調整 -->
+              <div class="grid grid-cols-2 gap-2">
+                <div>
+                  <label class="block text-[11px] font-bold text-slate-400 mb-1">證書方向</label>
+                  <select id="pub-cert-c-orientation" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-2 text-xs font-bold text-white">
+                    <option value="landscape">A4 橫式</option>
+                    <option value="portrait">A4 直式</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-[11px] font-bold text-slate-400 mb-1">文字卡片風格</label>
+                  <select id="pub-cert-c-style" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-2 text-xs font-bold text-white">
+                    <option value="light_glass">亮底象牙白</option>
+                    <option value="dark_glass">深底毛玻璃</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-[11px] font-bold text-slate-400 mb-1">照片相框樣式</label>
+                  <select id="pub-cert-c-shape" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-2 text-xs font-bold text-white">
+                    <option value="rounded">圓角金邊相框</option>
+                    <option value="polaroid">拍立得紀念框</option>
+                    <option value="circle">圓形榮耀徽章</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-[11px] font-bold text-slate-400 mb-1">橫式照片位置</label>
+                  <select id="pub-cert-c-pos" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-2 text-xs font-bold text-white">
+                    <option value="left">左側照片</option>
+                    <option value="right">右側照片</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <div class="flex items-center justify-between text-[11px] font-bold text-slate-400 mb-1">
+                  <span>照片縮放：<strong id="pub-cert-c-zoom-label" class="text-emerald-300 font-mono-num">100%</strong></span>
+                  <button id="btn-pub-cert-reset-photo" type="button" class="text-sky-400 hover:text-sky-300">↺ 置中歸位</button>
+                </div>
+                <input id="pub-cert-c-zoom" type="range" min="60" max="180" step="5" value="100" class="w-full accent-emerald-500" />
+              </div>
+
+              <div>
+                <label class="block text-[11px] font-bold text-slate-400 mb-1">個人完賽感言 / 座右銘（選填）</label>
+                <input id="pub-cert-c-quote" type="text" maxlength="40" placeholder="例如：突破極限，永不放棄！"
+                  class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white" />
+              </div>
+
+              <div class="flex flex-wrap gap-3 text-xs text-slate-300 pt-1">
+                <label class="inline-flex items-center gap-1.5 cursor-pointer">
+                  <input id="pub-cert-c-show-logo" type="checkbox" checked class="accent-emerald-500" />
+                  <span>TUR LOGO</span>
+                </label>
+                <label class="inline-flex items-center gap-1.5 cursor-pointer">
+                  <input id="pub-cert-c-show-seal" type="checkbox" checked class="accent-emerald-500" />
+                  <span>金色鋼印</span>
+                </label>
+                <label class="inline-flex items-center gap-1.5 cursor-pointer">
+                  <input id="pub-cert-c-show-splits" type="checkbox" checked class="accent-emerald-500" />
+                  <span>分段成績</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <!-- 右側即時預覽與下載按鈕 -->
+          <div class="lg:col-span-8 bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 space-y-4">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 class="text-sm sm:text-base font-extrabold text-white">🖼️ 證書即時預覽</h3>
+                <div id="pub-cert-preview-caption" class="text-xs text-slate-400 mt-0.5">--</div>
+              </div>
+              <div class="flex flex-wrap gap-2">
+                <button id="btn-pub-cert-png" type="button"
+                  class="px-3.5 py-2 rounded-xl text-xs font-black bg-sky-500 hover:bg-sky-400 text-slate-950 transition shadow">
+                  🖼️ 下載圖檔 (.png)
+                </button>
+                <button id="btn-pub-cert-pdf" type="button"
+                  class="px-3.5 py-2 rounded-xl text-xs font-black bg-amber-500 hover:bg-amber-400 text-slate-950 transition shadow">
+                  📄 下載 PDF (.pdf)
+                </button>
+                <button id="btn-pub-cert-print" type="button"
+                  class="px-3.5 py-2 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white transition">
+                  🖨️ 列印
+                </button>
+              </div>
+            </div>
+
+            <div class="rounded-2xl bg-slate-950 border border-slate-800 p-3 sm:p-4 flex items-center justify-center overflow-hidden">
+              <canvas id="pub-cert-canvas"
+                class="max-w-full max-h-[620px] w-auto h-auto rounded-lg shadow-2xl border border-slate-700/70 select-none"></canvas>
+            </div>
+            <div id="pub-cert-drag-hint" class="hidden text-center text-xs text-emerald-300">
+              💡 客製化模式：上傳個人照片後，可直接於上方照片相框內按住拖曳調整構圖位置
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <footer class="text-center text-xs text-slate-500 pt-2">
       TUR (Taiwan Ultra Runners) 路跑晶片計時平台 • 每 20 秒自動更新 • 身份證字號全面隱碼保護
     </footer>
   </main>
 
-  <script src="./js/config.js"></script>
-  <script src="./js/timing-engine.js"></script>
-  <script src="./js/db.js"></script>
-  <script src="./js/sync.js"></script>
-  <script src="./js/public-app.js"></script>
+  <script src="./js/config.js?v=3.12.2"></script>
+  <script src="./js/timing-engine.js?v=3.12.2"></script>
+  <script src="./js/db.js?v=3.12.2"></script>
+  <script src="./js/sync.js?v=3.12.2"></script>
+  <script src="./js/certificate.js?v=3.12.2"></script>
+  <script src="./js/public-app.js?v=3.12.3"></script>
 </body>
 </html>
