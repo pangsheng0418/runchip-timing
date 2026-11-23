@@ -21,7 +21,10 @@
     session: null,      // { mode: 'staff'|'admin', account, auth, lockedEventId }
     selectedEventId: '',
     staffSubTab: 'scan',
+    adminZone: null,
     adminTab: 'events',
+    adminLastOpsTab: 'events',
+    adminLastClosedTab: 'export',
     platform: null,
     chips: [],
     allRegistrations: [],
@@ -37,6 +40,7 @@
     adminHistoryEventFilter: 'ALL',
     adminHistorySearch: '',
     exportSelectedEventId: '',
+    staffLoginSelectedGroup: '',
     historyPreview: {
       items: [],
       skippedCount: 0,
@@ -363,21 +367,90 @@
     renderHeader();
     renderEventDropdowns();
     updateNetworkIndicators();
+    if (viewName === 'staff-login') renderStaffLoginGroups();
     if (viewName === 'staff-workspace') renderStaffWorkspace();
     if (viewName === 'admin-workspace') {
       renderAdminWorkspace();
-      switchAdminTab(state.adminTab || 'events');
+      if (state.adminZone) {
+        switchAdminTab(state.adminTab || 'events');
+      } else {
+        switchAdminZone(null);
+      }
     }
     window.scrollTo({ top: 0, behavior: 'instant' });
   }
 
+  function updateAdminZoneNavStyles(activeZone) {
+    const styleMap = {
+      ops: {
+        active: 'admin-zone-nav-btn text-left rounded-xl px-3 py-2.5 border-2 border-amber-400 bg-amber-500/20 shadow-lg shadow-amber-950/40 transition flex flex-col justify-between gap-1.5 min-w-0',
+        idle: 'admin-zone-nav-btn text-left rounded-xl px-3 py-2.5 border border-amber-500/30 bg-slate-950/80 hover:bg-amber-950/35 hover:border-amber-400/70 transition flex flex-col justify-between gap-1.5 min-w-0',
+        labelCls: 'text-amber-300'
+      },
+      closed: {
+        active: 'admin-zone-nav-btn text-left rounded-xl px-3 py-2.5 border-2 border-emerald-400 bg-emerald-500/20 shadow-lg shadow-emerald-950/40 transition flex flex-col justify-between gap-1.5 min-w-0',
+        idle: 'admin-zone-nav-btn text-left rounded-xl px-3 py-2.5 border border-emerald-500/30 bg-slate-950/80 hover:bg-emerald-950/35 hover:border-emerald-400/70 transition flex flex-col justify-between gap-1.5 min-w-0',
+        labelCls: 'text-emerald-300'
+      },
+      history: {
+        active: 'admin-zone-nav-btn text-left rounded-xl px-3 py-2.5 border-2 border-purple-400 bg-purple-500/20 shadow-lg shadow-purple-950/40 transition flex flex-col justify-between gap-1.5 min-w-0',
+        idle: 'admin-zone-nav-btn text-left rounded-xl px-3 py-2.5 border border-purple-500/30 bg-slate-950/80 hover:bg-purple-950/35 hover:border-purple-400/70 transition flex flex-col justify-between gap-1.5 min-w-0',
+        labelCls: 'text-purple-300'
+      },
+      db: {
+        active: 'admin-zone-nav-btn text-left rounded-xl px-3 py-2.5 border-2 border-sky-400 bg-sky-500/20 shadow-lg shadow-sky-950/40 transition flex flex-col justify-between gap-1.5 min-w-0',
+        idle: 'admin-zone-nav-btn text-left rounded-xl px-3 py-2.5 border border-sky-500/30 bg-slate-950/80 hover:bg-sky-950/35 hover:border-sky-400/70 transition flex flex-col justify-between gap-1.5 min-w-0',
+        labelCls: 'text-sky-300'
+      }
+    };
+
+    document.querySelectorAll('.admin-zone-nav-btn').forEach((btn) => {
+      const z = btn.dataset.adminZone;
+      const cfg = styleMap[z];
+      if (!cfg) return;
+      const isAct = z === activeZone;
+      btn.className = isAct ? cfg.active : cfg.idle;
+      btn.setAttribute('aria-expanded', isAct ? 'true' : 'false');
+      const chev = btn.querySelector('.admin-zone-chevron');
+      if (chev) {
+        chev.textContent = isAct ? '▲' : '▼';
+        chev.className = `admin-zone-chevron text-[11px] font-black ${isAct ? cfg.labelCls : 'text-slate-400'}`;
+      }
+      const st = btn.querySelector('.admin-zone-state-label');
+      if (st) {
+        st.textContent = isAct ? '作業中' : '點選開啟';
+        st.className = `admin-zone-state-label text-[10px] font-black ${isAct ? cfg.labelCls : 'text-slate-500'}`;
+      }
+    });
+  }
+
+  function switchAdminZone(zoneKey, { toggle = false } = {}) {
+    if (toggle && zoneKey && state.adminZone === zoneKey) {
+      zoneKey = null;
+    }
+
+    if (!zoneKey) {
+      state.adminZone = null;
+      document.querySelectorAll('.admin-zone-card').forEach((c) => c.classList.add('hidden'));
+      document.querySelectorAll('.admin-panel').forEach((p) => p.classList.add('hidden'));
+      if ($('admin-zone-placeholder')) $('admin-zone-placeholder').classList.remove('hidden');
+      updateAdminZoneNavStyles(null);
+      return;
+    }
+
+    const defaultTabMap = {
+      ops: state.adminLastOpsTab || 'events',
+      closed: state.adminLastClosedTab || 'export',
+      history: 'history',
+      db: 'sync'
+    };
+    switchAdminTab(defaultTabMap[zoneKey] || 'events');
+  }
+
   function switchAdminTab(tabName) {
     state.adminTab = tabName;
-    document.querySelectorAll('.admin-panel').forEach((p) => p.classList.add('hidden'));
-    const target = $(`admin-tab-${tabName}`);
-    if (target) target.classList.remove('hidden');
 
-    // 四大專區由上而下獨立呈現：依目前所選分頁展開對應專區內容，其餘專區維持緊湊標題框
+    // 依所選分頁鎖定唯一顯示之專區（橫式選單切換，每次僅展開單一專區，簡化畫面）
     const activeZone = ['events', 'roster', 'results', 'race', 'staff'].includes(tabName)
       ? 'ops'
       : (tabName === 'export' || tabName === 'certificate')
@@ -386,22 +459,31 @@
           ? 'history'
           : 'db';
 
-    const zoneBodies = [
-      ['ops', 'admin-zone-ops-body', 'admin-zone-ops', 'border-amber-400', 'border-amber-500/35'],
-      ['closed', 'admin-zone-closed-body', 'admin-zone-closed', 'border-emerald-400', 'border-emerald-500/35'],
-      ['history', 'admin-zone-history-body', 'admin-zone-history', 'border-purple-400', 'border-purple-500/35'],
-      ['db', 'admin-zone-db-body', 'admin-zone-db', 'border-sky-400', 'border-sky-500/35']
+    state.adminZone = activeZone;
+    if (activeZone === 'ops') state.adminLastOpsTab = tabName;
+    if (activeZone === 'closed') state.adminLastClosedTab = tabName;
+
+    if ($('admin-zone-placeholder')) $('admin-zone-placeholder').classList.add('hidden');
+
+    const zoneCards = [
+      ['ops', 'admin-zone-ops', 'admin-zone-ops-body'],
+      ['closed', 'admin-zone-closed', 'admin-zone-closed-body'],
+      ['history', 'admin-zone-history', 'admin-zone-history-body'],
+      ['db', 'admin-zone-db', 'admin-zone-db-body']
     ];
-    zoneBodies.forEach(([key, bodyId, cardId, activeBorder, idleBorder]) => {
+    zoneCards.forEach(([key, cardId, bodyId]) => {
       const isAct = key === activeZone;
+      const cardEl = $(cardId);
+      if (cardEl) cardEl.classList.toggle('hidden', !isAct);
       const bodyEl = $(bodyId);
       if (bodyEl) bodyEl.classList.toggle('hidden', !isAct);
-      const cardEl = $(cardId);
-      if (cardEl) {
-        cardEl.classList.toggle(activeBorder, isAct);
-        cardEl.classList.toggle(idleBorder, !isAct);
-      }
     });
+
+    document.querySelectorAll('.admin-panel').forEach((p) => p.classList.add('hidden'));
+    const target = $(`admin-tab-${tabName}`);
+    if (target) target.classList.remove('hidden');
+
+    updateAdminZoneNavStyles(activeZone);
 
     document.querySelectorAll('.admin-tab-btn').forEach((btn) => {
       const active = btn.dataset.adminTab === tabName;
@@ -410,14 +492,6 @@
         btn.className = active
           ? 'admin-tab-btn px-3.5 py-2 rounded-xl text-xs sm:text-sm font-black bg-emerald-500 text-slate-950 shadow'
           : 'admin-tab-btn px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold text-emerald-200 hover:bg-emerald-900/50 border border-emerald-500/30';
-      } else if (group === 'history') {
-        btn.className = active
-          ? 'admin-tab-btn px-3.5 py-2 rounded-xl text-xs sm:text-sm font-black bg-purple-500 text-slate-950 shadow'
-          : 'admin-tab-btn px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold text-purple-200 hover:bg-purple-900/50 border border-purple-500/30';
-      } else if (group === 'db') {
-        btn.className = active
-          ? 'admin-tab-btn px-3.5 py-2 rounded-xl text-xs sm:text-sm font-black bg-sky-500 text-slate-950 shadow'
-          : 'admin-tab-btn px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold text-sky-200 hover:bg-sky-900/50 border border-sky-500/30';
       } else {
         btn.className = active
           ? 'admin-tab-btn px-3 py-2 rounded-xl text-xs sm:text-sm font-black bg-amber-500 text-slate-950 shadow'
@@ -582,6 +656,183 @@
       state.writerEventFilter = nextVal;
       wf.value = nextVal;
     }
+
+    renderStaffLoginGroups();
+  }
+
+  /**
+   * 依作業人員登入畫面所選活動，動態列出各作業組別卡片（含站點即時進度，供點選進入並登錄帳密）
+   */
+  function getStaffLoginGroupsForEvent(evt) {
+    const allStaff = (state.platform?.staffAccounts || []).filter((s) => s && s.enabled !== false);
+    const totalChips = (state.chips || []).length;
+
+    if (!evt) {
+      return allStaff
+        .filter((s) => s.role === 'writer')
+        .map((s) => ({
+          username: s.username,
+          displayName: s.displayName || s.username,
+          role: s.role,
+          cpId: 'WRITER',
+          cpName: '跨活動共用晶片寫入',
+          icon: '📡',
+          colorCls: 'text-sky-300 bg-sky-500/15 border-sky-500/35',
+          progressText: `已建檔 ${totalChips} 張晶片`,
+          sortOrder: 0
+        }));
+    }
+
+    const evtOwner = getEventOwner(evt);
+    const isLap = evt.eventType === 'lap_timed';
+    const cps = (evt.checkpoints || []).filter((c) => c.type !== 'start' && String(c.id || '').toUpperCase() !== 'START');
+    const cpMap = new Map(cps.map((c, idx) => [String(c.id).toUpperCase(), { ...c, _order: idx + 2 }]));
+
+    const evtRegs = (state.allRegistrations || []).filter((r) => r.eventId === evt.eventId);
+    const totalRegs = evtRegs.length;
+    const evtScans = (state.allScans || []).filter((s) => !s.deleted && s.eventId === evt.eventId);
+    const checkedInBibs = new Set(evtScans.filter((s) => String(s.checkpointId).toUpperCase() === TE.CHECKIN_CP_ID).map((s) => s.bib));
+    const lapScanCount = evtScans.filter((s) => String(s.checkpointId).toUpperCase() !== TE.CHECKIN_CP_ID).length;
+
+    const groups = [];
+    for (const s of allStaff) {
+      const sOwner = String(s.ownerAdmin || '').trim();
+      if (sOwner && sOwner !== evtOwner) continue;
+      const boundEvt = String(s.eventId || 'ALL').trim();
+      if (boundEvt && boundEvt !== 'ALL' && boundEvt !== evt.eventId) continue;
+
+      const cpUpper = String(s.checkpointId || '').trim().toUpperCase();
+
+      if (s.role === 'writer') {
+        groups.push({
+          username: s.username,
+          displayName: s.displayName || '晶片寫入發卡組',
+          role: s.role,
+          cpId: 'WRITER',
+          cpName: '共用晶片寫入 / UID 綁定',
+          icon: '📡',
+          colorCls: 'text-sky-300 bg-sky-500/15 border-sky-500/35',
+          progressText: `已建檔 ${totalChips} 張晶片`,
+          sortOrder: 0
+        });
+        continue;
+      }
+
+      if (cpUpper === TE.CHECKIN_CP_ID) {
+        groups.push({
+          username: s.username,
+          displayName: s.displayName || '選手報到感應組',
+          role: s.role,
+          cpId: TE.CHECKIN_CP_ID,
+          cpName: '選手報到感應區',
+          icon: '✅',
+          colorCls: 'text-cyan-300 bg-cyan-500/15 border-cyan-500/35',
+          progressText: `已報到 ${checkedInBibs.size} / ${totalRegs} 人`,
+          sortOrder: 1
+        });
+        continue;
+      }
+
+      const matchedCp = cpMap.get(cpUpper);
+      if (!matchedCp && boundEvt !== evt.eventId) continue;
+
+      if (isLap || cpUpper === 'LAP') {
+        groups.push({
+          username: s.username,
+          displayName: s.displayName || '繞圈計次感應組',
+          role: s.role,
+          cpId: cpUpper || 'LAP',
+          cpName: matchedCp?.name || '繞圈計次感應門',
+          icon: '🔁',
+          colorCls: 'text-purple-300 bg-purple-500/15 border-purple-500/35',
+          progressText: `已感應 ${lapScanCount} 圈`,
+          sortOrder: matchedCp ? matchedCp._order : 2
+        });
+      } else {
+        const passedBibs = new Set(evtScans.filter((sc) => String(sc.checkpointId).toUpperCase() === cpUpper).map((sc) => sc.bib));
+        const isFinish = matchedCp?.type === 'finish' || cpUpper === 'FINISH';
+        groups.push({
+          username: s.username,
+          displayName: s.displayName || matchedCp?.name || cpUpper,
+          role: s.role,
+          cpId: cpUpper,
+          cpName: matchedCp?.name || cpUpper,
+          icon: isFinish ? '🏆' : '💧',
+          colorCls: isFinish
+            ? 'text-amber-300 bg-amber-500/15 border-amber-500/35'
+            : 'text-emerald-300 bg-emerald-500/15 border-emerald-500/35',
+          progressText: isFinish
+            ? `已完賽 ${passedBibs.size} / ${totalRegs} 人`
+            : `已通過 ${passedBibs.size} / ${totalRegs} 人`,
+          sortOrder: matchedCp ? matchedCp._order : 50
+        });
+      }
+    }
+
+    return groups.sort((a, b) => a.sortOrder - b.sortOrder || a.username.localeCompare(b.username));
+  }
+
+  function renderStaffLoginGroups() {
+    const grid = $('staff-login-group-grid');
+    if (!grid) return;
+    const staffSel = $('staff-login-event');
+    const openEvents = getOpenEvents();
+    const selectedEvtId = staffSel?.value || state.selectedEventId || openEvents[0]?.eventId || '';
+    const evt = openEvents.find((e) => e.eventId === selectedEvtId) || null;
+
+    const groups = getStaffLoginGroupsForEvent(evt);
+    if ($('staff-login-groups-count')) {
+      $('staff-login-groups-count').textContent = `${groups.length} 個作業組別`;
+    }
+
+    // 若目前選取的組別不在此活動清單內，自動重設
+    if (state.staffLoginSelectedGroup && !groups.some((g) => g.username === state.staffLoginSelectedGroup)) {
+      state.staffLoginSelectedGroup = '';
+    }
+
+    const selectedObj = groups.find((g) => g.username === state.staffLoginSelectedGroup) || null;
+    const badgeEl = $('staff-selected-group-badge');
+    if (badgeEl) {
+      if (selectedObj) {
+        badgeEl.textContent = `✅ 已選定：${selectedObj.icon} ${selectedObj.displayName}（${selectedObj.cpId}）`;
+        badgeEl.className = 'px-2.5 py-0.5 rounded-full text-[11px] font-black bg-emerald-500/20 border border-emerald-500/50 text-emerald-300';
+      } else {
+        badgeEl.textContent = '請先點選上方作業組別';
+        badgeEl.className = 'px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-slate-800 text-slate-300';
+      }
+    }
+
+    if (!groups.length) {
+      grid.innerHTML = '<div class="sm:col-span-2 p-4 rounded-2xl bg-slate-950 border border-dashed border-slate-800 text-center text-xs text-slate-500">本活動尚無對應的作業組別帳號，請由後台「專區 1 → 👷 作業員」新增</div>';
+      return;
+    }
+
+    grid.innerHTML = groups.map((g) => {
+      const isSelected = g.username === state.staffLoginSelectedGroup;
+      return `
+        <button type="button" data-pick-staff-group="${esc(g.username)}"
+          class="text-left p-3.5 rounded-2xl border-2 transition space-y-2 ${isSelected
+            ? 'bg-emerald-500/15 border-emerald-400 shadow-lg ring-1 ring-emerald-400/40'
+            : 'bg-slate-950 border-slate-800 hover:border-emerald-500/50 hover:bg-slate-900'}">
+          <div class="flex items-start justify-between gap-2">
+            <div class="flex items-center gap-2 min-w-0">
+              <span class="text-xl shrink-0">${g.icon}</span>
+              <div class="min-w-0">
+                <div class="text-sm font-black text-white truncate">${esc(g.displayName)}</div>
+                <div class="text-[11px] text-slate-400 truncate">${esc(g.cpName)}</div>
+              </div>
+            </div>
+            <span class="px-2 py-0.5 rounded-lg border text-[10px] font-mono-num font-black shrink-0 ${g.colorCls}">${esc(g.cpId)}</span>
+          </div>
+          <div class="flex items-center justify-between gap-2 pt-1.5 border-t border-slate-800/80 text-[11px] font-mono-num">
+            <span class="text-emerald-300 font-bold">${esc(g.progressText)}</span>
+            <span class="${isSelected ? 'text-emerald-300 font-black' : 'text-slate-400'}">
+              ${isSelected ? '✓ 已選取' : `帳號 ${esc(g.username)} →`}
+            </span>
+          </div>
+        </button>
+      `;
+    }).join('');
   }
 
   function updateNetworkIndicators() {
@@ -779,8 +1030,8 @@
           'success'
         );
       }
+      state.adminZone = null;
       switchView('admin-workspace');
-      switchAdminTab('events');
     } else {
       state.staffSubTab = account.role === 'writer' ? 'writer' : 'scan';
       const evt = getActiveEvent();
@@ -800,6 +1051,7 @@
       resetScanButtonUi();
     }
     state.session = null;
+    state.adminZone = null;
     DB.saveSession(null);
     showToast('已登出並返回作業區大廳', 'info');
     switchView('portal');
@@ -1439,8 +1691,19 @@
   /* ========================================================================
    * VIEW 5：後台管理區（8 大分頁渲染）
    * ======================================================================== */
+  function updateAdminZoneNavBadges() {
+    const openCnt = getAdminOpenOwnEvents().length;
+    const finishedCnt = getAdminFinishedEvents().length;
+    const totalEvents = (state.platform?.events || []).length;
+    const totalScans = (state.allScans || []).length;
+    if ($('zone-ops-badge')) $('zone-ops-badge').textContent = `${openCnt} 場開放`;
+    if ($('zone-closed-badge')) $('zone-closed-badge').textContent = `${finishedCnt} 場已結案`;
+    if ($('zone-db-badge')) $('zone-db-badge').textContent = `${totalEvents} 活動・${totalScans} 感應`;
+  }
+
   function renderAdminWorkspace() {
     if (!state.session || state.session.mode !== 'admin') return;
+    updateAdminZoneNavBadges();
     renderAdminEventsTab();
     renderAdminRosterTab();
     renderAdminResultsTab();
@@ -2824,7 +3087,7 @@
               state.cert.bgImage = img;
               if ($('cert-bg-status')) $('cert-bg-status').textContent = img ? `✅ 已載入儲存底圖 (${img.naturalWidth}×${img.naturalHeight})` : '尚未上傳底圖';
               if ($('btn-cert-clear-bg')) $('btn-cert-clear-bg').classList.toggle('hidden', !img);
-              if (state.adminTab === 'certificate') renderCertificatePreview();
+              if (state.adminZone === 'closed' && state.adminTab === 'certificate') renderCertificatePreview();
             }
           });
         }
@@ -2898,7 +3161,7 @@
     syncCertFieldEditor();
 
     // 僅在目前顯示「製作證書」分頁時即時重繪 Canvas，避免背景分頁多餘計算
-    if (state.adminTab === 'certificate') {
+    if (state.adminZone === 'closed' && state.adminTab === 'certificate') {
       renderCertificatePreview();
     }
   }
@@ -3356,13 +3619,40 @@
     document.querySelectorAll('[data-goto]').forEach((b) => b.addEventListener('click', () => switchView(b.dataset.goto)));
     $('btn-quick-sync').addEventListener('click', () => handleUploadPendingSync(false));
 
-    // 登入表單
-    document.querySelectorAll('[data-quick-staff]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        $('staff-login-user').value = btn.dataset.quickStaff;
-        $('staff-login-pass').value = '1111';
-      });
+    // 登入表單：選擇活動即時更新各作業組別卡片，點選組別帶入帳號並聚焦密碼欄
+    $('staff-login-event').addEventListener('change', (e) => {
+      state.selectedEventId = e.target.value;
+      state.staffLoginSelectedGroup = '';
+      $('staff-login-user').value = '';
+      $('staff-login-pass').value = '';
+      renderStaffLoginGroups();
     });
+
+    $('staff-login-group-grid').addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-pick-staff-group]');
+      if (!btn) return;
+      const username = btn.dataset.pickStaffGroup;
+      state.staffLoginSelectedGroup = username;
+      $('staff-login-user').value = username;
+      $('staff-login-pass').value = '';
+      renderStaffLoginGroups();
+      $('staff-login-pass').focus();
+    });
+
+    $('btn-staff-fill-test-pass').addEventListener('click', () => {
+      if (!$('staff-login-user').value.trim()) {
+        const firstBtn = $('staff-login-group-grid')?.querySelector('[data-pick-staff-group]');
+        if (firstBtn) {
+          const u = firstBtn.dataset.pickStaffGroup;
+          state.staffLoginSelectedGroup = u;
+          $('staff-login-user').value = u;
+          renderStaffLoginGroups();
+        }
+      }
+      $('staff-login-pass').value = '1111';
+      $('staff-login-pass').focus();
+    });
+
     $('form-staff-login').addEventListener('submit', (e) => {
       e.preventDefault();
       handleLogin('staff', $('staff-login-user').value, $('staff-login-pass').value, $('staff-login-event').value);
@@ -3499,6 +3789,12 @@
     });
 
     /* ==================== 後台管理區事件 ==================== */
+    document.querySelectorAll('.admin-zone-nav-btn').forEach((b) => {
+      b.addEventListener('click', () => switchAdminZone(b.dataset.adminZone, { toggle: true }));
+    });
+    document.querySelectorAll('[data-admin-zone-collapse]').forEach((b) => {
+      b.addEventListener('click', () => switchAdminZone(null));
+    });
     document.querySelectorAll('.admin-tab-btn').forEach((b) => b.addEventListener('click', () => switchAdminTab(b.dataset.adminTab)));
 
     // 建立新路跑活動 Modal（支援一般距離賽與繞圈計時賽，依活動性質動態切換範例提示）

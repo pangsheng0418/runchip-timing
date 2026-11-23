@@ -10,7 +10,7 @@
   <link rel="apple-touch-icon" href="./tur-icon.png" />
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
-  <link rel="stylesheet" href="./css/style.css?v=3.12.8" />
+  <link rel="stylesheet" href="./css/style.css?v=3.12.10" />
 </head>
 <body class="min-h-screen tur-stage-bg text-slate-100 pb-10">
 
@@ -117,75 +117,116 @@
     </section>
 
     <!-- ================================================================== -->
-    <!-- VIEW 2：作業員登入 -->
+    <!-- VIEW 2：作業人員登入（除最高權責管理員獨立外，依選擇活動列出各作業組別） -->
     <!-- ================================================================== -->
-    <section id="view-staff-login" class="app-view hidden max-w-md mx-auto py-4 space-y-4">
-      <button type="button" data-goto="portal" class="text-xs font-bold text-slate-400 hover:text-white">
-        ← 返回大廳
-      </button>
+    <section id="view-staff-login" class="app-view hidden max-w-2xl mx-auto py-4 space-y-4">
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <button type="button" data-goto="portal" class="text-xs font-bold text-slate-400 hover:text-white">
+          ← 返回大廳
+        </button>
+        <button id="btn-staff-goto-admin" type="button" data-goto="admin-login"
+          class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-black bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/45 text-amber-300 transition">
+          <span>🛡️ 最高權責管理員獨立登入</span>
+          <span>→</span>
+        </button>
+      </div>
 
-      <div class="bg-slate-900 border border-emerald-500/40 rounded-3xl p-6 space-y-5 shadow-2xl">
-        <div class="text-center space-y-1.5">
-          <div class="text-4xl">📡</div>
-          <h2 class="text-2xl font-black text-white">作業員登入</h2>
+      <div class="bg-slate-900 border border-emerald-500/40 rounded-3xl p-5 sm:p-6 space-y-5 shadow-2xl">
+        <div class="flex flex-wrap items-center justify-between gap-3 pb-3.5 border-b border-slate-800">
+          <div class="flex items-center gap-3">
+            <div class="w-11 h-11 rounded-2xl bg-emerald-500/15 border border-emerald-500/40 flex items-center justify-center text-2xl shrink-0">📡</div>
+            <div>
+              <h2 class="text-xl sm:text-2xl font-black text-white">作業人員登錄</h2>
+              <p class="text-xs text-slate-400 mt-0.5">選擇活動 → 點選所屬作業組別 → 輸入帳號密碼進入作業</p>
+            </div>
+          </div>
           <div id="staff-login-offline-hint" class="inline-block rounded-full border border-emerald-500/30 bg-emerald-950/30 px-3 py-1 text-xs text-emerald-200">
             檢查中...
           </div>
         </div>
 
-        <form id="form-staff-login" class="space-y-3.5">
-          <div>
-            <label class="block text-xs font-bold text-slate-400 mb-1">活動</label>
+        <form id="form-staff-login" class="space-y-4">
+          <!-- 步驟 1：選擇作業活動 -->
+          <div class="space-y-1.5">
+            <label for="staff-login-event" class="block text-xs font-black text-emerald-300">1. 選擇作業活動</label>
             <select id="staff-login-event"
+              style="background-color:#020617; color:#f8fafc;"
               class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-3 text-sm font-bold text-white focus:border-emerald-400 focus:outline-none">
             </select>
             <div id="staff-login-event-empty" class="hidden rounded-xl border border-slate-700 bg-slate-950 px-3.5 py-3 text-xs font-bold text-slate-400">
               🔒 目前無開放活動
             </div>
           </div>
-          <div>
-            <label class="block text-xs font-bold text-slate-400 mb-1">帳號</label>
-            <input id="staff-login-user" required autocomplete="username" type="text" placeholder="請輸入作業員帳號"
-              class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-base font-bold text-white focus:border-emerald-400 focus:outline-none" />
-          </div>
-          <div>
-            <label class="block text-xs font-bold text-slate-400 mb-1">密碼</label>
-            <input id="staff-login-pass" required autocomplete="current-password" type="password" placeholder="請輸入密碼"
-              class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-base font-bold text-white focus:border-emerald-400 focus:outline-none" />
+
+          <!-- 步驟 2：依所選活動動態列出各作業組別選項（顯示即時進度，點選進入） -->
+          <div class="space-y-2">
+            <div class="flex items-center justify-between gap-2">
+              <label class="text-xs font-black text-sky-300">2. 點選本活動作業組別</label>
+              <span id="staff-login-groups-count" class="text-[11px] font-mono-num text-slate-400">0 個組別</span>
+            </div>
+            <div id="staff-login-group-grid" class="grid grid-cols-1 sm:grid-cols-2 gap-2.5"></div>
           </div>
 
-          <button type="submit"
-            class="w-full py-3.5 rounded-xl text-base font-black bg-emerald-500 hover:bg-emerald-400 text-slate-950 transition shadow">
-            登入
-          </button>
+          <!-- 步驟 3：輸入該組別帳號與密碼進入作業 -->
+          <div class="rounded-2xl bg-slate-950/90 border border-slate-800 p-4 space-y-3.5">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <span class="text-xs font-black text-amber-300">3. 登錄帳號與密碼進入作業</span>
+              <span id="staff-selected-group-badge" class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-slate-800 text-slate-300">
+                請先點選上方作業組別
+              </span>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label for="staff-login-user" class="block text-xs font-bold text-slate-400 mb-1">作業組別帳號</label>
+                <input id="staff-login-user" required autocomplete="username" type="text" placeholder="點選上方組別或輸入帳號"
+                  class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm font-bold font-mono-num text-white focus:border-emerald-400 focus:outline-none" />
+              </div>
+              <div>
+                <label for="staff-login-pass" class="block text-xs font-bold text-slate-400 mb-1">密碼</label>
+                <input id="staff-login-pass" required autocomplete="current-password" type="password" placeholder="請輸入密碼"
+                  class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm font-bold text-white focus:border-emerald-400 focus:outline-none" />
+              </div>
+            </div>
+
+            <button type="submit"
+              class="w-full py-3.5 rounded-xl text-base font-black bg-emerald-500 hover:bg-emerald-400 text-slate-950 transition shadow-lg">
+              🚀 登錄並進入作業
+            </button>
+          </div>
         </form>
 
         <details class="pt-2 border-t border-slate-800 text-xs">
-          <summary class="cursor-pointer font-bold text-slate-400 hover:text-slate-200 select-none">測試帳號快選</summary>
-          <div class="flex flex-wrap gap-1.5 mt-2.5">
-            <button type="button" data-quick-staff="writer01" class="px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 text-sky-300">製卡 (writer01)</button>
-            <button type="button" data-quick-staff="checkin01" class="px-2.5 py-1 rounded-lg text-xs font-bold bg-sky-900/70 hover:bg-sky-800 text-sky-200">報到 (checkin01)</button>
-            <button type="button" data-quick-staff="lap01" class="px-2.5 py-1 rounded-lg text-xs font-bold bg-purple-900/60 hover:bg-purple-800 text-purple-200">繞圈 (lap01)</button>
-            <button type="button" data-quick-staff="cp1" class="px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 text-emerald-300">補給1 (cp1)</button>
-            <button type="button" data-quick-staff="cp2" class="px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 text-emerald-300">補給2 (cp2)</button>
-            <button type="button" data-quick-staff="finish01" class="px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 text-amber-300">終點 (finish01)</button>
+          <summary class="cursor-pointer font-bold text-slate-400 hover:text-slate-200 select-none">🧪 測試環境快捷密碼填寫</summary>
+          <div class="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400">
+            <span>選定上方任一組別後，可一鍵帶入預設測試密碼（正式賽事請於後台修改密碼）：</span>
+            <button id="btn-staff-fill-test-pass" type="button"
+              class="px-3 py-1.5 rounded-lg font-bold bg-slate-800 hover:bg-slate-700 border border-slate-700 text-emerald-300">
+              填入預設測試密碼
+            </button>
           </div>
         </details>
       </div>
     </section>
 
     <!-- ================================================================== -->
-    <!-- VIEW 3：管理者登入 -->
+    <!-- VIEW 3：最高權責管理員／活動管理員獨立登入 -->
     <!-- ================================================================== -->
     <section id="view-admin-login" class="app-view hidden max-w-md mx-auto py-4 space-y-4">
-      <button type="button" data-goto="portal" class="text-xs font-bold text-slate-400 hover:text-white">
-        ← 返回大廳
-      </button>
+      <div class="flex items-center justify-between gap-2">
+        <button type="button" data-goto="portal" class="text-xs font-bold text-slate-400 hover:text-white">
+          ← 返回大廳
+        </button>
+        <button type="button" data-goto="staff-login" class="text-xs font-bold text-emerald-300 hover:text-emerald-200">
+          📡 現場作業人員登入 →
+        </button>
+      </div>
 
       <div class="bg-slate-900 border border-amber-500/40 rounded-3xl p-6 space-y-5 shadow-2xl">
-        <div class="text-center space-y-1">
+        <div class="text-center space-y-1.5">
           <div class="text-4xl">🛡️</div>
-          <h2 class="text-2xl font-black text-white">管理者登入</h2>
+          <h2 class="text-2xl font-black text-white">最高權責管理員登入</h2>
+          <p class="text-xs text-slate-400">獨立後台管理入口（最高權責管理員／活動管理員專用）</p>
         </div>
 
         <form id="form-admin-login" class="space-y-3.5">
@@ -473,23 +514,89 @@
     </section>
 
     <!-- ================================================================== -->
-    <!-- VIEW 5：後台管理區 -->
+    <!-- VIEW 5：後台管理區（橫式專區選單，點選後展開對應作業項目） -->
     <!-- ================================================================== -->
-    <section id="view-admin-workspace" class="app-view hidden space-y-5">
+    <section id="view-admin-workspace" class="app-view hidden space-y-4">
+
+      <!-- 頂部橫式四大專區選單（單列四欄橫向排列，點選展開對應專區） -->
+      <div id="admin-zone-nav" class="bg-slate-900/90 border border-slate-800 rounded-2xl p-2 shadow-xl">
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <button type="button" data-admin-zone="ops"
+            class="admin-zone-nav-btn text-left rounded-xl px-3 py-2.5 border border-amber-500/30 bg-slate-950/80 hover:bg-amber-950/35 hover:border-amber-400/70 transition flex flex-col justify-between gap-1.5 min-w-0">
+            <div class="flex items-center justify-between gap-1 w-full">
+              <span class="text-xs sm:text-[13px] font-black text-amber-300 truncate">⚙️ 賽事作業專區</span>
+              <span class="admin-zone-chevron text-[11px] font-bold text-slate-400 shrink-0">▼</span>
+            </div>
+            <div class="flex items-center justify-between gap-1">
+              <span id="zone-ops-badge" class="px-2 py-0.5 rounded-full text-[10px] font-mono-num font-bold bg-amber-500/15 border border-amber-500/30 text-amber-200 truncate">0 場開放</span>
+              <span class="admin-zone-state-label text-[10px] font-bold text-slate-500 shrink-0">點選開啟</span>
+            </div>
+          </button>
+
+          <button type="button" data-admin-zone="closed"
+            class="admin-zone-nav-btn text-left rounded-xl px-3 py-2.5 border border-emerald-500/30 bg-slate-950/80 hover:bg-emerald-950/35 hover:border-emerald-400/70 transition flex flex-col justify-between gap-1.5 min-w-0">
+            <div class="flex items-center justify-between gap-1 w-full">
+              <span class="text-xs sm:text-[13px] font-black text-emerald-300 truncate">📦 已結案專區</span>
+              <span class="admin-zone-chevron text-[11px] font-bold text-slate-400 shrink-0">▼</span>
+            </div>
+            <div class="flex items-center justify-between gap-1">
+              <span id="zone-closed-badge" class="px-2 py-0.5 rounded-full text-[10px] font-mono-num font-bold bg-emerald-500/15 border border-emerald-500/30 text-emerald-200 truncate">0 場已結案</span>
+              <span class="admin-zone-state-label text-[10px] font-bold text-slate-500 shrink-0">點選開啟</span>
+            </div>
+          </button>
+
+          <button type="button" data-admin-zone="history"
+            class="admin-zone-nav-btn text-left rounded-xl px-3 py-2.5 border border-purple-500/30 bg-slate-950/80 hover:bg-purple-950/35 hover:border-purple-400/70 transition flex flex-col justify-between gap-1.5 min-w-0">
+            <div class="flex items-center justify-between gap-1 w-full">
+              <span class="text-xs sm:text-[13px] font-black text-purple-300 truncate">📜 歷年活動成績匯入</span>
+              <span class="admin-zone-chevron text-[11px] font-bold text-slate-400 shrink-0">▼</span>
+            </div>
+            <div class="flex items-center justify-between gap-1">
+              <span id="zone-history-badge" class="px-2 py-0.5 rounded-full text-[10px] font-mono-num font-bold bg-purple-500/15 border border-purple-500/30 text-purple-200 truncate">0 場 / 0 筆</span>
+              <span class="admin-zone-state-label text-[10px] font-bold text-slate-500 shrink-0">點選開啟</span>
+            </div>
+          </button>
+
+          <button type="button" data-admin-zone="db"
+            class="admin-zone-nav-btn text-left rounded-xl px-3 py-2.5 border border-sky-500/30 bg-slate-950/80 hover:bg-sky-950/35 hover:border-sky-400/70 transition flex flex-col justify-between gap-1.5 min-w-0">
+            <div class="flex items-center justify-between gap-1 w-full">
+              <span class="text-xs sm:text-[13px] font-black text-sky-300 truncate">🗄️ 資料庫專區</span>
+              <span class="admin-zone-chevron text-[11px] font-bold text-slate-400 shrink-0">▼</span>
+            </div>
+            <div class="flex items-center justify-between gap-1">
+              <span id="zone-db-badge" class="px-2 py-0.5 rounded-full text-[10px] font-mono-num font-bold bg-sky-500/15 border border-sky-500/30 text-sky-200 truncate">本機資料庫</span>
+              <span class="admin-zone-state-label text-[10px] font-bold text-slate-500 shrink-0">點選開啟</span>
+            </div>
+          </button>
+        </div>
+      </div>
+
+      <!-- 尚未點選專區時的簡潔導引列 -->
+      <div id="admin-zone-placeholder" class="bg-slate-900/60 border border-dashed border-slate-700/80 rounded-2xl px-5 py-10 text-center space-y-2">
+        <div class="text-2xl">👆</div>
+        <div class="text-sm sm:text-base font-black text-slate-200">請點選上方橫式專區選單，展開對應作業項目</div>
+        <p class="text-xs text-slate-400">每次僅顯示所選專區內容，畫面精簡不干擾；再次點選或按「收合 ▲」即可隱藏。</p>
+      </div>
 
       <!-- ================================================================ -->
       <!-- 專區 1：⚙️ 賽事作業專區（進行中活動選項 ＋ 5 大賽務分頁框在一起） -->
       <!-- ================================================================ -->
-      <div id="admin-zone-ops" class="admin-zone-card rounded-3xl bg-slate-900/80 border-2 border-amber-500/50 p-3.5 sm:p-4 space-y-3.5 shadow-xl transition">
+      <div id="admin-zone-ops" class="admin-zone-card hidden rounded-3xl bg-slate-900/80 border-2 border-amber-400/70 p-3.5 sm:p-4 space-y-3.5 shadow-xl transition">
         <div class="flex flex-wrap items-center justify-between gap-2.5 pb-2.5 border-b border-amber-500/25">
           <div class="flex items-center gap-2">
             <span class="px-2.5 py-1 rounded-lg text-xs font-black bg-amber-500/20 border border-amber-500/40 text-amber-300">專區 1</span>
             <h2 class="text-sm sm:text-base font-black text-amber-300 tracking-wide">⚙️ 賽事作業專區</h2>
           </div>
-          <button id="btn-open-new-event-modal" type="button"
-            class="px-3.5 py-1.5 rounded-xl text-xs font-black bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow">
-            ＋ 新增活動
-          </button>
+          <div class="flex items-center gap-2">
+            <button id="btn-open-new-event-modal" type="button"
+              class="px-3.5 py-1.5 rounded-xl text-xs font-black bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow">
+              ＋ 新增活動
+            </button>
+            <button type="button" data-admin-zone-collapse="true"
+              class="px-2.5 py-1.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 transition">
+              收合 ▲
+            </button>
+          </div>
         </div>
 
         <!-- 進行中活動選項（框在賽事作業專區內） -->
@@ -854,15 +961,21 @@
       <!-- ================================================================ -->
       <!-- 專區 2：📦 已結案專區（選擇已結案活動 ＋ 匯出正式 Excel / DUV ＋ 製作證書框在一起） -->
       <!-- ================================================================ -->
-      <div id="admin-zone-closed" class="admin-zone-card rounded-3xl bg-emerald-950/20 border-2 border-emerald-500/45 p-3.5 sm:p-4 space-y-3.5 shadow-xl transition">
+      <div id="admin-zone-closed" class="admin-zone-card hidden rounded-3xl bg-emerald-950/20 border-2 border-emerald-400/70 p-3.5 sm:p-4 space-y-3.5 shadow-xl transition">
         <div class="flex flex-wrap items-center justify-between gap-2.5 pb-2.5 border-b border-emerald-500/25">
           <div class="flex items-center gap-2">
             <span class="px-2.5 py-1 rounded-lg text-xs font-black bg-emerald-500/20 border border-emerald-500/40 text-emerald-300">專區 2</span>
             <h2 class="text-sm sm:text-base font-black text-emerald-300 tracking-wide">📦 已結案專區</h2>
           </div>
-          <span class="px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-500/10 border border-emerald-500/30 text-emerald-300">
-            僅針對「已結束（已結案）」與歷年活動
-          </span>
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-500/10 border border-emerald-500/30 text-emerald-300">
+              僅針對「已結束（已結案）」與歷年活動
+            </span>
+            <button type="button" data-admin-zone-collapse="true"
+              class="px-2.5 py-1.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 transition">
+              收合 ▲
+            </button>
+          </div>
         </div>
 
         <!-- 選擇已結案活動選項 ＋ 專區功能切換（框在已結案專區內） -->
@@ -1167,15 +1280,15 @@
       <!-- ================================================================ -->
       <!-- 專區 3：📜 歷年活動成績匯入專區（獨立成區框在一起） -->
       <!-- ================================================================ -->
-      <div id="admin-zone-history" class="admin-zone-card rounded-3xl bg-purple-950/20 border-2 border-purple-500/45 p-3.5 sm:p-4 space-y-3.5 shadow-xl transition">
-        <div class="flex flex-wrap items-center justify-between gap-2.5">
+      <div id="admin-zone-history" class="admin-zone-card hidden rounded-3xl bg-purple-950/20 border-2 border-purple-400/70 p-3.5 sm:p-4 space-y-3.5 shadow-xl transition">
+        <div class="flex flex-wrap items-center justify-between gap-2.5 pb-2.5 border-b border-purple-500/25">
           <div class="flex items-center gap-2 flex-wrap">
             <span class="px-2.5 py-1 rounded-lg text-xs font-black bg-purple-500/20 border border-purple-500/40 text-purple-300">專區 3</span>
             <h2 class="text-sm sm:text-base font-black text-purple-300 tracking-wide">📜 歷年活動成績匯入專區</h2>
-            <span id="zone-history-badge" class="px-2.5 py-0.5 rounded-full text-[11px] font-mono-num font-bold bg-slate-900 border border-purple-500/30 text-purple-200">0 場 / 0 筆</span>
           </div>
-          <button type="button" data-admin-tab="history" data-tab-group="history" class="admin-tab-btn px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold text-purple-200 hover:bg-purple-900/50 border border-purple-500/30">
-            📜 開啟歷年活動成績匯入
+          <button type="button" data-admin-zone-collapse="true"
+            class="px-2.5 py-1.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 transition">
+            收合 ▲
           </button>
         </div>
 
@@ -1372,15 +1485,16 @@
       <!-- ================================================================ -->
       <!-- 專區 4：🗄️ 資料庫專區（備份與還原 ＋ 雲端同步 ＋ 測試資料重置框在一起） -->
       <!-- ================================================================ -->
-      <div id="admin-zone-db" class="admin-zone-card rounded-3xl bg-sky-950/20 border-2 border-sky-500/45 p-3.5 sm:p-4 space-y-3.5 shadow-xl transition">
-        <div class="flex flex-wrap items-center justify-between gap-2.5">
+      <div id="admin-zone-db" class="admin-zone-card hidden rounded-3xl bg-sky-950/20 border-2 border-sky-400/70 p-3.5 sm:p-4 space-y-3.5 shadow-xl transition">
+        <div class="flex flex-wrap items-center justify-between gap-2.5 pb-2.5 border-b border-sky-500/25">
           <div class="flex items-center gap-2 flex-wrap">
             <span class="px-2.5 py-1 rounded-lg text-xs font-black bg-sky-500/20 border border-sky-500/40 text-sky-300">專區 4</span>
             <h2 class="text-sm sm:text-base font-black text-sky-300 tracking-wide">🗄️ 資料庫專區</h2>
             <span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-slate-900 border border-sky-500/30 text-sky-200">備份與還原・雲端同步・測試資料與重置</span>
           </div>
-          <button type="button" data-admin-tab="sync" data-tab-group="db" class="admin-tab-btn px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold text-sky-200 hover:bg-sky-900/50 border border-sky-500/30">
-            💾 開啟資料庫備份與同步
+          <button type="button" data-admin-zone-collapse="true"
+            class="px-2.5 py-1.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 transition">
+            收合 ▲
           </button>
         </div>
 
@@ -1784,13 +1898,13 @@
     </div>
   </div>
 
-  <script src="./js/config.js?v=3.12.8"></script>
-  <script src="./js/timing-engine.js?v=3.12.8"></script>
-  <script src="./js/db.js?v=3.12.8"></script>
-  <script src="./js/nfc.js?v=3.12.8"></script>
-  <script src="./js/sync.js?v=3.12.8"></script>
-  <script src="./js/excel.js?v=3.12.8"></script>
-  <script src="./js/certificate.js?v=3.12.8"></script>
-  <script src="./js/app.js?v=3.12.8"></script>
+  <script src="./js/config.js?v=3.12.10"></script>
+  <script src="./js/timing-engine.js?v=3.12.10"></script>
+  <script src="./js/db.js?v=3.12.10"></script>
+  <script src="./js/nfc.js?v=3.12.10"></script>
+  <script src="./js/sync.js?v=3.12.10"></script>
+  <script src="./js/excel.js?v=3.12.10"></script>
+  <script src="./js/certificate.js?v=3.12.10"></script>
+  <script src="./js/app.js?v=3.12.10"></script>
 </body>
 </html>
