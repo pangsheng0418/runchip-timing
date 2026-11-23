@@ -407,12 +407,23 @@
       }
     };
 
+    const isSuper = isCurrentSuperAdmin();
+    const navGrid = $('admin-zone-nav-grid');
+    if (navGrid) {
+      navGrid.className = isSuper
+        ? 'grid grid-cols-2 sm:grid-cols-4 gap-2'
+        : 'grid grid-cols-1 sm:grid-cols-3 gap-2';
+    }
+    const dbNumEl = $('admin-zone-db-num');
+    if (dbNumEl) dbNumEl.textContent = isSuper ? '專區 4' : '專區 3';
+
     document.querySelectorAll('.admin-zone-nav-btn').forEach((btn) => {
       const z = btn.dataset.adminZone;
       const cfg = styleMap[z];
       if (!cfg) return;
       const isAct = z === activeZone;
-      btn.className = isAct ? cfg.active : cfg.idle;
+      const hideForNonSuper = z === 'history' && !isSuper;
+      btn.className = (isAct ? cfg.active : cfg.idle) + (hideForNonSuper ? ' hidden' : '');
       btn.setAttribute('aria-expanded', isAct ? 'true' : 'false');
       const chev = btn.querySelector('.admin-zone-chevron');
       if (chev) {
@@ -428,6 +439,11 @@
   }
 
   function switchAdminZone(zoneKey, { toggle = false } = {}) {
+    if (zoneKey === 'history' && !isCurrentSuperAdmin()) {
+      showToast('僅最高管理權責可進入歷年活動成績匯入', 'error');
+      switchAdminZone(null);
+      return;
+    }
     if (toggle && zoneKey && state.adminZone === zoneKey) {
       zoneKey = null;
     }
@@ -451,6 +467,11 @@
   }
 
   function switchAdminTab(tabName) {
+    if (tabName === 'history' && !isCurrentSuperAdmin()) {
+      showToast('僅最高管理權責可進入歷年活動成績匯入', 'error');
+      switchAdminZone(null);
+      return;
+    }
     state.adminTab = tabName;
 
     // 依所選分頁鎖定唯一顯示之專區（橫式選單切換，每次僅展開單一專區，簡化畫面）
@@ -713,8 +734,8 @@
     }
     if ($('admin-login-subtitle')) {
       $('admin-login-subtitle').textContent = isSuperRole
-        ? '最高管理權責專用：含帳號權限管理與資料庫備份還原'
-        : '活動承辦人專用：僅管理本人承辦之活動，資料庫備份還原已自動隱藏防誤觸';
+        ? '最高管理權責專用：含帳號權限管理、歷年活動匯入與資料庫備份還原'
+        : '活動承辦人專用：僅管理本人承辦之活動，歷年匯入與資料庫備份還原已自動隱藏防誤觸';
     }
     if ($('admin-login-accounts-label')) {
       $('admin-login-accounts-label').textContent = isSuperRole
@@ -1836,6 +1857,7 @@
    * VIEW 5：後台管理區（8 大分頁渲染）
    * ======================================================================== */
   function updateAdminZoneNavBadges() {
+    const isSuper = isCurrentSuperAdmin();
     const openCnt = getAdminOpenOwnEvents().length;
     const finishedCnt = getAdminFinishedEvents().length;
     const totalEvents = (state.platform?.events || []).length;
@@ -1843,6 +1865,11 @@
     if ($('zone-ops-badge')) $('zone-ops-badge').textContent = `${openCnt} 場開放`;
     if ($('zone-closed-badge')) $('zone-closed-badge').textContent = `${finishedCnt} 場已結案`;
     if ($('zone-db-badge')) $('zone-db-badge').textContent = `${totalEvents} 活動・${totalScans} 感應`;
+    if (!isSuper && (state.adminZone === 'history' || state.adminTab === 'history')) {
+      state.adminZone = null;
+      state.adminTab = 'events';
+    }
+    updateAdminZoneNavStyles(state.adminZone);
   }
 
   function renderAdminWorkspace() {
@@ -2887,6 +2914,7 @@
    * 步驟 2：管理員審查無誤並點擊「✅ 確認寫入資料庫」後，才正式存入本機與雲端
    */
   async function commitHistoryImportPreview() {
+    if (!isCurrentSuperAdmin()) return showToast('僅最高管理權責可匯入歷年活動成績', 'error');
     const pv = state.historyPreview;
     const items = pv?.items || [];
     if (!items.length) return showToast('目前沒有待寫入的預覽資料', 'warn');
@@ -4892,6 +4920,10 @@
     });
 
     $('input-import-history-file').addEventListener('change', async (e) => {
+      if (!isCurrentSuperAdmin()) {
+        e.target.value = '';
+        return showToast('僅最高管理權責可匯入歷年活動成績', 'error');
+      }
       const file = e.target.files?.[0];
       if (!file) return;
       try {
@@ -4905,6 +4937,7 @@
     });
 
     $('btn-import-history-text').addEventListener('click', () => {
+      if (!isCurrentSuperAdmin()) return showToast('僅最高管理權責可匯入歷年活動成績', 'error');
       const text = $('textarea-history-csv').value.trim();
       if (!text) return showToast('請先貼上歷年成績文字資料', 'warn');
       stageHistoryImportPreview(
@@ -4968,6 +5001,7 @@
     });
 
     $('admin-history-events-list').addEventListener('click', async (e) => {
+      if (!isCurrentSuperAdmin()) return showToast('僅最高管理權責可刪除歷年活動成績', 'error');
       const btn = e.target.closest('[data-del-history-evt-name]');
       if (!btn) return;
       const evDate = btn.dataset.delHistoryEvtDate;
@@ -4982,6 +5016,7 @@
     });
 
     $('admin-history-tbody').addEventListener('click', async (e) => {
+      if (!isCurrentSuperAdmin()) return showToast('僅最高管理權責可刪除歷年活動成績', 'error');
       const btn = e.target.closest('[data-del-history-id]');
       if (!btn || !confirm('確定刪除此筆歷年成績紀錄嗎？')) return;
       const id = btn.dataset.delHistoryId;

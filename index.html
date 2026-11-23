@@ -10,7 +10,7 @@
   <link rel="apple-touch-icon" href="./tur-icon.png" />
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
-  <link rel="stylesheet" href="./css/style.css?v=3.12.11" />
+  <link rel="stylesheet" href="./css/style.css?v=3.12.12" />
 </head>
 <body class="min-h-screen tur-stage-bg text-slate-100 pb-10">
 
@@ -243,7 +243,7 @@
                 <span class="text-sm font-black text-amber-300">🛡️ 最高管理權責</span>
                 <span class="admin-role-check text-[11px] font-black text-amber-300">✓ 已選取</span>
               </div>
-              <div class="text-[11px] text-slate-300 leading-snug">全平台管理・帳號權限・資料庫備份與還原</div>
+              <div class="text-[11px] text-slate-300 leading-snug">全平台帳號・歷年活動匯入・資料庫備份還原</div>
             </button>
 
             <button type="button" data-admin-login-role="coordinator"
@@ -564,9 +564,9 @@
     <!-- ================================================================== -->
     <section id="view-admin-workspace" class="app-view hidden space-y-4">
 
-      <!-- 頂部橫式四大專區選單（單列四欄橫向排列，點選展開對應專區） -->
+      <!-- 頂部橫式專區選單（最高管理權責 4 欄／活動承辦人自動隱藏歷年匯入為 3 欄） -->
       <div id="admin-zone-nav" class="bg-slate-900/90 border border-slate-800 rounded-2xl p-2 shadow-xl">
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <div id="admin-zone-nav-grid" class="grid grid-cols-2 sm:grid-cols-4 gap-2">
           <button type="button" data-admin-zone="ops"
             class="admin-zone-nav-btn text-left rounded-xl px-3 py-2.5 border border-amber-500/30 bg-slate-950/80 hover:bg-amber-950/35 hover:border-amber-400/70 transition flex flex-col justify-between gap-1.5 min-w-0">
             <div class="flex items-center justify-between gap-1 w-full">
@@ -591,7 +591,7 @@
             </div>
           </button>
 
-          <button type="button" data-admin-zone="history"
+          <button id="admin-zone-nav-history" type="button" data-admin-zone="history"
             class="admin-zone-nav-btn text-left rounded-xl px-3 py-2.5 border border-purple-500/30 bg-slate-950/80 hover:bg-purple-950/35 hover:border-purple-400/70 transition flex flex-col justify-between gap-1.5 min-w-0">
             <div class="flex items-center justify-between gap-1 w-full">
               <span class="text-xs sm:text-[13px] font-black text-purple-300 truncate">📜 歷年活動成績匯入</span>
@@ -1324,13 +1324,14 @@
       </div>
 
       <!-- ================================================================ -->
-      <!-- 專區 3：📜 歷年活動成績匯入專區（獨立成區框在一起） -->
+      <!-- 專區 3：📜 歷年活動成績匯入專區（僅最高管理權責顯示與作業） -->
       <!-- ================================================================ -->
       <div id="admin-zone-history" class="admin-zone-card hidden rounded-3xl bg-purple-950/20 border-2 border-purple-400/70 p-3.5 sm:p-4 space-y-3.5 shadow-xl transition">
         <div class="flex flex-wrap items-center justify-between gap-2.5 pb-2.5 border-b border-purple-500/25">
           <div class="flex items-center gap-2 flex-wrap">
             <span class="px-2.5 py-1 rounded-lg text-xs font-black bg-purple-500/20 border border-purple-500/40 text-purple-300">專區 3</span>
             <h2 class="text-sm sm:text-base font-black text-purple-300 tracking-wide">📜 歷年活動成績匯入專區</h2>
+            <span class="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-500/20 border border-amber-500/40 text-amber-300">🛡️ 僅最高管理權責限定</span>
           </div>
           <button type="button" data-admin-zone-collapse="true"
             class="px-2.5 py-1.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 transition">
@@ -1534,7 +1535,7 @@
       <div id="admin-zone-db" class="admin-zone-card hidden rounded-3xl bg-sky-950/20 border-2 border-sky-400/70 p-3.5 sm:p-4 space-y-3.5 shadow-xl transition">
         <div class="flex flex-wrap items-center justify-between gap-2.5 pb-2.5 border-b border-sky-500/25">
           <div class="flex items-center gap-2 flex-wrap">
-            <span class="px-2.5 py-1 rounded-lg text-xs font-black bg-sky-500/20 border border-sky-500/40 text-sky-300">專區 4</span>
+            <span id="admin-zone-db-num" class="px-2.5 py-1 rounded-lg text-xs font-black bg-sky-500/20 border border-sky-500/40 text-sky-300">專區 4</span>
             <h2 class="text-sm sm:text-base font-black text-sky-300 tracking-wide">🗄️ 資料庫專區</h2>
             <span id="admin-zone-db-subtitle" class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-slate-900 border border-sky-500/30 text-sky-200">備份與還原・雲端同步・測試資料與重置</span>
           </div>
@@ -1947,13 +1948,13 @@
     </div>
   </div>
 
-  <script src="./js/config.js?v=3.12.11"></script>
-  <script src="./js/timing-engine.js?v=3.12.11"></script>
-  <script src="./js/db.js?v=3.12.11"></script>
-  <script src="./js/nfc.js?v=3.12.11"></script>
-  <script src="./js/sync.js?v=3.12.11"></script>
-  <script src="./js/excel.js?v=3.12.11"></script>
-  <script src="./js/certificate.js?v=3.12.11"></script>
-  <script src="./js/app.js?v=3.12.11"></script>
+  <script src="./js/config.js?v=3.12.12"></script>
+  <script src="./js/timing-engine.js?v=3.12.12"></script>
+  <script src="./js/db.js?v=3.12.12"></script>
+  <script src="./js/nfc.js?v=3.12.12"></script>
+  <script src="./js/sync.js?v=3.12.12"></script>
+  <script src="./js/excel.js?v=3.12.12"></script>
+  <script src="./js/certificate.js?v=3.12.12"></script>
+  <script src="./js/app.js?v=3.12.12"></script>
 </body>
 </html>
