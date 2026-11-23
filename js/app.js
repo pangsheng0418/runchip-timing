@@ -36,6 +36,15 @@
     adminRegCheckinFilter: 'ALL',
     adminHistoryEventFilter: 'ALL',
     adminHistorySearch: '',
+    exportSelectedEventId: '',
+    historyPreview: {
+      items: [],
+      skippedCount: 0,
+      sourceLabel: '',
+      fromText: false,
+      eventFilter: 'ALL',
+      search: ''
+    },
     editMode: 'scan',
     cert: {
       mode: 'official',
@@ -355,7 +364,10 @@
     renderEventDropdowns();
     updateNetworkIndicators();
     if (viewName === 'staff-workspace') renderStaffWorkspace();
-    if (viewName === 'admin-workspace') renderAdminWorkspace();
+    if (viewName === 'admin-workspace') {
+      renderAdminWorkspace();
+      switchAdminTab(state.adminTab || 'events');
+    }
     window.scrollTo({ top: 0, behavior: 'instant' });
   }
 
@@ -365,15 +377,62 @@
     const target = $(`admin-tab-${tabName}`);
     if (target) target.classList.remove('hidden');
 
-    document.querySelectorAll('.admin-tab-btn').forEach((btn) => {
-      const active = btn.dataset.adminTab === tabName;
-      btn.className = active
-        ? 'admin-tab-btn px-3.5 py-2 rounded-xl text-xs sm:text-sm font-black bg-amber-500 text-slate-950'
-        : 'admin-tab-btn px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold text-slate-300 hover:bg-slate-800';
+    // 四大專區由上而下獨立呈現：依目前所選分頁展開對應專區內容，其餘專區維持緊湊標題框
+    const activeZone = ['events', 'roster', 'results', 'race', 'staff'].includes(tabName)
+      ? 'ops'
+      : (tabName === 'export' || tabName === 'certificate')
+        ? 'closed'
+        : tabName === 'history'
+          ? 'history'
+          : 'db';
+
+    const zoneBodies = [
+      ['ops', 'admin-zone-ops-body', 'admin-zone-ops', 'border-amber-400', 'border-amber-500/35'],
+      ['closed', 'admin-zone-closed-body', 'admin-zone-closed', 'border-emerald-400', 'border-emerald-500/35'],
+      ['history', 'admin-zone-history-body', 'admin-zone-history', 'border-purple-400', 'border-purple-500/35'],
+      ['db', 'admin-zone-db-body', 'admin-zone-db', 'border-sky-400', 'border-sky-500/35']
+    ];
+    zoneBodies.forEach(([key, bodyId, cardId, activeBorder, idleBorder]) => {
+      const isAct = key === activeZone;
+      const bodyEl = $(bodyId);
+      if (bodyEl) bodyEl.classList.toggle('hidden', !isAct);
+      const cardEl = $(cardId);
+      if (cardEl) {
+        cardEl.classList.toggle(activeBorder, isAct);
+        cardEl.classList.toggle(idleBorder, !isAct);
+      }
     });
 
-    if (tabName === 'certificate') {
+    document.querySelectorAll('.admin-tab-btn').forEach((btn) => {
+      const active = btn.dataset.adminTab === tabName;
+      const group = btn.dataset.tabGroup || 'ops';
+      if (group === 'closed') {
+        btn.className = active
+          ? 'admin-tab-btn px-3.5 py-2 rounded-xl text-xs sm:text-sm font-black bg-emerald-500 text-slate-950 shadow'
+          : 'admin-tab-btn px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold text-emerald-200 hover:bg-emerald-900/50 border border-emerald-500/30';
+      } else if (group === 'history') {
+        btn.className = active
+          ? 'admin-tab-btn px-3.5 py-2 rounded-xl text-xs sm:text-sm font-black bg-purple-500 text-slate-950 shadow'
+          : 'admin-tab-btn px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold text-purple-200 hover:bg-purple-900/50 border border-purple-500/30';
+      } else if (group === 'db') {
+        btn.className = active
+          ? 'admin-tab-btn px-3.5 py-2 rounded-xl text-xs sm:text-sm font-black bg-sky-500 text-slate-950 shadow'
+          : 'admin-tab-btn px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold text-sky-200 hover:bg-sky-900/50 border border-sky-500/30';
+      } else {
+        btn.className = active
+          ? 'admin-tab-btn px-3 py-2 rounded-xl text-xs sm:text-sm font-black bg-amber-500 text-slate-950 shadow'
+          : 'admin-tab-btn px-3 py-2 rounded-xl text-xs sm:text-sm font-bold text-slate-300 hover:bg-slate-800';
+      }
+    });
+
+    if (tabName === 'export') {
+      renderAdminExportTab();
+    } else if (tabName === 'certificate') {
       renderAdminCertificateTab();
+    } else if (tabName === 'history') {
+      renderAdminHistoryTab();
+    } else if (tabName === 'sync') {
+      renderAdminSyncTab();
     }
   }
 
@@ -1388,6 +1447,7 @@
     renderAdminRaceTab();
     renderAdminStaffTab();
     renderAdminHistoryTab();
+    renderAdminExportTab();
     renderAdminCertificateTab();
     renderAdminSyncTab();
   }
@@ -2046,6 +2106,7 @@
   }
 
   function renderAdminHistoryTab() {
+    renderHistoryImportPreview();
     const all = [...(state.historyRecords || [])].sort((a, b) =>
       String(b.eventDate || '').localeCompare(String(a.eventDate || '')) || (a.overallRank || 99999) - (b.overallRank || 99999)
     );
@@ -2068,6 +2129,7 @@
     const recCountEl = $('admin-history-records-count');
     if (evCountEl) evCountEl.textContent = String(groups.length);
     if (recCountEl) recCountEl.textContent = `${all.length} 筆`;
+    if ($('zone-history-badge')) $('zone-history-badge').textContent = `${groups.length} 場 / ${all.length} 筆`;
 
     const evListEl = $('admin-history-events-list');
     if (evListEl) {
@@ -2145,7 +2207,32 @@
     `).join('');
   }
 
-  async function importHistoryRows(rows) {
+  function normalizePreviewDate(rawDate) {
+    const s = String(rawDate || '').trim().replace(/\//g, '-');
+    if (/^\d{4}$/.test(s)) return `${s}-01-01`;
+    const m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
+    return s;
+  }
+
+  function clearHistoryImportPreview(showNotice = false) {
+    state.historyPreview = {
+      items: [],
+      skippedCount: 0,
+      sourceLabel: '',
+      fromText: false,
+      eventFilter: 'ALL',
+      search: ''
+    };
+    if ($('history-preview-search')) $('history-preview-search').value = '';
+    renderHistoryImportPreview();
+    if (showNotice) showToast('已取消歷年成績匯入，未寫入任何資料至資料庫', 'info');
+  }
+
+  /**
+   * 步驟 1：解析檔案或文字並顯示「預覽場次與明細」，等待管理員審查（絕不直接寫入資料庫）
+   */
+  function stageHistoryImportPreview(rows, { sourceLabel = '匯入資料', fromText = false } = {}) {
     if (!Array.isArray(rows) || !rows.length) return showToast('未讀取到任何資料列', 'warn');
 
     const headerAliases = {
@@ -2178,6 +2265,7 @@
     const startIdx = hasHeader ? 1 : 0;
     const ownerAdmin = getCurrentAdminUsername() || 'admin';
     const items = [];
+    let skippedCount = 0;
 
     for (let i = startIdx; i < rows.length; i++) {
       const cols = rows[i];
@@ -2186,24 +2274,34 @@
         const idx = hasHeader ? colMap[field] : fallbackIdx;
         return idx !== undefined && idx >= 0 ? String(cols[idx] ?? '').trim() : '';
       };
-      const eventDate = getVal('eventDate', 0);
+      const eventDate = normalizePreviewDate(getVal('eventDate', 0));
       const eventName = getVal('eventName', 1);
       const name = getVal('name', 4);
-      if (!eventName || !name) continue;
+      if (!eventName || !name) {
+        skippedCount += 1;
+        continue;
+      }
+
+      const finishTime = TE.normalizeTimeStr(getVal('finishTime', 6));
+      const distanceKm = Number(getVal('distanceKm', 7)) || 0;
+      const laps = parseInt(getVal('laps', 8), 10) || 0;
+      const rawStatus = getVal('status', 11);
+      const status = rawStatus || ((finishTime || distanceKm > 0 || laps > 0) ? '完賽' : '未完賽');
 
       items.push({
+        _previewId: `PV_${Date.now()}_${i}`,
         eventDate,
         eventName,
-        categoryName: getVal('categoryName', 2),
+        categoryName: getVal('categoryName', 2) || '一般組',
         bib: getVal('bib', 3),
         name,
-        idNumber: getVal('idNumber', 5),
-        finishTime: TE.normalizeTimeStr(getVal('finishTime', 6)),
-        distanceKm: getVal('distanceKm', 7),
-        laps: getVal('laps', 8),
+        idNumber: getVal('idNumber', 5).toUpperCase(),
+        finishTime,
+        distanceKm,
+        laps,
         overallRank: getVal('overallRank', 9),
         categoryRank: getVal('categoryRank', 10),
-        status: getVal('status', 11),
+        status,
         note: getVal('note', 12),
         ownerAdmin
       });
@@ -2213,12 +2311,198 @@
       return showToast('未偵測到有效歷年成績（至少需有「活動名稱」與「姓名」）', 'warn');
     }
 
-    const saved = await DB.upsertHistoryRecordsBulk(items, false);
-    if (Sync.isOnlineEnabled() && navigator.onLine) {
-      Sync.pushHistoryRecords(saved, state.session?.auth).then(() => updatePendingSyncBadge());
+    state.historyPreview = {
+      items,
+      skippedCount,
+      sourceLabel,
+      fromText,
+      eventFilter: 'ALL',
+      search: ''
+    };
+    if ($('history-preview-search')) $('history-preview-search').value = '';
+    renderHistoryImportPreview();
+
+    const card = $('history-import-preview-card');
+    if (card) card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+    const evtCount = new Set(items.map((x) => `${x.eventDate}__${x.eventName}`)).size;
+    showToast(`🔍 已解析 ${evtCount} 場共 ${items.length} 筆待審查資料，確認無誤後請按「✅ 確認寫入資料庫」`, 'info');
+  }
+
+  function renderHistoryImportPreview() {
+    const card = $('history-import-preview-card');
+    if (!card) return;
+    const pv = state.historyPreview;
+    const items = pv?.items || [];
+    card.classList.toggle('hidden', items.length === 0);
+    if (!items.length) return;
+
+    // 對照資料庫中既有歷年場次，標示「新場次」或「合併既有場次」
+    const existingEvtKeys = new Set((state.historyRecords || []).map((h) => `${h.eventDate}__${h.eventName}`));
+
+    const evtMap = new Map();
+    let missingIdCount = 0;
+    let missingDateCount = 0;
+
+    for (const item of items) {
+      if (!item.idNumber) missingIdCount += 1;
+      if (!item.eventDate) missingDateCount += 1;
+      const key = `${item.eventDate}__${item.eventName}`;
+      if (!evtMap.has(key)) {
+        evtMap.set(key, {
+          key,
+          eventDate: item.eventDate,
+          eventName: item.eventName,
+          count: 0,
+          finishedCount: 0,
+          totalKm: 0,
+          existsInDb: existingEvtKeys.has(key)
+        });
+      }
+      const g = evtMap.get(key);
+      g.count += 1;
+      if (String(item.status || '').includes('完賽') && !String(item.status || '').includes('未')) {
+        g.finishedCount += 1;
+      }
+      g.totalKm += Number(item.distanceKm || 0);
     }
-    await reloadState();
-    showToast(`✅ 已成功匯入 ${saved.length} 筆歷年活動成績！`, 'success');
+
+    const groups = Array.from(evtMap.values()).sort((a, b) =>
+      String(b.eventDate || '').localeCompare(String(a.eventDate || ''))
+      || String(a.eventName || '').localeCompare(String(b.eventName || ''), 'zh-Hant')
+    );
+
+    if (pv.eventFilter !== 'ALL' && !evtMap.has(pv.eventFilter)) {
+      pv.eventFilter = 'ALL';
+    }
+
+    if ($('history-preview-meta')) {
+      $('history-preview-meta').textContent = `來源：${pv.sourceLabel} ｜ 辨識 ${groups.length} 場活動、共 ${items.length} 筆明細（尚未存入資料庫）`;
+    }
+    if ($('history-preview-confirm-count')) $('history-preview-confirm-count').textContent = String(items.length);
+    if ($('history-preview-events-count')) $('history-preview-events-count').textContent = String(groups.length);
+    if ($('btn-history-preview-all-events')) {
+      $('btn-history-preview-all-events').classList.toggle('hidden', pv.eventFilter === 'ALL');
+    }
+
+    // 審查提醒訊息
+    const warnings = [];
+    if (pv.skippedCount > 0) warnings.push(`⚠️ 已自動略過 ${pv.skippedCount} 列缺少「活動名稱」或「姓名」的資料列。`);
+    if (missingIdCount > 0) warnings.push(`⚠️ 有 ${missingIdCount} 筆缺少「身份證字號」（仍可寫入，但無法依身份證自動合併個人歷年成績）。`);
+    if (missingDateCount > 0) warnings.push(`⚠️ 有 ${missingDateCount} 筆缺少「活動日期」，建議補齊日期後再匯入。`);
+    const warnEl = $('history-preview-warnings');
+    if (warnEl) {
+      warnEl.classList.toggle('hidden', warnings.length === 0);
+      warnEl.innerHTML = warnings.map((w) => `<div>${esc(w)}</div>`).join('');
+    }
+
+    // 預覽場次卡片
+    const evListEl = $('history-preview-events-list');
+    if (evListEl) {
+      evListEl.innerHTML = groups.map((g) => {
+        const is800 = g.eventName.includes('八百壯士');
+        const active = pv.eventFilter === g.key;
+        return `
+          <div class="p-3 rounded-xl border transition flex items-center justify-between gap-2 ${active ? 'bg-amber-500/15 border-amber-400' : 'bg-slate-950 border-slate-800 hover:border-slate-600'}">
+            <button type="button" data-preview-evt-filter="${esc(g.key)}" class="flex-1 min-w-0 text-left">
+              <div class="flex items-center gap-1.5 flex-wrap">
+                <span class="font-mono-num text-[11px] font-bold px-1.5 py-0.5 rounded bg-slate-800 text-amber-300">${esc(g.eventDate || '無日期')}</span>
+                <span class="font-bold text-white text-xs sm:text-sm truncate">${esc(g.eventName)}</span>
+                ${is800 ? '<span class="px-1.5 py-0.5 rounded text-[10px] font-black bg-amber-500/20 text-amber-300">⚔️ 八百壯士</span>' : ''}
+                ${g.existsInDb
+                  ? '<span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-sky-500/20 text-sky-300">🔄 合併既有場次</span>'
+                  : '<span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300">🆕 新場次</span>'}
+              </div>
+              <div class="text-[11px] text-slate-400 font-mono-num mt-1">
+                預覽 ${g.count} 筆（完賽 ${g.finishedCount}）｜ 累計 ${g.totalKm.toFixed(1)} km
+              </div>
+            </button>
+            <button type="button" data-remove-preview-evt="${esc(g.key)}" title="剔除此場次（不匯入）"
+              class="px-2 py-1.5 rounded-lg text-[11px] font-bold bg-rose-600/20 hover:bg-rose-600/40 text-rose-300 shrink-0">
+              剔除場次
+            </button>
+          </div>
+        `;
+      }).join('');
+    }
+
+    // 預覽明細篩選與表格渲染
+    const q = (pv.search || '').trim().toLowerCase();
+    const filtered = items.filter((item) => {
+      if (pv.eventFilter !== 'ALL' && `${item.eventDate}__${item.eventName}` !== pv.eventFilter) return false;
+      if (q) {
+        return item.name.toLowerCase().includes(q)
+          || item.eventName.toLowerCase().includes(q)
+          || (item.bib || '').toLowerCase().includes(q)
+          || (item.idNumber || '').toLowerCase().includes(q)
+          || (item.categoryName || '').toLowerCase().includes(q);
+      }
+      return true;
+    });
+
+    if ($('history-preview-rows-label')) {
+      $('history-preview-rows-label').textContent = filtered.length === items.length
+        ? `共 ${items.length} 筆`
+        : `顯示 ${filtered.length} / 共 ${items.length} 筆`;
+    }
+
+    const tbody = $('history-preview-tbody');
+    if (tbody) {
+      if (!filtered.length) {
+        tbody.innerHTML = '<tr><td colspan="14" class="py-5 text-center text-slate-500">篩選條件下無預覽明細</td></tr>';
+      } else {
+        tbody.innerHTML = filtered.slice(0, 500).map((item, idx) => `
+          <tr class="hover:bg-slate-800/50">
+            <td class="py-2 pl-3 pr-2 font-mono-num text-slate-500">${idx + 1}</td>
+            <td class="py-2 pr-3 font-mono-num ${item.eventDate ? 'text-amber-300' : 'text-rose-400'}">${esc(item.eventDate || '缺日期')}</td>
+            <td class="py-2 pr-3 font-bold text-white">${esc(item.eventName)}${item.eventName.includes('八百壯士') ? ' <span class="text-amber-400">⚔️</span>' : ''}</td>
+            <td class="py-2 pr-3 text-slate-300">${esc(item.categoryName)}</td>
+            <td class="py-2 pr-3 font-mono-num text-slate-300">${esc(item.bib || '--')}</td>
+            <td class="py-2 pr-3 font-bold text-white">${esc(item.name)}</td>
+            <td class="py-2 pr-3 font-mono-num ${item.idNumber ? 'text-sky-300' : 'text-amber-400'}">${esc(item.idNumber || '未填')}</td>
+            <td class="py-2 pr-3 font-mono-num text-emerald-400">${esc(item.finishTime || '--')}</td>
+            <td class="py-2 pr-3 font-mono-num text-emerald-300">${item.distanceKm > 0 ? `${item.distanceKm.toFixed(2)} km` : '--'}</td>
+            <td class="py-2 pr-3 font-mono-num text-purple-300">${item.laps > 0 ? `${item.laps} 圈` : '--'}</td>
+            <td class="py-2 pr-3 font-mono-num text-amber-300">${item.overallRank ? `總#${esc(item.overallRank)}` : '-'}/${item.categoryRank ? `組#${esc(item.categoryRank)}` : '-'}</td>
+            <td class="py-2 pr-3 text-slate-300">${esc(item.status)}</td>
+            <td class="py-2 pr-3 text-slate-400">${esc(item.note || '')}</td>
+            <td class="py-2 pr-3 text-right">
+              <button type="button" data-remove-preview-id="${esc(item._previewId)}"
+                class="px-2 py-0.5 rounded text-[11px] font-bold bg-rose-600/20 hover:bg-rose-600/40 text-rose-300">✕</button>
+            </td>
+          </tr>
+        `).join('');
+      }
+    }
+  }
+
+  /**
+   * 步驟 2：管理員審查無誤並點擊「✅ 確認寫入資料庫」後，才正式存入本機與雲端
+   */
+  async function commitHistoryImportPreview() {
+    const pv = state.historyPreview;
+    const items = pv?.items || [];
+    if (!items.length) return showToast('目前沒有待寫入的預覽資料', 'warn');
+
+    const btn = $('btn-confirm-history-import');
+    if (btn) btn.disabled = true;
+    try {
+      const cleanItems = items.map(({ _previewId, ...rest }) => rest);
+      const saved = await DB.upsertHistoryRecordsBulk(cleanItems, false);
+      if (Sync.isOnlineEnabled() && navigator.onLine) {
+        Sync.pushHistoryRecords(saved, state.session?.auth).then(() => updatePendingSyncBadge());
+      }
+      if (pv.fromText && $('textarea-history-csv')) {
+        $('textarea-history-csv').value = '';
+      }
+      clearHistoryImportPreview(false);
+      await reloadState();
+      showToast(`✅ 審查完成！已正式寫入 ${saved.length} 筆歷年活動成績至資料庫`, 'success');
+    } catch (err) {
+      showToast(`歷年成績寫入失敗：${err.message}`, 'error');
+    } finally {
+      if (btn) btn.disabled = false;
+    }
   }
 
   /* ========================================================================
@@ -2619,11 +2903,139 @@
     }
   }
 
+  /* ========================================================================
+   * 已結案專區 1：📊 匯出 Excel / DUV 成績（僅限已結束之結案活動）
+   * ======================================================================== */
+  function getAdminFinishedEvents() {
+    return getAdminOwnEvents()
+      .filter(isEventFinished)
+      .sort((a, b) =>
+        String(b.date || '').localeCompare(String(a.date || ''))
+        || String(a.name || '').localeCompare(String(b.name || ''), 'zh-Hant')
+      );
+  }
+
+  function getSelectedExportContext() {
+    const finished = getAdminFinishedEvents();
+    if (!finished.length) return null;
+    const evt = finished.find((e) => e.eventId === state.exportSelectedEventId) || finished[0];
+    state.exportSelectedEventId = evt.eventId;
+    const eventRegs = state.allRegistrations.filter((r) => r.eventId === evt.eventId);
+    const eventScans = state.allScans.filter((s) => s.eventId === evt.eventId && !s.deleted);
+    const computed = TE.computeEventResults({ event: evt, runners: eventRegs, scans: eventScans });
+    return { event: evt, computed, scans: eventScans };
+  }
+
+  function renderAdminExportTab() {
+    const finished = getAdminFinishedEvents();
+    const emptyEl = $('admin-export-empty');
+    const contentEl = $('admin-export-content');
+    const sel = $('export-event-select');
+    const selEmpty = $('export-event-select-empty');
+    const hasAny = finished.length > 0;
+    if (emptyEl) emptyEl.classList.toggle('hidden', hasAny);
+    if (contentEl) contentEl.classList.toggle('hidden', !hasAny);
+    if (sel) sel.classList.toggle('hidden', !hasAny);
+    if (selEmpty) selEmpty.classList.toggle('hidden', hasAny);
+    if (!hasAny) {
+      if (sel) sel.innerHTML = '';
+      return;
+    }
+
+    const ctx = getSelectedExportContext();
+    const evt = ctx.event;
+    const isLap = evt.eventType === 'lap_timed';
+
+    if (sel) {
+      sel.innerHTML = finished.map((ev) => {
+        const icon = ev.eventType === 'lap_timed' ? '🔁' : '🏃';
+        return `<option value="${esc(ev.eventId)}">🔒 [已結案] ${esc(ev.date || '--')}｜${icon} ${esc(ev.name)}</option>`;
+      }).join('');
+      sel.value = evt.eventId;
+    }
+
+    const summaryEl = $('export-event-summary');
+    if (summaryEl) {
+      const s = ctx.computed.summary || {};
+      const metricLabel = isLap ? '有效圈數選手' : '完賽人數';
+      const metricVal = isLap ? (s.activeWithLaps ?? 0) : (s.finishedCount ?? 0);
+      summaryEl.innerHTML = `
+        <div class="rounded-xl bg-slate-950 border border-slate-800 p-3">
+          <div class="text-[11px] text-slate-400 font-bold">活動日期 / 賽制</div>
+          <div class="text-sm font-black font-mono-num text-amber-300 mt-1">${esc(evt.date || '--')}</div>
+          <div class="text-[11px] text-slate-400 mt-0.5">${isLap ? `繞圈賽 (${evt.lapDistanceKm || 2.54} km/圈)` : '一般距離賽'}</div>
+        </div>
+        <div class="rounded-xl bg-slate-950 border border-slate-800 p-3">
+          <div class="text-[11px] text-slate-400 font-bold">報名 / 報到</div>
+          <div class="text-lg font-black font-mono-num text-white mt-0.5">${s.totalRunners ?? 0} <span class="text-xs text-sky-300">/ 報到 ${s.checkedInCount ?? 0}</span></div>
+        </div>
+        <div class="rounded-xl bg-slate-950 border border-slate-800 p-3">
+          <div class="text-[11px] text-slate-400 font-bold">${metricLabel}</div>
+          <div class="text-lg font-black font-mono-num text-emerald-400 mt-0.5">${metricVal} 人</div>
+        </div>
+        <div class="rounded-xl bg-slate-950 border border-slate-800 p-3">
+          <div class="text-[11px] text-slate-400 font-bold">有效感應紀錄</div>
+          <div class="text-lg font-black font-mono-num text-sky-300 mt-0.5">${ctx.scans.length} 筆</div>
+        </div>
+      `;
+    }
+
+    const warnEl = $('export-duv-warn-banner');
+    if (warnEl && window.ExcelExporter?.buildDuvCategoryBlocks) {
+      const preview = Excel.buildDuvCategoryBlocks({
+        event: evt,
+        computed: ctx.computed,
+        options: {
+          organization: evt.organization || 'Taiwan Ultra Runners',
+          eventName: evt.englishName || evt.name || '',
+          defaultCity: 'Taipei',
+          defaultCountry: 'Taiwan',
+          lapMetric: isLap ? 'distance' : 'time'
+        }
+      });
+      const warns = [];
+      if (preview.missingDobCount > 0) warns.push(`${preview.missingDobCount} 位缺出生年月日 (DOB)`);
+      if (preview.missingGenderCount > 0) warns.push(`${preview.missingGenderCount} 位缺性別 (Gender)`);
+      if (!evt.englishName) warns.push('尚未填寫英文活動名稱（匯出 DUV 時可於設定視窗補填）');
+      warnEl.classList.toggle('hidden', warns.length === 0);
+      if (warns.length) warnEl.textContent = `⚠️ DUV 匯出前提醒：${warns.join('；')}`;
+    }
+  }
+
   function renderAdminSyncTab() {
     const settings = DB.getDeviceSettings();
     const isSuper = isCurrentSuperAdmin();
-    const excelCard = $('admin-sync-excel-card');
-    if (excelCard) excelCard.classList.toggle('hidden', !getActiveEvent());
+
+    // 渲染本機資料庫即時統計
+    const statsBar = $('db-stats-bar');
+    if (statsBar) {
+      const ownEvents = getAdminOwnEvents();
+      const finishedCount = ownEvents.filter(isEventFinished).length;
+      const activeScans = (state.allScans || []).filter((s) => !s.deleted).length;
+      statsBar.innerHTML = `
+        <div class="rounded-xl bg-slate-950 border border-slate-800 p-3">
+          <div class="text-[11px] text-slate-400 font-bold">活動總數</div>
+          <div class="text-lg font-black font-mono-num text-white mt-0.5">${ownEvents.length} <span class="text-[11px] text-emerald-400 font-bold">(${finishedCount} 結案)</span></div>
+        </div>
+        <div class="rounded-xl bg-slate-950 border border-slate-800 p-3">
+          <div class="text-[11px] text-slate-400 font-bold">共用晶片</div>
+          <div class="text-lg font-black font-mono-num text-sky-300 mt-0.5">${(state.chips || []).length}</div>
+        </div>
+        <div class="rounded-xl bg-slate-950 border border-slate-800 p-3">
+          <div class="text-[11px] text-slate-400 font-bold">報名明細</div>
+          <div class="text-lg font-black font-mono-num text-amber-300 mt-0.5">${(state.allRegistrations || []).length}</div>
+        </div>
+        <div class="rounded-xl bg-slate-950 border border-slate-800 p-3">
+          <div class="text-[11px] text-slate-400 font-bold">有效感應</div>
+          <div class="text-lg font-black font-mono-num text-emerald-400 mt-0.5">${activeScans}</div>
+        </div>
+        <div class="rounded-xl bg-slate-950 border border-slate-800 p-3">
+          <div class="text-[11px] text-slate-400 font-bold">歷年紀錄</div>
+          <div class="text-lg font-black font-mono-num text-purple-300 mt-0.5">${(state.historyRecords || []).length}</div>
+        </div>
+      `;
+    }
+
     document.querySelectorAll('input[name="sync-mode"]').forEach((radio) => {
       radio.checked = radio.value === settings.mode;
     });
@@ -2848,8 +3260,12 @@
   }
 
   function openDuvExportModal() {
-    const evt = getActiveEvent();
-    if (!evt || !state.computed) return showToast('請先建立或選取活動', 'warn');
+    const ctx = getSelectedExportContext();
+    if (!ctx || !ctx.event || !ctx.computed) {
+      return showToast('尚無已結案活動可匯出 DUV（請先將活動狀態設為「已結束」）', 'warn');
+    }
+    const evt = ctx.event;
+    const computed = ctx.computed;
 
     const isLap = evt.eventType === 'lap_timed';
     $('duv-org').value = evt.organization || 'Taiwan Ultra Runners';
@@ -2861,7 +3277,7 @@
 
     const preview = Excel.buildDuvCategoryBlocks({
       event: evt,
-      computed: state.computed,
+      computed,
       options: {
         organization: $('duv-org').value,
         eventName: $('duv-event-name').value,
@@ -2910,7 +3326,12 @@
       await reloadState();
     };
     $('portal-event-select').addEventListener('change', (e) => onEventChange(e.target.value));
-    $('admin-event-select').addEventListener('change', (e) => onEventChange(e.target.value));
+    $('admin-event-select').addEventListener('change', (e) => {
+      onEventChange(e.target.value);
+      if (!['events', 'roster', 'results', 'race', 'staff'].includes(state.adminTab)) {
+        switchAdminTab('events');
+      }
+    });
 
     // 大廳導覽、手動同步與快速綁定雲端網址
     $('btn-portal-staff').addEventListener('click', () => switchView('staff-login'));
@@ -3532,36 +3953,27 @@
       await reloadState();
     });
 
-    // 分頁 3：成績管理與修正
+    // 分頁 3：成績管理與修正（即時監控與人工修正；正式匯出已獨立至「📦 已結案專區」）
     $('results-category-filter').addEventListener('change', (e) => { state.resultsCatFilter = e.target.value; renderAdminResultsTab(); });
     $('results-search').addEventListener('input', (e) => { state.resultsSearch = e.target.value; renderAdminResultsTab(); });
-    $('btn-export-excel-quick').addEventListener('click', () => {
-      const evt = getActiveEvent();
-      if (!evt || !state.computed) return showToast('請先建立或選取活動', 'warn');
-      const f = Excel.exportResultsToExcel({
-        event: evt,
-        computed: state.computed,
-        scans: state.allScans.filter((s) => s.eventId === evt.eventId),
-        maskId: false
-      });
-      showToast(`已匯出「${evt.name}」Excel 報表：${f}`, 'success');
-    });
-    $('btn-export-duv-quick').addEventListener('click', openDuvExportModal);
 
-    // Modal 5：DUV 成績匯出
+    // Modal 5：DUV 成績匯出（僅針對已結案專區選取之已結束活動）
     const closeDuvModal = () => $('modal-duv-export').classList.add('hidden');
     $('btn-close-duv-modal').addEventListener('click', closeDuvModal);
     $('btn-cancel-duv-modal').addEventListener('click', closeDuvModal);
     $('form-duv-export').addEventListener('submit', async (e) => {
       e.preventDefault();
-      const evt = getActiveEvent();
-      if (!evt || !state.computed) return showToast('請先建立或選取活動', 'warn');
+      const ctx = getSelectedExportContext();
+      if (!ctx || !ctx.event || !ctx.computed) {
+        return showToast('尚無已結案活動可匯出 DUV（請先將活動狀態設為「已結束」）', 'warn');
+      }
+      const evt = ctx.event;
       try {
         const org = $('duv-org').value.trim() || 'Taiwan Ultra Runners';
         const enName = $('duv-event-name').value.trim() || evt.name;
         const res = Excel.exportDuvResults({
           event: evt,
-          computed: state.computed,
+          computed: ctx.computed,
           options: {
             organization: org,
             eventName: enName,
@@ -3572,7 +3984,7 @@
           }
         });
         closeDuvModal();
-        showToast(`🏅 已匯出 DUV 成績（${res.totalFinishers} 位完賽）：${res.fileName}`, 'success');
+        showToast(`🏅 已匯出「${evt.name}」DUV 成績（${res.totalFinishers} 位完賽）：${res.fileName}`, 'success');
       } catch (err) {
         showToast(err.message, 'error');
       }
@@ -4004,18 +4416,64 @@
       try {
         const wb = window.XLSX.read(await file.arrayBuffer(), { type: 'array' });
         const rows = window.XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: false });
-        await importHistoryRows(rows);
+        stageHistoryImportPreview(rows, { sourceLabel: file.name, fromText: false });
       } catch (err) {
         showToast(`檔案解析失敗：${err.message}`, 'error');
       }
       e.target.value = '';
     });
 
-    $('btn-import-history-text').addEventListener('click', async () => {
+    $('btn-import-history-text').addEventListener('click', () => {
       const text = $('textarea-history-csv').value.trim();
       if (!text) return showToast('請先貼上歷年成績文字資料', 'warn');
-      await importHistoryRows(text.split(/\r?\n/).map((line) => line.split(/[,\t]/)));
-      $('textarea-history-csv').value = '';
+      stageHistoryImportPreview(
+        text.split(/\r?\n/).map((line) => line.split(/[,\t]/)),
+        { sourceLabel: '貼上文字批次輸入', fromText: true }
+      );
+    });
+
+    $('btn-cancel-history-preview').addEventListener('click', () => {
+      clearHistoryImportPreview(true);
+    });
+
+    $('btn-confirm-history-import').addEventListener('click', async () => {
+      await commitHistoryImportPreview();
+    });
+
+    $('btn-history-preview-all-events').addEventListener('click', () => {
+      state.historyPreview.eventFilter = 'ALL';
+      renderHistoryImportPreview();
+    });
+
+    $('history-preview-search').addEventListener('input', (e) => {
+      state.historyPreview.search = e.target.value;
+      renderHistoryImportPreview();
+    });
+
+    $('history-preview-events-list').addEventListener('click', (e) => {
+      const rmBtn = e.target.closest('[data-remove-preview-evt]');
+      if (rmBtn) {
+        const key = rmBtn.dataset.removePreviewEvt;
+        state.historyPreview.items = state.historyPreview.items.filter((x) => `${x.eventDate}__${x.eventName}` !== key);
+        if (state.historyPreview.eventFilter === key) state.historyPreview.eventFilter = 'ALL';
+        renderHistoryImportPreview();
+        showToast('已從預覽中剔除該場次（尚未寫入資料庫）', 'info');
+        return;
+      }
+      const filterBtn = e.target.closest('[data-preview-evt-filter]');
+      if (filterBtn) {
+        const key = filterBtn.dataset.previewEvtFilter;
+        state.historyPreview.eventFilter = state.historyPreview.eventFilter === key ? 'ALL' : key;
+        renderHistoryImportPreview();
+      }
+    });
+
+    $('history-preview-tbody').addEventListener('click', (e) => {
+      const rmBtn = e.target.closest('[data-remove-preview-id]');
+      if (!rmBtn) return;
+      const pid = rmBtn.dataset.removePreviewId;
+      state.historyPreview.items = state.historyPreview.items.filter((x) => x._previewId !== pid);
+      renderHistoryImportPreview();
     });
 
     $('admin-history-filter-event').addEventListener('change', (e) => {
@@ -4349,18 +4807,30 @@
       }
     });
 
-    // 分頁 7：備份、Excel 匯出與雲端同步
+    // 專區 2：📦 已結案專區（選擇已結案活動即自動展開匯出正式 Excel / DUV）
+    $('export-event-select').addEventListener('change', (e) => {
+      state.exportSelectedEventId = e.target.value;
+      if (state.adminTab !== 'export') {
+        switchAdminTab('export');
+      } else {
+        renderAdminExportTab();
+      }
+    });
     $('btn-export-excel-full').addEventListener('click', () => {
-      const evt = getActiveEvent();
-      if (!evt || !state.computed) return showToast('請先建立或選取活動', 'warn');
-      const f = Excel.exportResultsToExcel({ event: evt, computed: state.computed, scans: state.allScans.filter((s) => s.eventId === evt.eventId), maskId: false });
-      showToast(`已匯出完整 Excel：${f}`, 'success');
+      const ctx = getSelectedExportContext();
+      if (!ctx || !ctx.event || !ctx.computed) {
+        return showToast('尚無已結案活動可匯出（請先將活動狀態設為「已結束」）', 'warn');
+      }
+      const f = Excel.exportResultsToExcel({ event: ctx.event, computed: ctx.computed, scans: ctx.scans, maskId: false });
+      showToast(`已匯出「${ctx.event.name}」完整 Excel：${f}`, 'success');
     });
     $('btn-export-excel-masked').addEventListener('click', () => {
-      const evt = getActiveEvent();
-      if (!evt || !state.computed) return showToast('請先建立或選取活動', 'warn');
-      const f = Excel.exportResultsToExcel({ event: evt, computed: state.computed, scans: state.allScans.filter((s) => s.eventId === evt.eventId), maskId: true });
-      showToast(`已匯出隱碼公開 Excel：${f}`, 'success');
+      const ctx = getSelectedExportContext();
+      if (!ctx || !ctx.event || !ctx.computed) {
+        return showToast('尚無已結案活動可匯出（請先將活動狀態設為「已結束」）', 'warn');
+      }
+      const f = Excel.exportResultsToExcel({ event: ctx.event, computed: ctx.computed, scans: ctx.scans, maskId: true });
+      showToast(`已匯出「${ctx.event.name}」隱碼公開 Excel：${f}`, 'success');
     });
     $('btn-export-duv').addEventListener('click', openDuvExportModal);
 
