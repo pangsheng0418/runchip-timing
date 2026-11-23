@@ -10,7 +10,7 @@
   <link rel="apple-touch-icon" href="./tur-icon.png" />
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
-  <link rel="stylesheet" href="./css/style.css?v=3.12.10" />
+  <link rel="stylesheet" href="./css/style.css?v=3.12.11" />
 </head>
 <body class="min-h-screen tur-stage-bg text-slate-100 pb-10">
 
@@ -210,9 +210,9 @@
     </section>
 
     <!-- ================================================================== -->
-    <!-- VIEW 3：最高權責管理員／活動管理員獨立登入 -->
+    <!-- VIEW 3：後台管理登入（區分最高管理權責 ／ 活動承辦人其他帳號） -->
     <!-- ================================================================== -->
-    <section id="view-admin-login" class="app-view hidden max-w-md mx-auto py-4 space-y-4">
+    <section id="view-admin-login" class="app-view hidden max-w-xl mx-auto py-4 space-y-4">
       <div class="flex items-center justify-between gap-2">
         <button type="button" data-goto="portal" class="text-xs font-bold text-slate-400 hover:text-white">
           ← 返回大廳
@@ -222,27 +222,73 @@
         </button>
       </div>
 
-      <div class="bg-slate-900 border border-amber-500/40 rounded-3xl p-6 space-y-5 shadow-2xl">
-        <div class="text-center space-y-1.5">
-          <div class="text-4xl">🛡️</div>
-          <h2 class="text-2xl font-black text-white">最高權責管理員登入</h2>
-          <p class="text-xs text-slate-400">獨立後台管理入口（最高權責管理員／活動管理員專用）</p>
+      <div class="bg-slate-900 border border-amber-500/40 rounded-3xl p-5 sm:p-6 space-y-5 shadow-2xl">
+        <div class="flex items-center gap-3">
+          <div id="admin-login-icon" class="w-12 h-12 rounded-2xl bg-amber-500/15 border border-amber-500/35 flex items-center justify-center text-2xl shrink-0">
+            🛡️
+          </div>
+          <div class="min-w-0">
+            <h2 id="admin-login-title" class="text-xl sm:text-2xl font-black text-white">後台管理登入</h2>
+            <p id="admin-login-subtitle" class="text-xs text-slate-400 mt-0.5">請先選擇管理身分（最高管理權責 或 活動承辦人），再輸入帳密登入</p>
+          </div>
         </div>
 
-        <form id="form-admin-login" class="space-y-3.5">
-          <div>
-            <label class="block text-xs font-bold text-slate-400 mb-1">帳號</label>
-            <input id="admin-login-user" required autocomplete="username" type="text" placeholder="請輸入管理者帳號"
-              class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-base font-bold text-white focus:border-amber-400 focus:outline-none" />
+        <!-- 步驟 1：選擇登入身分（最高管理權責 vs 活動承辦人） -->
+        <div class="space-y-2">
+          <label class="block text-xs font-extrabold text-amber-300">1. 選擇後台管理身分</label>
+          <div id="admin-login-role-selector" class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            <button type="button" data-admin-login-role="super"
+              class="admin-login-role-btn text-left rounded-2xl p-3.5 border-2 border-amber-400 bg-amber-500/15 transition space-y-1">
+              <div class="flex items-center justify-between gap-2">
+                <span class="text-sm font-black text-amber-300">🛡️ 最高管理權責</span>
+                <span class="admin-role-check text-[11px] font-black text-amber-300">✓ 已選取</span>
+              </div>
+              <div class="text-[11px] text-slate-300 leading-snug">全平台管理・帳號權限・資料庫備份與還原</div>
+            </button>
+
+            <button type="button" data-admin-login-role="coordinator"
+              class="admin-login-role-btn text-left rounded-2xl p-3.5 border border-slate-700 bg-slate-950/80 hover:border-sky-400/70 transition space-y-1">
+              <div class="flex items-center justify-between gap-2">
+                <span class="text-sm font-black text-sky-300">👤 活動承辦人（其他帳號）</span>
+                <span class="admin-role-check text-[11px] font-bold text-slate-500">點選切換</span>
+              </div>
+              <div class="text-[11px] text-slate-400 leading-snug">承辦活動賽務・名單成績・結案匯出與證書</div>
+            </button>
           </div>
-          <div>
-            <label class="block text-xs font-bold text-slate-400 mb-1">密碼</label>
-            <input id="admin-login-pass" required autocomplete="current-password" type="password" placeholder="請輸入密碼"
-              class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-base font-bold text-white focus:border-amber-400 focus:outline-none" />
+        </div>
+
+        <!-- 步驟 2：依所選身分顯示可快速選取之帳號清單 -->
+        <div id="admin-login-accounts-wrap" class="space-y-2">
+          <div class="flex items-center justify-between gap-2">
+            <label id="admin-login-accounts-label" class="block text-xs font-extrabold text-amber-300">2. 選擇最高管理權責帳號（或手動輸入）</label>
+            <span id="admin-login-accounts-count" class="text-[11px] font-mono-num font-bold text-slate-400">0 個帳號</span>
           </div>
-          <button type="submit"
+          <div id="admin-login-account-grid" class="grid grid-cols-1 sm:grid-cols-2 gap-2"></div>
+        </div>
+
+        <!-- 步驟 3：輸入帳號密碼登入 -->
+        <form id="form-admin-login" class="space-y-3.5 pt-2 border-t border-slate-800">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <span class="text-xs font-extrabold text-slate-200">3. 輸入帳號密碼登入</span>
+            <span id="admin-login-role-badge" class="px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-500/15 border border-amber-500/35 text-amber-300">
+              🛡️ 身分：最高管理權責
+            </span>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-bold text-slate-400 mb-1">帳號</label>
+              <input id="admin-login-user" required autocomplete="username" type="text" placeholder="請點選上方帳號或手動輸入"
+                class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-base font-mono-num font-bold text-white focus:border-amber-400 focus:outline-none" />
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-400 mb-1">密碼</label>
+              <input id="admin-login-pass" required autocomplete="current-password" type="password" placeholder="請輸入密碼"
+                class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-base font-bold text-white focus:border-amber-400 focus:outline-none" />
+            </div>
+          </div>
+          <button id="btn-admin-login-submit" type="submit"
             class="w-full py-3.5 rounded-xl text-base font-black bg-amber-500 hover:bg-amber-400 text-slate-950 transition shadow">
-            登入
+            🛡️ 以最高管理權責登入
           </button>
         </form>
       </div>
@@ -1483,14 +1529,14 @@
       </div>
 
       <!-- ================================================================ -->
-      <!-- 專區 4：🗄️ 資料庫專區（備份與還原 ＋ 雲端同步 ＋ 測試資料重置框在一起） -->
+      <!-- 專區 4：🗄️ 資料庫專區（備份與還原僅最高管理權責顯示 ＋ 雲端同步 ＋ 測試資料重置） -->
       <!-- ================================================================ -->
       <div id="admin-zone-db" class="admin-zone-card hidden rounded-3xl bg-sky-950/20 border-2 border-sky-400/70 p-3.5 sm:p-4 space-y-3.5 shadow-xl transition">
         <div class="flex flex-wrap items-center justify-between gap-2.5 pb-2.5 border-b border-sky-500/25">
           <div class="flex items-center gap-2 flex-wrap">
             <span class="px-2.5 py-1 rounded-lg text-xs font-black bg-sky-500/20 border border-sky-500/40 text-sky-300">專區 4</span>
             <h2 class="text-sm sm:text-base font-black text-sky-300 tracking-wide">🗄️ 資料庫專區</h2>
-            <span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-slate-900 border border-sky-500/30 text-sky-200">備份與還原・雲端同步・測試資料與重置</span>
+            <span id="admin-zone-db-subtitle" class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-slate-900 border border-sky-500/30 text-sky-200">備份與還原・雲端同步・測試資料與重置</span>
           </div>
           <button type="button" data-admin-zone-collapse="true"
             class="px-2.5 py-1.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 transition">
@@ -1504,7 +1550,7 @@
         <!-- 本機資料庫即時統計總覽 -->
         <div class="bg-slate-900 border border-sky-500/40 rounded-2xl p-4 sm:p-5 space-y-3">
           <div class="flex flex-wrap items-center justify-between gap-2">
-            <h2 class="text-base font-extrabold text-sky-300">🗄️ 資料庫總覽與備份還原</h2>
+            <h2 id="db-overview-title" class="text-base font-extrabold text-sky-300">🗄️ 資料庫總覽與備份還原</h2>
             <span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-sky-500/15 border border-sky-500/35 text-sky-300">
               本機 IndexedDB ＋ 雲端 Google Sheets
             </span>
@@ -1512,13 +1558,16 @@
           <div id="db-stats-bar" class="grid grid-cols-2 sm:grid-cols-5 gap-2.5"></div>
         </div>
 
-        <!-- 合併一體化：本機備份與還原（JSON） ＋ 雲端資料庫同步 -->
+        <!-- 合併一體化：本機備份與還原（JSON，僅最高管理權責顯示） ＋ 雲端資料庫同步 -->
         <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 space-y-5">
-          <!-- A. 本機備份與還原（合併區） -->
-          <div class="space-y-3">
+          <!-- A. 本機備份與還原（僅最高管理權責可見可操作，活動承辦人隱藏防誤觸） -->
+          <div id="admin-backup-restore-section" class="space-y-3">
             <div class="flex flex-wrap items-center justify-between gap-2">
               <div>
-                <h3 class="text-sm sm:text-base font-extrabold text-white">💾 備份與還原 (.json)</h3>
+                <div class="flex flex-wrap items-center gap-2">
+                  <h3 class="text-sm sm:text-base font-extrabold text-white">💾 備份與還原 (.json)</h3>
+                  <span class="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-500/20 border border-amber-500/40 text-amber-300">🛡️ 僅最高管理權責限定</span>
+                </div>
                 <p class="text-xs text-slate-400 mt-0.5">完整備份本機活動、共用晶片、報名名單、感應與歷年紀錄；支援「合併匯入（自動去重）」與「覆蓋還原」</p>
               </div>
             </div>
@@ -1538,7 +1587,7 @@
             </div>
           </div>
 
-          <hr class="border-slate-800" />
+          <hr id="admin-backup-restore-divider" class="border-slate-800" />
 
           <!-- B. 雲端資料庫同步 -->
           <div class="space-y-3.5">
@@ -1898,13 +1947,13 @@
     </div>
   </div>
 
-  <script src="./js/config.js?v=3.12.10"></script>
-  <script src="./js/timing-engine.js?v=3.12.10"></script>
-  <script src="./js/db.js?v=3.12.10"></script>
-  <script src="./js/nfc.js?v=3.12.10"></script>
-  <script src="./js/sync.js?v=3.12.10"></script>
-  <script src="./js/excel.js?v=3.12.10"></script>
-  <script src="./js/certificate.js?v=3.12.10"></script>
-  <script src="./js/app.js?v=3.12.10"></script>
+  <script src="./js/config.js?v=3.12.11"></script>
+  <script src="./js/timing-engine.js?v=3.12.11"></script>
+  <script src="./js/db.js?v=3.12.11"></script>
+  <script src="./js/nfc.js?v=3.12.11"></script>
+  <script src="./js/sync.js?v=3.12.11"></script>
+  <script src="./js/excel.js?v=3.12.11"></script>
+  <script src="./js/certificate.js?v=3.12.11"></script>
+  <script src="./js/app.js?v=3.12.11"></script>
 </body>
 </html>

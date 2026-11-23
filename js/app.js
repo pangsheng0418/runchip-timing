@@ -41,6 +41,8 @@
     adminHistorySearch: '',
     exportSelectedEventId: '',
     staffLoginSelectedGroup: '',
+    adminLoginRole: 'super',
+    adminLoginSelectedUser: '',
     historyPreview: {
       items: [],
       skippedCount: 0,
@@ -368,6 +370,7 @@
     renderEventDropdowns();
     updateNetworkIndicators();
     if (viewName === 'staff-login') renderStaffLoginGroups();
+    if (viewName === 'admin-login') renderAdminLoginView();
     if (viewName === 'staff-workspace') renderStaffWorkspace();
     if (viewName === 'admin-workspace') {
       renderAdminWorkspace();
@@ -571,7 +574,9 @@
       userBox.classList.remove('hidden');
       const acc = state.session.account;
       userLabel.textContent = state.session.mode === 'admin'
-        ? `🛡️ ${acc.displayName || acc.username} (${acc.isSuperAdmin ? '最高管理員' : '活動管理員'})`
+        ? (acc.isSuperAdmin
+          ? `🛡️ ${acc.displayName || acc.username} (最高管理權責)`
+          : `👤 ${acc.displayName || acc.username} (活動承辦人)`)
         : `👷 ${acc.displayName || acc.username}`;
     } else {
       userBox.classList.add('hidden');
@@ -658,6 +663,128 @@
     }
 
     renderStaffLoginGroups();
+    if (state.view === 'admin-login') renderAdminLoginView();
+  }
+
+  /**
+   * 渲染後台管理登入畫面：區分「最高管理權責」與「活動承辦人（其他帳號）」
+   */
+  function renderAdminLoginView() {
+    const role = state.adminLoginRole === 'coordinator' ? 'coordinator' : 'super';
+    const isSuperRole = role === 'super';
+    const allAdmins = (state.platform?.adminAccounts || []).filter((a) => a && a.enabled !== false);
+    const list = allAdmins.filter((a) => (isSuperRole ? Boolean(a.isSuperAdmin) : !a.isSuperAdmin));
+    const events = state.platform?.events || [];
+
+    // 1. 雙身分卡片樣式切換
+    document.querySelectorAll('.admin-login-role-btn').forEach((btn) => {
+      const btnRole = btn.dataset.adminLoginRole;
+      const isAct = btnRole === role;
+      const checkEl = btn.querySelector('.admin-role-check');
+      if (btnRole === 'super') {
+        btn.className = isAct
+          ? 'admin-login-role-btn text-left rounded-2xl p-3.5 border-2 border-amber-400 bg-amber-500/15 shadow-lg shadow-amber-950/30 transition space-y-1'
+          : 'admin-login-role-btn text-left rounded-2xl p-3.5 border border-slate-700 bg-slate-950/80 hover:border-amber-400/70 transition space-y-1';
+        if (checkEl) {
+          checkEl.textContent = isAct ? '✓ 已選取' : '點選切換';
+          checkEl.className = `admin-role-check text-[11px] ${isAct ? 'font-black text-amber-300' : 'font-bold text-slate-500'}`;
+        }
+      } else {
+        btn.className = isAct
+          ? 'admin-login-role-btn text-left rounded-2xl p-3.5 border-2 border-sky-400 bg-sky-500/15 shadow-lg shadow-sky-950/30 transition space-y-1'
+          : 'admin-login-role-btn text-left rounded-2xl p-3.5 border border-slate-700 bg-slate-950/80 hover:border-sky-400/70 transition space-y-1';
+        if (checkEl) {
+          checkEl.textContent = isAct ? '✓ 已選取' : '點選切換';
+          checkEl.className = `admin-role-check text-[11px] ${isAct ? 'font-black text-sky-300' : 'font-bold text-slate-500'}`;
+        }
+      }
+    });
+
+    // 2. 標題、徽章與送出按鈕主題
+    const iconEl = $('admin-login-icon');
+    if (iconEl) {
+      iconEl.textContent = isSuperRole ? '🛡️' : '👤';
+      iconEl.className = isSuperRole
+        ? 'w-12 h-12 rounded-2xl bg-amber-500/15 border border-amber-500/35 flex items-center justify-center text-2xl shrink-0'
+        : 'w-12 h-12 rounded-2xl bg-sky-500/15 border border-sky-500/35 flex items-center justify-center text-2xl shrink-0';
+    }
+    if ($('admin-login-title')) {
+      $('admin-login-title').textContent = isSuperRole ? '最高管理權責登入' : '活動承辦人登入（其他帳號）';
+    }
+    if ($('admin-login-subtitle')) {
+      $('admin-login-subtitle').textContent = isSuperRole
+        ? '最高管理權責專用：含帳號權限管理與資料庫備份還原'
+        : '活動承辦人專用：僅管理本人承辦之活動，資料庫備份還原已自動隱藏防誤觸';
+    }
+    if ($('admin-login-accounts-label')) {
+      $('admin-login-accounts-label').textContent = isSuperRole
+        ? '2. 選擇最高管理權責帳號（或手動輸入）'
+        : '2. 選擇活動承辦人帳號（或手動輸入）';
+      $('admin-login-accounts-label').className = `block text-xs font-extrabold ${isSuperRole ? 'text-amber-300' : 'text-sky-300'}`;
+    }
+    if ($('admin-login-accounts-count')) {
+      $('admin-login-accounts-count').textContent = `${list.length} 個帳號`;
+    }
+    const badgeEl = $('admin-login-role-badge');
+    if (badgeEl) {
+      badgeEl.textContent = isSuperRole ? '🛡️ 身分：最高管理權責' : '👤 身分：活動承辦人（其他帳號）';
+      badgeEl.className = isSuperRole
+        ? 'px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-500/15 border border-amber-500/35 text-amber-300'
+        : 'px-2.5 py-1 rounded-full text-[11px] font-bold bg-sky-500/15 border border-sky-500/35 text-sky-300';
+    }
+    const submitBtn = $('btn-admin-login-submit');
+    if (submitBtn) {
+      submitBtn.textContent = isSuperRole ? '🛡️ 以最高管理權責登入' : '👤 以活動承辦人登入';
+      submitBtn.className = isSuperRole
+        ? 'w-full py-3.5 rounded-xl text-base font-black bg-amber-500 hover:bg-amber-400 text-slate-950 transition shadow'
+        : 'w-full py-3.5 rounded-xl text-base font-black bg-sky-500 hover:bg-sky-400 text-slate-950 transition shadow';
+    }
+
+    // 3. 若目前選定帳號不屬於該身分則清除
+    if (state.adminLoginSelectedUser && !list.some((a) => a.username === state.adminLoginSelectedUser)) {
+      state.adminLoginSelectedUser = '';
+    }
+
+    // 4. 渲染可快選帳號卡片
+    const grid = $('admin-login-account-grid');
+    if (!grid) return;
+    if (list.length === 0) {
+      grid.innerHTML = `
+        <div class="sm:col-span-2 rounded-2xl bg-slate-950/70 border border-dashed border-slate-700 p-3.5 text-xs text-slate-400 leading-relaxed">
+          ${isSuperRole
+            ? '本機尚未載入最高管理權責帳號，請直接於下方輸入帳號密碼登入。'
+            : '目前本機尚無其他活動承辦人帳號；可由最高管理權責於後台「🏟️ 活動 → 👥 平台管理者帳號」新增，或直接於下方手動輸入帳號密碼登入。'}
+        </div>
+      `;
+      return;
+    }
+
+    grid.innerHTML = list
+      .map((a) => {
+        const selected = state.adminLoginSelectedUser === a.username;
+        const ownCount = events.filter((ev) => getEventOwner(ev) === a.username).length;
+        const activeCls = isSuperRole
+          ? 'border-2 border-amber-400 bg-amber-500/15 ring-1 ring-amber-400/30'
+          : 'border-2 border-sky-400 bg-sky-500/15 ring-1 ring-sky-400/30';
+        const idleCls = isSuperRole
+          ? 'border border-slate-800 bg-slate-950/80 hover:border-amber-500/60 hover:bg-slate-900'
+          : 'border border-slate-800 bg-slate-950/80 hover:border-sky-500/60 hover:bg-slate-900';
+        const accentTxt = isSuperRole ? 'text-amber-300' : 'text-sky-300';
+        return `
+          <button type="button" data-pick-admin-user="${esc(a.username)}"
+            class="text-left rounded-xl p-3 transition flex flex-col justify-between gap-1.5 ${selected ? activeCls : idleCls}">
+            <div class="flex items-center justify-between gap-2">
+              <span class="text-xs sm:text-sm font-black text-white truncate">${isSuperRole ? '🛡️' : '👤'} ${esc(a.displayName || a.username)}</span>
+              <span class="text-[10px] font-mono-num font-bold ${accentTxt} shrink-0">${selected ? '✓ 已選' : '點選'}</span>
+            </div>
+            <div class="flex items-center justify-between gap-2 text-[11px] font-mono-num">
+              <span class="text-slate-400">帳號 ${esc(a.username)}</span>
+              <span class="text-slate-400">承辦 ${ownCount} 場</span>
+            </div>
+          </button>
+        `;
+      })
+      .join('');
   }
 
   /**
@@ -918,7 +1045,7 @@
   /* ========================================================================
    * 登入與登出流程（含指定活動鎖定）
    * ======================================================================== */
-  async function handleLogin(mode, username, password, chosenEventId = '') {
+  async function handleLogin(mode, username, password, chosenEventId = '', adminRoleIntent = '') {
     const u = String(username || '').trim();
     const p = String(password || '');
     if (!u || !p) return showToast('請輸入帳號與密碼', 'warn');
@@ -960,6 +1087,20 @@
         return;
       }
       account = { ...localRes.account, password: p };
+    }
+
+    // 後台管理登入身分核對：防止最高管理權責與活動承辦人混用入口
+    if (mode === 'admin' && adminRoleIntent) {
+      if (adminRoleIntent === 'super' && !account.isSuperAdmin) {
+        NFC.sound.beepError();
+        showToast('此帳號為「活動承辦人」權限，請改點選「👤 活動承辦人（其他帳號）」登入', 'warn');
+        return;
+      }
+      if (adminRoleIntent === 'coordinator' && account.isSuperAdmin) {
+        NFC.sound.beepError();
+        showToast('此帳號為「最高管理權責」，請改點選「🛡️ 最高管理權責」登入', 'warn');
+        return;
+      }
     }
 
     // 決定作業員鎖定的活動：若帳號本身有綁定特定 eventId（非 ALL）則強制鎖定該活動；否則鎖定登入時選取的活動
@@ -1052,6 +1193,9 @@
     }
     state.session = null;
     state.adminZone = null;
+    state.adminLoginSelectedUser = '';
+    if ($('admin-login-user')) $('admin-login-user').value = '';
+    if ($('admin-login-pass')) $('admin-login-pass').value = '';
     DB.saveSession(null);
     showToast('已登出並返回作業區大廳', 'info');
     switchView('portal');
@@ -1846,8 +1990,8 @@
                 <div class="sm:col-span-3">
                   <label class="block text-[11px] text-slate-400 mb-1">管理權限角色</label>
                   <select data-admin-field="isSuperAdmin" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs font-bold text-amber-300" ${isSelf ? 'disabled' : ''}>
-                    <option value="0" ${!a.isSuperAdmin ? 'selected' : ''}>活動管理員（僅管自己活動）</option>
-                    <option value="1" ${a.isSuperAdmin ? 'selected' : ''}>最高管理員（可增刪管理者）</option>
+                    <option value="0" ${!a.isSuperAdmin ? 'selected' : ''}>活動承辦人（僅管本人活動・無備份還原）</option>
+                    <option value="1" ${a.isSuperAdmin ? 'selected' : ''}>最高管理權責（全權限・含備份還原）</option>
                   </select>
                 </div>
                 <div class="sm:col-span-2 flex items-center justify-between gap-2 pb-1">
@@ -3303,10 +3447,25 @@
       radio.checked = radio.value === settings.mode;
     });
     $('input-gas-url').value = settings.gasUrl || '';
+    // 資料庫專區「備份與還原」及危險重置項目僅限最高管理權責顯示，活動承辦人一律隱藏防誤觸
+    const backupSection = $('admin-backup-restore-section');
+    if (backupSection) backupSection.classList.toggle('hidden', !isSuper);
+    const backupDivider = $('admin-backup-restore-divider');
+    if (backupDivider) backupDivider.classList.toggle('hidden', !isSuper);
     const replaceLabel = $('btn-backup-replace-label');
     if (replaceLabel) replaceLabel.classList.toggle('hidden', !isSuper);
     const maintCard = $('admin-maintenance-card');
     if (maintCard) maintCard.classList.toggle('hidden', !isSuper);
+    const pushPlatformBtn = $('btn-sync-push-platform');
+    if (pushPlatformBtn) pushPlatformBtn.classList.toggle('hidden', !isSuper);
+    const dbSubtitle = $('admin-zone-db-subtitle');
+    if (dbSubtitle) {
+      dbSubtitle.textContent = isSuper ? '備份與還原・雲端同步・測試資料與重置' : '雲端資料庫同步與分享連結';
+    }
+    const dbOverviewTitle = $('db-overview-title');
+    if (dbOverviewTitle) {
+      dbOverviewTitle.textContent = isSuper ? '🗄️ 資料庫總覽與備份還原' : '🗄️ 資料庫總覽與雲端同步';
+    }
   }
 
   /* ========================================================================
@@ -3657,9 +3816,35 @@
       e.preventDefault();
       handleLogin('staff', $('staff-login-user').value, $('staff-login-pass').value, $('staff-login-event').value);
     });
+    // 後台管理登入：切換最高管理權責／活動承辦人身分與快選帳號
+    $('btn-staff-goto-admin').addEventListener('click', () => {
+      state.adminLoginRole = 'super';
+      state.adminLoginSelectedUser = '';
+      $('admin-login-user').value = '';
+      $('admin-login-pass').value = '';
+    });
+    $('admin-login-role-selector').addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-admin-login-role]');
+      if (!btn) return;
+      state.adminLoginRole = btn.dataset.adminLoginRole === 'coordinator' ? 'coordinator' : 'super';
+      state.adminLoginSelectedUser = '';
+      $('admin-login-user').value = '';
+      $('admin-login-pass').value = '';
+      renderAdminLoginView();
+    });
+    $('admin-login-account-grid').addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-pick-admin-user]');
+      if (!btn) return;
+      const username = btn.dataset.pickAdminUser;
+      state.adminLoginSelectedUser = username;
+      $('admin-login-user').value = username;
+      $('admin-login-pass').value = '';
+      renderAdminLoginView();
+      $('admin-login-pass').focus();
+    });
     $('form-admin-login').addEventListener('submit', (e) => {
       e.preventDefault();
-      handleLogin('admin', $('admin-login-user').value, $('admin-login-pass').value);
+      handleLogin('admin', $('admin-login-user').value, $('admin-login-pass').value, '', state.adminLoginRole);
     });
 
     // 作業員工作區控制
@@ -4036,12 +4221,12 @@
     $('btn-add-admin-account').addEventListener('click', async () => {
       if (!isCurrentSuperAdmin()) return;
       const list = [...(state.platform.adminAccounts || [])];
-      let n = list.length + 1;
-      while (list.some((a) => a.username === `admin${n}`)) n++;
+      let n = 1;
+      while (list.some((a) => a.username === `host${n}`)) n++;
       list.push({
-        username: `admin${n}`,
+        username: `host${n}`,
         password: `pass${n}234`,
-        displayName: `活動管理者 ${n}`,
+        displayName: `活動承辦人 ${n}`,
         isSuperAdmin: false,
         enabled: true,
         updatedAt: Date.now()
@@ -5130,14 +5315,21 @@
     });
     $('btn-export-duv').addEventListener('click', openDuvExportModal);
 
-    $('btn-backup-download').addEventListener('click', () => downloadJsonBackup(`智慧路跑備份_${getCurrentAdminUsername() || 'all'}`));
+    $('btn-backup-download').addEventListener('click', () => {
+      if (!isCurrentSuperAdmin()) return showToast('僅最高管理權責可執行資料庫備份', 'error');
+      downloadJsonBackup(`智慧路跑備份_${getCurrentAdminUsername() || 'all'}`);
+    });
     $('input-backup-merge').addEventListener('change', async (e) => {
+      if (!isCurrentSuperAdmin()) {
+        e.target.value = '';
+        return showToast('僅最高管理權責可執行資料庫還原', 'error');
+      }
       const f = e.target.files?.[0];
       if (f) {
         try {
           const r = await DB.importFullBackup(JSON.parse(await f.text()), 'merge', {
             ownerAdmin: getCurrentAdminUsername(),
-            isSuperAdmin: isCurrentSuperAdmin()
+            isSuperAdmin: true
           });
           await reloadState();
           showToast(`合併完成！晶片 ${r.chipCount}、報名 ${r.regCount}、感應 ${r.scanCount}、歷年 ${r.historyCount || 0} 筆`, 'success');
@@ -5146,7 +5338,10 @@
       e.target.value = '';
     });
     $('input-backup-replace').addEventListener('change', async (e) => {
-      if (!isCurrentSuperAdmin()) return showToast('僅最高管理員可執行覆蓋還原', 'error');
+      if (!isCurrentSuperAdmin()) {
+        e.target.value = '';
+        return showToast('僅最高管理權責可執行覆蓋還原', 'error');
+      }
       const f = e.target.files?.[0];
       if (f && confirm('確定以備份檔覆蓋還原整個本機資料庫嗎？')) {
         try {

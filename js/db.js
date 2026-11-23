@@ -1323,7 +1323,17 @@
       const platform = createDefaultPlatform();
       platform.adminUsername = prev?.adminUsername || 'admin';
       platform.adminPassword = prev?.adminPassword || 'admin1234';
-      if (prev?.adminAccounts?.length) platform.adminAccounts = prev.adminAccounts;
+      if (prev?.adminAccounts?.length) platform.adminAccounts = [...prev.adminAccounts];
+      if (!platform.adminAccounts.some((a) => a && !a.isSuperAdmin && a.enabled !== false)) {
+        platform.adminAccounts.push({
+          username: 'host01',
+          password: '1234',
+          displayName: '活動承辦人（範例）',
+          isSuperAdmin: false,
+          enabled: true,
+          updatedAt: Date.now()
+        });
+      }
       if (prev?.staffAccounts?.length) platform.staffAccounts = prev.staffAccounts;
       platform.activeEventId = evt1.eventId;
       platform.events = [evt1, evt2, evt3, evt4, evt5];
