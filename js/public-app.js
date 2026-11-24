@@ -46,6 +46,7 @@
       selectedEntryKey: '',
       entriesCache: [],
       orientation: 'landscape',
+      format: 'classic_gold',
       theme: 'ivory_gold',
       showSplits: true,
       cOrientation: 'landscape',
@@ -2251,6 +2252,7 @@
       row: payload.row,
       options: {
         orientation: state.cert.orientation,
+        format: state.cert.format,
         theme: state.cert.theme,
         showSplits: state.cert.showSplits
       }
@@ -2269,9 +2271,11 @@
       $('pub-cert-active-badge').textContent = `${entry.eventDate || '--'}｜${entry.eventName}`;
     }
     if ($('pub-cert-preview-caption')) {
+      const fmtLabel = Cert?.OFFICIAL_FORMATS?.[state.cert.format]?.label || '經典燙金典藏式';
+      const thmLabel = Cert?.OFFICIAL_THEMES?.[state.cert.theme]?.label || '經典象牙金';
       const styleLabel = state.cert.style === 'custom'
         ? `客製化個人證書（${state.cert.cOrientation === 'portrait' ? 'A4 直式' : 'A4 橫式'}）`
-        : `官方中英文對照樣式（${state.cert.orientation === 'portrait' ? 'A4 直式' : 'A4 橫式'}）`;
+        : `官方公版・${fmtLabel}・${thmLabel}（${state.cert.orientation === 'portrait' ? 'A4 直式' : 'A4 橫式'}）`;
       $('pub-cert-preview-caption').textContent = `${styleLabel} ｜ ${entry.name}${entry.bib ? ` (#${entry.bib})` : ''} • ${entry.categoryName || ''}`;
     }
   }
@@ -2545,6 +2549,7 @@
 
     // 官方樣式控制
     $('pub-cert-orientation').addEventListener('change', (e) => { state.cert.orientation = e.target.value; renderPublicCertCanvas(); });
+    $('pub-cert-format')?.addEventListener('change', (e) => { state.cert.format = e.target.value; renderPublicCertCanvas(); });
     $('pub-cert-theme').addEventListener('change', (e) => { state.cert.theme = e.target.value; renderPublicCertCanvas(); });
     $('pub-cert-show-splits').addEventListener('change', (e) => { state.cert.showSplits = e.target.checked; renderPublicCertCanvas(); });
 

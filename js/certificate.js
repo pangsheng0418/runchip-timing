@@ -326,7 +326,17 @@
     ctx.restore();
   }
 
-  function drawOfficialSeal(ctx, cx, cy, radius, yearStr, isDark) {
+  function drawOfficialSeal(ctx, cx, cy, radius, yearStr, isDarkOrPalette) {
+    const isPal = isDarkOrPalette && typeof isDarkOrPalette === 'object';
+    const isDark = isPal ? Boolean(isDarkOrPalette.isDark) : Boolean(isDarkOrPalette);
+    const sealOuter1 = isPal ? (isDarkOrPalette.sealOuter1 || '#f3d778') : '#f3d778';
+    const sealOuter2 = isPal ? (isDarkOrPalette.sealOuter2 || '#d4a634') : '#d4a634';
+    const sealOuter3 = isPal ? (isDarkOrPalette.sealOuter3 || '#b5841d') : '#b5841d';
+    const sealInnerBg = isPal ? (isDarkOrPalette.sealInnerBg || (isDark ? '#142642' : '#fcf6e3')) : (isDark ? '#142642' : '#fcf6e3');
+    const sealStroke = isPal ? (isDarkOrPalette.goldMain || '#b8860b') : '#b8860b';
+    const sealInk = isPal ? (isDarkOrPalette.sealInk || (isDark ? '#f3d778' : '#7c580f')) : (isDark ? '#f3d778' : '#7c580f');
+    const sealSubInk = isPal ? (isDarkOrPalette.sealSubInk || (isDark ? '#d9b54a' : '#5d8226')) : (isDark ? '#d9b54a' : '#5d8226');
+
     ctx.save();
     ctx.translate(cx, cy);
 
@@ -335,10 +345,10 @@
     const outerR = radius;
     const innerToothR = radius * 0.92;
     const grad = ctx.createLinearGradient(-outerR, -outerR, outerR, outerR);
-    grad.addColorStop(0, '#f3d778');
-    grad.addColorStop(0.35, '#d4a634');
-    grad.addColorStop(0.7, '#b5841d');
-    grad.addColorStop(1, '#f0d06b');
+    grad.addColorStop(0, sealOuter1);
+    grad.addColorStop(0.35, sealOuter2);
+    grad.addColorStop(0.7, sealOuter3);
+    grad.addColorStop(1, sealOuter1);
 
     ctx.beginPath();
     for (let i = 0; i < teeth * 2; i++) {
@@ -351,19 +361,19 @@
     }
     ctx.closePath();
     ctx.fillStyle = grad;
-    ctx.shadowColor = isDark ? 'rgba(0,0,0,0.45)' : 'rgba(133,96,20,0.28)';
+    ctx.shadowColor = isDark ? 'rgba(0,0,0,0.45)' : 'rgba(15,23,42,0.22)';
     ctx.shadowBlur = 18;
     ctx.shadowOffsetY = 6;
     ctx.fill();
     ctx.shadowColor = 'transparent';
 
-    // 內圈深金圓底
+    // 內圈圓底
     ctx.beginPath();
     ctx.arc(0, 0, radius * 0.82, 0, Math.PI * 2);
-    ctx.fillStyle = isDark ? '#142642' : '#fcf6e3';
+    ctx.fillStyle = sealInnerBg;
     ctx.fill();
     ctx.lineWidth = 3.5;
-    ctx.strokeStyle = '#b8860b';
+    ctx.strokeStyle = sealStroke;
     ctx.stroke();
 
     // 細內框線
@@ -371,29 +381,27 @@
     ctx.arc(0, 0, radius * 0.72, 0, Math.PI * 2);
     ctx.lineWidth = 1.6;
     ctx.setLineDash([4, 3]);
-    ctx.strokeStyle = isDark ? '#e6c465' : '#9a7016';
+    ctx.strokeStyle = sealInk;
     ctx.stroke();
     ctx.setLineDash([]);
 
     // 鋼印文字
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    const ink = isDark ? '#f3d778' : '#7c580f';
-    const subInk = isDark ? '#d9b54a' : '#5d8226';
 
-    ctx.fillStyle = subInk;
+    ctx.fillStyle = sealSubInk;
     ctx.font = `800 ${Math.round(radius * 0.105)}px "Segoe UI", Arial, sans-serif`;
     ctx.fillText('TAIWAN ULTRA RUNNERS', 0, -radius * 0.34);
 
-    ctx.fillStyle = ink;
+    ctx.fillStyle = sealInk;
     ctx.font = `900 ${Math.round(radius * 0.30)}px Georgia, "Times New Roman", serif`;
     ctx.fillText('TUR', 0, -radius * 0.04);
 
-    ctx.fillStyle = ink;
+    ctx.fillStyle = sealInk;
     ctx.font = `700 ${Math.round(radius * 0.118)}px "Noto Sans TC", "Microsoft JhengHei", sans-serif`;
     ctx.fillText(`官方完賽認證 • ${yearStr}`, 0, radius * 0.25);
 
-    ctx.fillStyle = subInk;
+    ctx.fillStyle = sealSubInk;
     ctx.font = `700 ${Math.round(radius * 0.095)}px "Segoe UI", Arial, sans-serif`;
     ctx.fillText('★ OFFICIAL FINISHER ★', 0, radius * 0.44);
 
@@ -401,13 +409,307 @@
   }
 
   /* ========================================================================
-   * 模式 1：官方公版證書（中英文對照・高質感官方模式・含 TUR LOGO）
+   * 六種官方配色主題 ＆ 六種不同風格的官方證書格式
+   * ======================================================================== */
+
+  const OFFICIAL_THEMES = {
+    ivory_gold: {
+      id: 'ivory_gold',
+      label: '經典象牙金',
+      isDark: false,
+      bgInner: '#fffefa',
+      bgMid: '#faf4e6',
+      bgOuter: '#efe5cc',
+      goldMain: '#b8860b',
+      goldSoft: '#cfa33a',
+      turGreen: '#638c26',
+      textPrimary: '#1a2332',
+      textSecondary: '#3b4a5e',
+      textMuted: '#64748b',
+      cardBg: 'rgba(255, 255, 255, 0.85)',
+      cardHighlightBg: 'rgba(254, 249, 231, 0.96)',
+      cardBorder: 'rgba(184, 134, 11, 0.42)',
+      divider: 'rgba(184, 134, 11, 0.36)',
+      watermark: 'rgba(99, 140, 38, 0.045)',
+      ridge: 'rgba(99, 140, 38, 0.11)',
+      ridgeFill1: 'rgba(99, 140, 38, 0.09)',
+      ridgeFill2: 'rgba(184, 134, 11, 0.08)',
+      bannerBg1: '#1c2b3a',
+      bannerBg2: '#2e4532',
+      bannerText: '#ffffff',
+      bannerSub: '#f3d778',
+      ribbonBg: 'rgba(184, 134, 11, 0.12)',
+      sealOuter1: '#f3d778',
+      sealOuter2: '#d4a634',
+      sealOuter3: '#b5841d',
+      sealInnerBg: '#fcf6e3',
+      sealInk: '#7c580f',
+      sealSubInk: '#5d8226'
+    },
+    navy_gold: {
+      id: 'navy_gold',
+      label: '尊榮深海藍金',
+      isDark: true,
+      bgInner: '#132645',
+      bgMid: '#0c1a31',
+      bgOuter: '#060e1c',
+      goldMain: '#e5c158',
+      goldSoft: '#b88f2d',
+      turGreen: '#8ec641',
+      textPrimary: '#ffffff',
+      textSecondary: '#cbd5e1',
+      textMuted: '#94a3b8',
+      cardBg: 'rgba(15, 29, 54, 0.84)',
+      cardHighlightBg: 'rgba(23, 44, 78, 0.94)',
+      cardBorder: 'rgba(229, 193, 88, 0.5)',
+      divider: 'rgba(229, 193, 88, 0.4)',
+      watermark: 'rgba(229, 193, 88, 0.045)',
+      ridge: 'rgba(142, 198, 65, 0.13)',
+      ridgeFill1: 'rgba(142, 198, 65, 0.1)',
+      ridgeFill2: 'rgba(229, 193, 88, 0.08)',
+      bannerBg1: '#1e3a66',
+      bannerBg2: '#0f2140',
+      bannerText: '#ffffff',
+      bannerSub: '#e5c158',
+      ribbonBg: 'rgba(229, 193, 88, 0.14)',
+      sealOuter1: '#f3d778',
+      sealOuter2: '#d4a634',
+      sealOuter3: '#b5841d',
+      sealInnerBg: '#142642',
+      sealInk: '#f3d778',
+      sealSubInk: '#d9b54a'
+    },
+    emerald_forest: {
+      id: 'emerald_forest',
+      label: '玉山森翠金',
+      isDark: true,
+      bgInner: '#0f3329',
+      bgMid: '#09221b',
+      bgOuter: '#04120e',
+      goldMain: '#e7c668',
+      goldSoft: '#b69237',
+      turGreen: '#5eead4',
+      textPrimary: '#f8fafc',
+      textSecondary: '#d1fae5',
+      textMuted: '#86efac',
+      cardBg: 'rgba(9, 36, 29, 0.84)',
+      cardHighlightBg: 'rgba(16, 56, 45, 0.94)',
+      cardBorder: 'rgba(231, 198, 104, 0.48)',
+      divider: 'rgba(94, 234, 212, 0.34)',
+      watermark: 'rgba(94, 234, 212, 0.045)',
+      ridge: 'rgba(94, 234, 212, 0.15)',
+      ridgeFill1: 'rgba(52, 211, 153, 0.12)',
+      ridgeFill2: 'rgba(231, 198, 104, 0.09)',
+      bannerBg1: '#134e3e',
+      bannerBg2: '#0a2d24',
+      bannerText: '#ffffff',
+      bannerSub: '#fde68a',
+      ribbonBg: 'rgba(94, 234, 212, 0.12)',
+      sealOuter1: '#f5dc86',
+      sealOuter2: '#cfa037',
+      sealOuter3: '#9a721a',
+      sealInnerBg: '#0b2b22',
+      sealInk: '#f5dc86',
+      sealSubInk: '#6ee7b7'
+    },
+    crimson_royal: {
+      id: 'crimson_royal',
+      label: '榮耀帝王紅金',
+      isDark: true,
+      bgInner: '#4a101e',
+      bgMid: '#2f0913',
+      bgOuter: '#190409',
+      goldMain: '#f2cc6c',
+      goldSoft: '#c99835',
+      turGreen: '#fbbf24',
+      textPrimary: '#fffbeb',
+      textSecondary: '#fde68a',
+      textMuted: '#e7b5b5',
+      cardBg: 'rgba(58, 12, 24, 0.84)',
+      cardHighlightBg: 'rgba(84, 18, 34, 0.94)',
+      cardBorder: 'rgba(242, 204, 108, 0.54)',
+      divider: 'rgba(242, 204, 108, 0.4)',
+      watermark: 'rgba(242, 204, 108, 0.05)',
+      ridge: 'rgba(242, 204, 108, 0.13)',
+      ridgeFill1: 'rgba(242, 204, 108, 0.09)',
+      ridgeFill2: 'rgba(251, 113, 133, 0.09)',
+      bannerBg1: '#6e162b',
+      bannerBg2: '#3f0c18',
+      bannerText: '#fffbeb',
+      bannerSub: '#f7dc88',
+      ribbonBg: 'rgba(242, 204, 108, 0.15)',
+      sealOuter1: '#fae08c',
+      sealOuter2: '#dca836',
+      sealOuter3: '#a87416',
+      sealInnerBg: '#3a0c18',
+      sealInk: '#fae08c',
+      sealSubInk: '#fbbf24'
+    },
+    obsidian_lime: {
+      id: 'obsidian_lime',
+      label: '極速曜石萊姆',
+      isDark: true,
+      bgInner: '#1c232f',
+      bgMid: '#11161f',
+      bgOuter: '#07090e',
+      goldMain: '#a3e635',
+      goldSoft: '#65a30d',
+      turGreen: '#38bdf8',
+      textPrimary: '#ffffff',
+      textSecondary: '#e2e8f0',
+      textMuted: '#94a3b8',
+      cardBg: 'rgba(17, 24, 36, 0.88)',
+      cardHighlightBg: 'rgba(26, 36, 52, 0.95)',
+      cardBorder: 'rgba(163, 230, 53, 0.52)',
+      divider: 'rgba(163, 230, 53, 0.38)',
+      watermark: 'rgba(163, 230, 53, 0.045)',
+      ridge: 'rgba(163, 230, 53, 0.16)',
+      ridgeFill1: 'rgba(163, 230, 53, 0.1)',
+      ridgeFill2: 'rgba(56, 189, 248, 0.09)',
+      bannerBg1: '#232e40',
+      bannerBg2: '#131a26',
+      bannerText: '#ffffff',
+      bannerSub: '#a3e635',
+      ribbonBg: 'rgba(163, 230, 53, 0.14)',
+      sealOuter1: '#d9f99d',
+      sealOuter2: '#84cc16',
+      sealOuter3: '#4d7c0f',
+      sealInnerBg: '#121822',
+      sealInk: '#bef264',
+      sealSubInk: '#38bdf8'
+    },
+    sunrise_pearl: {
+      id: 'sunrise_pearl',
+      label: '晨曦珍珠白藍',
+      isDark: false,
+      bgInner: '#ffffff',
+      bgMid: '#f2f7fc',
+      bgOuter: '#dde9f6',
+      goldMain: '#1d4ed8',
+      goldSoft: '#60a5fa',
+      turGreen: '#d97706',
+      textPrimary: '#0f172a',
+      textSecondary: '#334155',
+      textMuted: '#64748b',
+      cardBg: 'rgba(255, 255, 255, 0.9)',
+      cardHighlightBg: 'rgba(239, 246, 255, 0.96)',
+      cardBorder: 'rgba(29, 78, 216, 0.34)',
+      divider: 'rgba(29, 78, 216, 0.28)',
+      watermark: 'rgba(29, 78, 216, 0.04)',
+      ridge: 'rgba(29, 78, 216, 0.11)',
+      ridgeFill1: 'rgba(29, 78, 216, 0.08)',
+      ridgeFill2: 'rgba(217, 119, 6, 0.08)',
+      bannerBg1: '#1e3a8a',
+      bannerBg2: '#1d4ed8',
+      bannerText: '#ffffff',
+      bannerSub: '#fde68a',
+      ribbonBg: 'rgba(29, 78, 216, 0.1)',
+      sealOuter1: '#93c5fd',
+      sealOuter2: '#2563eb',
+      sealOuter3: '#1e40af',
+      sealInnerBg: '#eff6ff',
+      sealInk: '#1e3a8a',
+      sealSubInk: '#b45309'
+    }
+  };
+
+  const OFFICIAL_FORMATS = {
+    classic_gold: { id: 'classic_gold', label: '經典燙金典藏式' },
+    modern_banner: { id: 'modern_banner', label: '現代榮耀橫幅式' },
+    mountain_trail: { id: 'mountain_trail', label: '百岳山稜越野式' },
+    editorial_minimal: { id: 'editorial_minimal', label: '極簡美術館典雅式' },
+    sport_kinetic: { id: 'sport_kinetic', label: '動感賽道競技式' },
+    diploma_crest: { id: 'diploma_crest', label: '皇家勳章獎狀式' }
+  };
+
+  function drawChamferedRect(ctx, x, y, w, h, cut) {
+    const c = Math.min(cut, w / 3, h / 3);
+    ctx.beginPath();
+    ctx.moveTo(x + c, y);
+    ctx.lineTo(x + w - c, y);
+    ctx.lineTo(x + w, y + c);
+    ctx.lineTo(x + w, y + h - c);
+    ctx.lineTo(x + w - c, y + h);
+    ctx.lineTo(x + c, y + h);
+    ctx.lineTo(x, y + h - c);
+    ctx.lineTo(x, y + c);
+    ctx.closePath();
+  }
+
+  function drawInvertedCornerRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.arc(x + w, y, r, Math.PI, Math.PI * 0.5, true);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.arc(x + w, y + h, r, Math.PI * 1.5, Math.PI, true);
+    ctx.lineTo(x + r, y + h);
+    ctx.arc(x, y + h, r, 0, Math.PI * 1.5, true);
+    ctx.lineTo(x, y + r);
+    ctx.arc(x, y, r, Math.PI * 0.5, 0, true);
+    ctx.closePath();
+  }
+
+  function drawLaurelCrest(ctx, cx, cy, size, mainColor, accentColor) {
+    ctx.save();
+    ctx.translate(cx, cy);
+
+    // 中央五芒榮耀星
+    ctx.fillStyle = mainColor;
+    ctx.beginPath();
+    const outerR = size * 0.34;
+    const innerR = size * 0.14;
+    for (let i = 0; i < 10; i++) {
+      const ang = -Math.PI / 2 + (i * Math.PI) / 5;
+      const r = i % 2 === 0 ? outerR : innerR;
+      const px = Math.cos(ang) * r;
+      const py = Math.sin(ang) * r;
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fill();
+
+    // 左右對稱桂冠枝葉
+    [-1, 1].forEach((dir) => {
+      ctx.save();
+      ctx.scale(dir, 1);
+      ctx.strokeStyle = mainColor;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(0, size * 0.06, size * 0.62, Math.PI * 0.62, Math.PI * 1.32);
+      ctx.stroke();
+
+      ctx.fillStyle = accentColor;
+      for (let i = 0; i < 5; i++) {
+        const a = Math.PI * (0.7 + i * 0.13);
+        const lx = Math.cos(a) * size * 0.66;
+        const ly = size * 0.06 + Math.sin(a) * size * 0.66;
+        ctx.save();
+        ctx.translate(lx, ly);
+        ctx.rotate(a + Math.PI * 0.35);
+        ctx.beginPath();
+        ctx.ellipse(0, 0, size * 0.12, size * 0.048, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+      ctx.restore();
+    });
+
+    ctx.restore();
+  }
+
+  /* ========================================================================
+   * 模式 1：官方公版證書（6 種風格格式 × 6 種官方配色主題 × 橫/直式）
    * ======================================================================== */
 
   async function renderOfficialCertificate(canvas, { event, row, options = {} }) {
     const orientation = options.orientation === 'portrait' ? 'portrait' : 'landscape';
-    const theme = options.theme === 'navy_gold' ? 'navy_gold' : 'ivory_gold';
-    const isDark = theme === 'navy_gold';
+    const themeKey = OFFICIAL_THEMES[options.theme] ? options.theme : 'ivory_gold';
+    const formatKey = OFFICIAL_FORMATS[options.format] ? options.format : 'classic_gold';
+    const palette = OFFICIAL_THEMES[themeKey];
+    const isDark = palette.isDark;
+
     const W = orientation === 'portrait' ? 1754 : 2480;
     const H = orientation === 'portrait' ? 2480 : 1754;
     canvas.width = W;
@@ -422,43 +724,9 @@
     const eventNameEn = String(options.englishName ?? event?.englishName ?? '').trim();
     const showSplits = options.showSplits !== false;
     const locationText = String(event?.location || '').trim();
+    const isPort = orientation === 'portrait';
 
-    // 配色表
-    const palette = isDark
-      ? {
-          bgInner: '#132645',
-          bgMid: '#0c1a31',
-          bgOuter: '#060e1c',
-          goldMain: '#e5c158',
-          goldSoft: '#b88f2d',
-          turGreen: '#8ec641',
-          textPrimary: '#ffffff',
-          textSecondary: '#cbd5e1',
-          textMuted: '#94a3b8',
-          cardBg: 'rgba(15, 29, 54, 0.82)',
-          cardBorder: 'rgba(229, 193, 88, 0.48)',
-          divider: 'rgba(229, 193, 88, 0.4)',
-          watermark: 'rgba(229, 193, 88, 0.045)',
-          ridge: 'rgba(142, 198, 65, 0.09)'
-        }
-      : {
-          bgInner: '#fffefa',
-          bgMid: '#faf4e6',
-          bgOuter: '#efe5cc',
-          goldMain: '#b8860b',
-          goldSoft: '#cfa33a',
-          turGreen: '#638c26',
-          textPrimary: '#1a2332',
-          textSecondary: '#3b4a5e',
-          textMuted: '#64748b',
-          cardBg: 'rgba(255, 255, 255, 0.82)',
-          cardBorder: 'rgba(184, 134, 11, 0.38)',
-          divider: 'rgba(184, 134, 11, 0.35)',
-          watermark: 'rgba(99, 140, 38, 0.045)',
-          ridge: 'rgba(99, 140, 38, 0.08)'
-        };
-
-    // 1. 宣紙／深藍質感底色
+    // 1. 基底漸層背景
     const bgGrad = ctx.createRadialGradient(W * 0.5, H * 0.42, W * 0.05, W * 0.5, H * 0.5, Math.max(W, H) * 0.72);
     bgGrad.addColorStop(0, palette.bgInner);
     bgGrad.addColorStop(0.65, palette.bgMid);
@@ -466,159 +734,488 @@
     ctx.fillStyle = bgGrad;
     ctx.fillRect(0, 0, W, H);
 
-    // 2. 細膩幾何網紋與台灣中央山脈剪影浮水印
-    ctx.save();
-    ctx.strokeStyle = palette.ridge;
-    ctx.lineWidth = 2.5;
-    const ridgeY = H * 0.76;
-    ctx.beginPath();
-    ctx.moveTo(W * 0.06, ridgeY + 60);
-    ctx.lineTo(W * 0.18, ridgeY - 35);
-    ctx.lineTo(W * 0.28, ridgeY + 20);
-    ctx.lineTo(W * 0.41, ridgeY - 88);
-    ctx.lineTo(W * 0.51, ridgeY - 12);
-    ctx.lineTo(W * 0.62, ridgeY - 102);
-    ctx.lineTo(W * 0.74, ridgeY - 18);
-    ctx.lineTo(W * 0.84, ridgeY - 52);
-    ctx.lineTo(W * 0.94, ridgeY + 55);
-    ctx.stroke();
-
-    // 淡雅中央 TUR 浮水印
-    ctx.fillStyle = palette.watermark;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.font = `900 ${Math.round(Math.min(W, H) * 0.34)}px Georgia, serif`;
-    ctx.fillText('TUR', W * 0.5, H * 0.53);
-    ctx.restore();
-
-    // 3. 官方多層燙金與 TUR 橄欖綠典雅邊框
+    // 2. 依 6 種證書格式繪製專屬背景紋理與外框建築
     const pad1 = Math.round(Math.min(W, H) * 0.036);
     const pad2 = pad1 + 18;
     const pad3 = pad2 + 12;
-
-    // 外細綠金裝飾線
-    ctx.strokeStyle = palette.turGreen;
-    ctx.lineWidth = 4;
-    ctx.strokeRect(pad1, pad1, W - pad1 * 2, H - pad1 * 2);
-
-    // 主粗燙金框
-    const frameGrad = ctx.createLinearGradient(0, 0, W, H);
-    frameGrad.addColorStop(0, '#d8b44a');
-    frameGrad.addColorStop(0.5, palette.goldMain);
-    frameGrad.addColorStop(1, '#e0be59');
-    ctx.strokeStyle = frameGrad;
-    ctx.lineWidth = 9;
-    ctx.strokeRect(pad2, pad2, W - pad2 * 2, H - pad2 * 2);
-
-    // 內細線框
-    ctx.strokeStyle = palette.goldSoft;
-    ctx.lineWidth = 2;
-    ctx.strokeRect(pad3, pad3, W - pad3 * 2, H - pad3 * 2);
-
-    // 四角古典飾紋
     const ornSize = Math.round(Math.min(W, H) * 0.068);
-    drawCornerOrnament(ctx, pad3 + 12, pad3 + 12, 1, 1, ornSize, palette.goldMain, palette.turGreen);
-    drawCornerOrnament(ctx, W - pad3 - 12, pad3 + 12, -1, 1, ornSize, palette.goldMain, palette.turGreen);
-    drawCornerOrnament(ctx, pad3 + 12, H - pad3 - 12, 1, -1, ornSize, palette.goldMain, palette.turGreen);
-    drawCornerOrnament(ctx, W - pad3 - 12, H - pad3 - 12, -1, -1, ornSize, palette.goldMain, palette.turGreen);
-
-    // 佈局縱向座標（LOGO 移至下方與日期、鋼印並列；上方放大活動名稱與字體，並加入分段成績卡）
-    const isPort = orientation === 'portrait';
     const contentW = W - (pad3 + 90) * 2;
     const centerX = W * 0.5;
     const activeSplits = showSplits ? (metrics.splitItems || []) : [];
     const hasSplits = activeSplits.length > 0;
 
-    // 4. 官方中英文抬頭（字體適度放大）
+    if (formatKey === 'classic_gold') {
+      // 格式 1：經典燙金典藏式（山脈折線 + TUR 浮水印 + 三層燙金框 + 四角飾紋）
+      ctx.save();
+      ctx.strokeStyle = palette.ridge;
+      ctx.lineWidth = 2.5;
+      const ridgeY = H * 0.76;
+      ctx.beginPath();
+      ctx.moveTo(W * 0.06, ridgeY + 60);
+      ctx.lineTo(W * 0.18, ridgeY - 35);
+      ctx.lineTo(W * 0.28, ridgeY + 20);
+      ctx.lineTo(W * 0.41, ridgeY - 88);
+      ctx.lineTo(W * 0.51, ridgeY - 12);
+      ctx.lineTo(W * 0.62, ridgeY - 102);
+      ctx.lineTo(W * 0.74, ridgeY - 18);
+      ctx.lineTo(W * 0.84, ridgeY - 52);
+      ctx.lineTo(W * 0.94, ridgeY + 55);
+      ctx.stroke();
+
+      ctx.fillStyle = palette.watermark;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = `900 ${Math.round(Math.min(W, H) * 0.34)}px Georgia, serif`;
+      ctx.fillText('TUR', W * 0.5, H * 0.53);
+      ctx.restore();
+
+      ctx.strokeStyle = palette.turGreen;
+      ctx.lineWidth = 4;
+      ctx.strokeRect(pad1, pad1, W - pad1 * 2, H - pad1 * 2);
+
+      const frameGrad = ctx.createLinearGradient(0, 0, W, H);
+      frameGrad.addColorStop(0, palette.goldSoft);
+      frameGrad.addColorStop(0.5, palette.goldMain);
+      frameGrad.addColorStop(1, palette.goldSoft);
+      ctx.strokeStyle = frameGrad;
+      ctx.lineWidth = 9;
+      ctx.strokeRect(pad2, pad2, W - pad2 * 2, H - pad2 * 2);
+
+      ctx.strokeStyle = palette.goldSoft;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(pad3, pad3, W - pad3 * 2, H - pad3 * 2);
+
+      drawCornerOrnament(ctx, pad3 + 12, pad3 + 12, 1, 1, ornSize, palette.goldMain, palette.turGreen);
+      drawCornerOrnament(ctx, W - pad3 - 12, pad3 + 12, -1, 1, ornSize, palette.goldMain, palette.turGreen);
+      drawCornerOrnament(ctx, pad3 + 12, H - pad3 - 12, 1, -1, ornSize, palette.goldMain, palette.turGreen);
+      drawCornerOrnament(ctx, W - pad3 - 12, H - pad3 - 12, -1, -1, ornSize, palette.goldMain, palette.turGreen);
+
+    } else if (formatKey === 'modern_banner') {
+      // 格式 2：現代榮耀橫幅式（微細幾何網點 + 滿版頂部色塊橫幅 + 俐落雙外框）
+      ctx.save();
+      ctx.strokeStyle = palette.watermark;
+      ctx.lineWidth = 1.5;
+      for (let gx = -H; gx < W + H; gx += 76) {
+        ctx.beginPath();
+        ctx.moveTo(gx, 0);
+        ctx.lineTo(gx + H * 0.45, H);
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      // 頂部榮耀大橫幅
+      const bannerH = isPort ? 275 : 228;
+      const bannerGrad = ctx.createLinearGradient(pad1, pad1, W - pad1, pad1 + bannerH);
+      bannerGrad.addColorStop(0, palette.bannerBg1);
+      bannerGrad.addColorStop(1, palette.bannerBg2);
+      ctx.save();
+      ctx.fillStyle = bannerGrad;
+      ctx.fillRect(pad1, pad1, W - pad1 * 2, bannerH);
+
+      // 橫幅右側動感斜切光帶
+      ctx.fillStyle = 'rgba(255,255,255,0.06)';
+      ctx.beginPath();
+      ctx.moveTo(W - pad1 - 460, pad1);
+      ctx.lineTo(W - pad1 - 240, pad1);
+      ctx.lineTo(W - pad1 - 340, pad1 + bannerH);
+      ctx.lineTo(W - pad1 - 560, pad1 + bannerH);
+      ctx.closePath();
+      ctx.fill();
+
+      // 橫幅底邊雙色流光條
+      const stripGrad = ctx.createLinearGradient(pad1, 0, W - pad1, 0);
+      stripGrad.addColorStop(0, palette.turGreen);
+      stripGrad.addColorStop(0.5, palette.goldMain);
+      stripGrad.addColorStop(1, palette.turGreen);
+      ctx.fillStyle = stripGrad;
+      ctx.fillRect(pad1, pad1 + bannerH - 8, W - pad1 * 2, 8);
+      ctx.restore();
+
+      // 簡潔現代外框
+      ctx.strokeStyle = palette.goldMain;
+      ctx.lineWidth = 5;
+      ctx.strokeRect(pad1, pad1, W - pad1 * 2, H - pad1 * 2);
+      ctx.strokeStyle = palette.divider;
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(pad1 + 14, pad1 + bannerH + 10, W - (pad1 + 14) * 2, H - pad1 * 2 - bannerH - 24);
+
+    } else if (formatKey === 'mountain_trail') {
+      // 格式 3：百岳山稜越野式（雙層填色百岳層巒 + 等高線弧紋 + 雙色越野框）
+      ctx.save();
+      // 遠山剪影
+      ctx.fillStyle = palette.ridgeFill2;
+      ctx.beginPath();
+      ctx.moveTo(pad2, H - pad2);
+      ctx.lineTo(pad2, H * 0.72);
+      ctx.lineTo(W * 0.16, H * 0.61);
+      ctx.lineTo(W * 0.29, H * 0.69);
+      ctx.lineTo(W * 0.44, H * 0.54);
+      ctx.lineTo(W * 0.56, H * 0.64);
+      ctx.lineTo(W * 0.71, H * 0.51);
+      ctx.lineTo(W * 0.85, H * 0.63);
+      ctx.lineTo(W - pad2, H * 0.58);
+      ctx.lineTo(W - pad2, H - pad2);
+      ctx.closePath();
+      ctx.fill();
+
+      // 近嶺剪影
+      ctx.fillStyle = palette.ridgeFill1;
+      ctx.beginPath();
+      ctx.moveTo(pad2, H - pad2);
+      ctx.lineTo(pad2, H * 0.8);
+      ctx.lineTo(W * 0.2, H * 0.71);
+      ctx.lineTo(W * 0.36, H * 0.77);
+      ctx.lineTo(W * 0.52, H * 0.67);
+      ctx.lineTo(W * 0.68, H * 0.76);
+      ctx.lineTo(W * 0.84, H * 0.69);
+      ctx.lineTo(W - pad2, H * 0.78);
+      ctx.lineTo(W - pad2, H - pad2);
+      ctx.closePath();
+      ctx.fill();
+
+      // 等高線裝飾圓弧（左上＆右上）
+      ctx.strokeStyle = palette.ridge;
+      ctx.lineWidth = 2;
+      for (let i = 1; i <= 5; i++) {
+        ctx.beginPath();
+        ctx.arc(pad2 + 60, pad2 + 60, 80 + i * 54, 0, Math.PI * 0.5);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(W - pad2 - 60, pad2 + 60, 80 + i * 54, Math.PI * 0.5, Math.PI);
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      // 雙色圓角越野框
+      ctx.save();
+      drawRoundedRect(ctx, pad1, pad1, W - pad1 * 2, H - pad1 * 2, 28);
+      ctx.strokeStyle = palette.goldMain;
+      ctx.lineWidth = 7;
+      ctx.stroke();
+
+      drawRoundedRect(ctx, pad2 + 6, pad2 + 6, W - (pad2 + 6) * 2, H - (pad2 + 6) * 2, 20);
+      ctx.strokeStyle = palette.turGreen;
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+      ctx.restore();
+
+    } else if (formatKey === 'editorial_minimal') {
+      // 格式 4：極簡美術館典雅式（大留白單細框 + 左側縱向典雅色帶 + 極致排版美學）
+      ctx.save();
+      // 左側美術館典雅雙色直帶
+      const barW = isPort ? 26 : 34;
+      ctx.fillStyle = palette.goldMain;
+      ctx.fillRect(pad1, pad1, barW, H - pad1 * 2);
+      ctx.fillStyle = palette.turGreen;
+      ctx.fillRect(pad1 + barW + 8, pad1, 6, H - pad1 * 2);
+
+      // 外側極細畫廊框
+      ctx.strokeStyle = palette.divider;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(pad1, pad1, W - pad1 * 2, H - pad1 * 2);
+
+      // 淡雅右中幾何圓環浮水印
+      ctx.strokeStyle = palette.watermark;
+      ctx.lineWidth = 28;
+      ctx.beginPath();
+      ctx.arc(W * 0.82, H * 0.32, Math.min(W, H) * 0.24, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+
+    } else if (formatKey === 'sport_kinetic') {
+      // 格式 5：動感賽道競技式（切角科技八角外框 + 速度斜線 + 賽道微格紋）
+      ctx.save();
+      // 角落速度斜條（左上＆右下）
+      ctx.fillStyle = palette.ridgeFill1;
+      for (let i = 0; i < 4; i++) {
+        const offset = i * 48;
+        ctx.beginPath();
+        ctx.moveTo(pad1 + 140 + offset, pad1);
+        ctx.lineTo(pad1 + 168 + offset, pad1);
+        ctx.lineTo(pad1 + 36 + offset, pad1 + 210);
+        ctx.lineTo(pad1 + 8 + offset, pad1 + 210);
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.fillStyle = palette.ridgeFill2;
+      for (let i = 0; i < 4; i++) {
+        const offset = i * 48;
+        ctx.beginPath();
+        ctx.moveTo(W - pad1 - 140 - offset, H - pad1);
+        ctx.lineTo(W - pad1 - 168 - offset, H - pad1);
+        ctx.lineTo(W - pad1 - 36 - offset, H - pad1 - 210);
+        ctx.lineTo(W - pad1 - 8 - offset, H - pad1 - 210);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      // 中央淡雅速度線
+      ctx.strokeStyle = palette.watermark;
+      ctx.lineWidth = 3;
+      for (let y = pad3 + 120; y < H - pad3 - 120; y += 90) {
+        ctx.beginPath();
+        ctx.moveTo(pad3 + 40, y);
+        ctx.lineTo(W - pad3 - 40, y);
+        ctx.stroke();
+      }
+
+      // 切角八角科技雙外框
+      drawChamferedRect(ctx, pad1, pad1, W - pad1 * 2, H - pad1 * 2, 54);
+      ctx.strokeStyle = palette.goldMain;
+      ctx.lineWidth = 8;
+      ctx.stroke();
+
+      drawChamferedRect(ctx, pad2 + 4, pad2 + 4, W - (pad2 + 4) * 2, H - (pad2 + 4) * 2, 42);
+      ctx.strokeStyle = palette.turGreen;
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+      ctx.restore();
+
+    } else if (formatKey === 'diploma_crest') {
+      // 格式 6：皇家勳章獎狀式（內凹圓角華麗雙軌框 + 柔和放射星芒 + 桂冠勳章）
+      ctx.save();
+      // 柔和背景放射星芒
+      ctx.strokeStyle = palette.watermark;
+      ctx.lineWidth = 10;
+      const rayCount = 24;
+      const rayR = Math.max(W, H) * 0.56;
+      for (let i = 0; i < rayCount; i++) {
+        const ang = (i * Math.PI * 2) / rayCount;
+        ctx.beginPath();
+        ctx.moveTo(centerX, H * 0.45);
+        ctx.lineTo(centerX + Math.cos(ang) * rayR, H * 0.45 + Math.sin(ang) * rayR);
+        ctx.stroke();
+      }
+
+      // 內凹圓角雙層皇家外框
+      drawInvertedCornerRect(ctx, pad1, pad1, W - pad1 * 2, H - pad1 * 2, 56);
+      ctx.strokeStyle = palette.goldMain;
+      ctx.lineWidth = 9;
+      ctx.stroke();
+
+      drawInvertedCornerRect(ctx, pad2 + 6, pad2 + 6, W - (pad2 + 6) * 2, H - (pad2 + 6) * 2, 44);
+      ctx.strokeStyle = palette.goldSoft;
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+
+      // 外角四顆皇家金珠
+      ctx.fillStyle = palette.turGreen;
+      [
+        [pad1 + 16, pad1 + 16],
+        [W - pad1 - 16, pad1 + 16],
+        [pad1 + 16, H - pad1 - 16],
+        [W - pad1 - 16, H - pad1 - 16]
+      ].forEach(([px, py]) => {
+        ctx.beginPath();
+        ctx.arc(px, py, 10, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      ctx.restore();
+    }
+
+    // 3. 官方中英文抬頭（依格式客製化抬頭視覺）
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
-    const titleEnY = pad3 + (isPort ? 105 : 78);
-    ctx.fillStyle = palette.turGreen;
-    ctx.font = `700 ${isPort ? 36 : 34}px "Segoe UI", "Helvetica Neue", Arial, sans-serif`;
-    ctx.fillText('OFFICIAL FINISHER CERTIFICATE', centerX, titleEnY);
+    let divY = 0;
+    if (formatKey === 'modern_banner') {
+      const titleEnY = pad1 + (isPort ? 76 : 64);
+      ctx.fillStyle = palette.bannerSub;
+      ctx.font = `800 ${isPort ? 34 : 32}px "Segoe UI", "Helvetica Neue", Arial, sans-serif`;
+      ctx.fillText('OFFICIAL FINISHER CERTIFICATE', centerX, titleEnY);
 
-    const titleZhY = titleEnY + (isPort ? 86 : 74);
-    ctx.fillStyle = palette.textPrimary;
-    ctx.font = `900 ${isPort ? 102 : 94}px "Noto Serif TC", "PMingLiU", "DFKai-SB", "Microsoft JhengHei", serif`;
-    ctx.fillText('官 方 完 賽 證 書', centerX, titleZhY);
+      const titleZhY = titleEnY + (isPort ? 98 : 82);
+      ctx.fillStyle = palette.bannerText;
+      ctx.font = `900 ${isPort ? 98 : 90}px "Noto Sans TC", "Microsoft JhengHei", sans-serif`;
+      ctx.fillText('官 方 完 賽 證 書', centerX, titleZhY);
 
-    // 金色中軸飾線
-    const divY = titleZhY + (isPort ? 66 : 56);
-    ctx.save();
-    ctx.strokeStyle = palette.goldMain;
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(centerX - 360, divY);
-    ctx.lineTo(centerX - 26, divY);
-    ctx.moveTo(centerX + 26, divY);
-    ctx.lineTo(centerX + 360, divY);
-    ctx.stroke();
-    ctx.fillStyle = palette.goldMain;
-    ctx.beginPath();
-    ctx.moveTo(centerX, divY - 11);
-    ctx.lineTo(centerX + 11, divY);
-    ctx.lineTo(centerX, divY + 11);
-    ctx.lineTo(centerX - 11, divY);
-    ctx.closePath();
-    ctx.fill();
-    ctx.restore();
+      divY = pad1 + (isPort ? 280 : 232);
+    } else if (formatKey === 'diploma_crest') {
+      // 桂冠星芒徽章置於頂部中央
+      const crestY = pad3 + (isPort ? 72 : 58);
+      drawLaurelCrest(ctx, centerX, crestY, isPort ? 56 : 48, palette.goldMain, palette.turGreen);
 
-    // 5. 活動名稱（中英文對照・特別加大字體！）
-    const evZhY = divY + (isPort ? 88 : 70);
-    ctx.fillStyle = palette.textPrimary;
-    fitTextFont(ctx, eventNameZh, contentW, isPort ? 72 : 76, 38, '900 {size}px "Noto Sans TC", "Microsoft JhengHei", sans-serif');
-    ctx.fillText(eventNameZh, centerX, evZhY);
+      const titleEnY = crestY + (isPort ? 66 : 54);
+      ctx.fillStyle = palette.turGreen;
+      ctx.font = `700 ${isPort ? 30 : 28}px Georgia, "Times New Roman", serif`;
+      ctx.fillText('OFFICIAL FINISHER DIPLOMA', centerX, titleEnY);
 
-    let nextY = evZhY + (isPort ? 68 : 60);
-    if (eventNameEn) {
+      const titleZhY = titleEnY + (isPort ? 72 : 62);
+      ctx.fillStyle = palette.textPrimary;
+      ctx.font = `900 ${isPort ? 94 : 84}px "Noto Serif TC", "PMingLiU", "DFKai-SB", "Microsoft JhengHei", serif`;
+      ctx.fillText('官 方 完 賽 證 書', centerX, titleZhY);
+
+      divY = titleZhY + (isPort ? 58 : 48);
+    } else if (formatKey === 'editorial_minimal') {
+      const titleEnY = pad3 + (isPort ? 96 : 74);
       ctx.fillStyle = palette.goldMain;
-      fitTextFont(ctx, eventNameEn, contentW, isPort ? 40 : 40, 22, '700 {size}px Georgia, "Times New Roman", serif');
-      ctx.fillText(eventNameEn, centerX, nextY);
-      nextY += isPort ? 70 : 54;
+      ctx.font = `700 ${isPort ? 30 : 28}px "Segoe UI", "Helvetica Neue", Arial, sans-serif`;
+      ctx.fillText('TAIWAN ULTRA RUNNERS   •   OFFICIAL CERTIFICATE', centerX, titleEnY);
+
+      const titleZhY = titleEnY + (isPort ? 86 : 74);
+      ctx.fillStyle = palette.textPrimary;
+      ctx.font = `900 ${isPort ? 104 : 94}px "Noto Serif TC", "PMingLiU", "Microsoft JhengHei", serif`;
+      ctx.fillText('官 方 完 賽 證 書', centerX, titleZhY);
+
+      divY = titleZhY + (isPort ? 66 : 54);
+    } else if (formatKey === 'sport_kinetic') {
+      const titleEnY = pad3 + (isPort ? 96 : 72);
+      // 科技徽章膠囊
+      ctx.save();
+      const pillW = isPort ? 640 : 620;
+      const pillH = 48;
+      drawChamferedRect(ctx, centerX - pillW / 2, titleEnY - pillH / 2, pillW, pillH, 14);
+      ctx.fillStyle = palette.ribbonBg;
+      ctx.fill();
+      ctx.strokeStyle = palette.goldMain;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.restore();
+
+      ctx.fillStyle = palette.goldMain;
+      ctx.font = `800 ${isPort ? 28 : 26}px "Segoe UI", "Helvetica Neue", Arial, sans-serif`;
+      ctx.fillText('⚡ OFFICIAL FINISHER CERTIFICATE ⚡', centerX, titleEnY);
+
+      const titleZhY = titleEnY + (isPort ? 88 : 74);
+      ctx.fillStyle = palette.textPrimary;
+      ctx.font = `900 ${isPort ? 100 : 92}px "Noto Sans TC", "Microsoft JhengHei", sans-serif`;
+      ctx.fillText('官 方 完 賽 證 書', centerX, titleZhY);
+
+      divY = titleZhY + (isPort ? 62 : 52);
     } else {
-      nextY += isPort ? 26 : 16;
+      // classic_gold & mountain_trail
+      const titleEnY = pad3 + (isPort ? 105 : 78);
+      ctx.fillStyle = palette.turGreen;
+      ctx.font = `700 ${isPort ? 36 : 34}px "Segoe UI", "Helvetica Neue", Arial, sans-serif`;
+      ctx.fillText(
+        formatKey === 'mountain_trail' ? 'ULTRA TRAIL & MOUNTAIN FINISHER CERTIFICATE' : 'OFFICIAL FINISHER CERTIFICATE',
+        centerX,
+        titleEnY
+      );
+
+      const titleZhY = titleEnY + (isPort ? 86 : 74);
+      ctx.fillStyle = palette.textPrimary;
+      ctx.font = `900 ${isPort ? 102 : 94}px "Noto Serif TC", "PMingLiU", "DFKai-SB", "Microsoft JhengHei", serif`;
+      ctx.fillText('官 方 完 賽 證 書', centerX, titleZhY);
+
+      divY = titleZhY + (isPort ? 66 : 56);
     }
 
-    // 6. 茲證明 / THIS IS TO CERTIFY THAT
+    // 中軸裝飾線（modern_banner 已有橫幅底線，其餘繪製專屬飾線）
+    if (formatKey !== 'modern_banner') {
+      ctx.save();
+      ctx.strokeStyle = palette.goldMain;
+      ctx.lineWidth = formatKey === 'editorial_minimal' ? 2 : 3;
+      const halfSpan = formatKey === 'editorial_minimal' ? 240 : 360;
+      ctx.beginPath();
+      ctx.moveTo(centerX - halfSpan, divY);
+      ctx.lineTo(centerX - 28, divY);
+      ctx.moveTo(centerX + 28, divY);
+      ctx.lineTo(centerX + halfSpan, divY);
+      ctx.stroke();
+
+      ctx.fillStyle = formatKey === 'mountain_trail' ? palette.turGreen : palette.goldMain;
+      if (formatKey === 'mountain_trail') {
+        // 雙山峰小圖示
+        ctx.beginPath();
+        ctx.moveTo(centerX - 20, divY + 8);
+        ctx.lineTo(centerX - 6, divY - 12);
+        ctx.lineTo(centerX + 4, divY + 2);
+        ctx.lineTo(centerX + 12, divY - 8);
+        ctx.lineTo(centerX + 22, divY + 8);
+        ctx.closePath();
+        ctx.fill();
+      } else {
+        ctx.beginPath();
+        ctx.moveTo(centerX, divY - 11);
+        ctx.lineTo(centerX + 11, divY);
+        ctx.lineTo(centerX, divY + 11);
+        ctx.lineTo(centerX - 11, divY);
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    // 4. 活動名稱（中英文對照）
+    const evZhY = divY + (isPort ? 86 : 68);
+    ctx.fillStyle = palette.textPrimary;
+    fitTextFont(ctx, eventNameZh, contentW, isPort ? 70 : 74, 38, '900 {size}px "Noto Sans TC", "Microsoft JhengHei", sans-serif');
+    ctx.fillText(eventNameZh, centerX, evZhY);
+
+    let nextY = evZhY + (isPort ? 66 : 56);
+    if (eventNameEn) {
+      ctx.fillStyle = palette.goldMain;
+      fitTextFont(ctx, eventNameEn, contentW, isPort ? 38 : 38, 22, '700 {size}px Georgia, "Times New Roman", serif');
+      ctx.fillText(eventNameEn, centerX, nextY);
+      nextY += isPort ? 66 : 52;
+    } else {
+      nextY += isPort ? 24 : 14;
+    }
+
+    // 5. 茲證明 / THIS IS TO CERTIFY THAT
     ctx.fillStyle = palette.textMuted;
-    ctx.font = `600 ${isPort ? 30 : 28}px "Noto Sans TC", "Segoe UI", sans-serif`;
+    ctx.font = `600 ${isPort ? 29 : 27}px "Noto Sans TC", "Segoe UI", sans-serif`;
     ctx.fillText('茲 證 明 選 手 順 利 完 成 本 屆 賽 事   •   THIS IS TO CERTIFY THAT', centerX, nextY);
 
-    // 7. 選手姓名主焦點（放大呈現）
-    const nameY = nextY + (isPort ? 128 : (hasSplits ? 98 : 114));
+    // 6. 選手姓名主焦點（mountain_trail 附榮耀緞帶底條）
+    const nameY = nextY + (isPort ? 124 : (hasSplits ? 96 : 112));
+    if (formatKey === 'mountain_trail') {
+      ctx.save();
+      const ribW = Math.min(contentW * 0.78, 1280);
+      const ribH = isPort ? 148 : 132;
+      drawRoundedRect(ctx, centerX - ribW / 2, nameY - ribH / 2, ribW, ribH, 24);
+      ctx.fillStyle = palette.ribbonBg;
+      ctx.fill();
+      ctx.strokeStyle = palette.cardBorder;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.restore();
+    }
+
     ctx.fillStyle = palette.textPrimary;
-    fitTextFont(ctx, metrics.name, contentW * 0.85, isPort ? 150 : 144, 72, '900 {size}px "Noto Serif TC", "Microsoft JhengHei", Georgia, serif');
+    fitTextFont(ctx, metrics.name, contentW * 0.84, isPort ? 148 : 140, 70, '900 {size}px "Noto Serif TC", "Microsoft JhengHei", Georgia, serif');
     ctx.fillText(metrics.name, centerX, nameY);
 
-    // 姓名下方細金線
-    const nameLineY = nameY + (isPort ? 90 : 76);
-    ctx.strokeStyle = palette.divider;
-    ctx.lineWidth = 2.5;
-    ctx.beginPath();
-    ctx.moveTo(centerX - 320, nameLineY);
-    ctx.lineTo(centerX + 320, nameLineY);
-    ctx.stroke();
+    // 姓名下方飾線
+    const nameLineY = nameY + (isPort ? 88 : 74);
+    if (formatKey !== 'mountain_trail') {
+      ctx.strokeStyle = palette.divider;
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.moveTo(centerX - 320, nameLineY);
+      ctx.lineTo(centerX + 320, nameLineY);
+      ctx.stroke();
+    }
 
-    // 參賽編號 & 組別（放大）
+    // 參賽編號 & 組別（sport_kinetic 改採膠囊徽章）
     const bibLineY = nameLineY + (isPort ? 56 : 46);
-    ctx.fillStyle = palette.textSecondary;
-    ctx.font = `700 ${isPort ? 40 : 38}px "Noto Sans TC", "Segoe UI", sans-serif`;
-    ctx.fillText(`參賽編號 BIB NO.  ${metrics.bib}      |      參賽組別 CATEGORY  ${metrics.categoryName}`, centerX, bibLineY);
+    const bibText = `參賽編號 BIB NO.  ${metrics.bib}      |      參賽組別 CATEGORY  ${metrics.categoryName}`;
+    if (formatKey === 'sport_kinetic') {
+      ctx.save();
+      ctx.font = `700 ${isPort ? 36 : 34}px "Noto Sans TC", "Segoe UI", sans-serif`;
+      const tw = Math.min(contentW * 0.88, ctx.measureText(bibText).width + 84);
+      drawChamferedRect(ctx, centerX - tw / 2, bibLineY - 28, tw, 56, 16);
+      ctx.fillStyle = palette.cardBg;
+      ctx.fill();
+      ctx.strokeStyle = palette.turGreen;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.restore();
+      ctx.fillStyle = palette.textPrimary;
+      ctx.font = `700 ${isPort ? 36 : 34}px "Noto Sans TC", "Segoe UI", sans-serif`;
+      ctx.fillText(bibText, centerX, bibLineY);
+    } else {
+      ctx.fillStyle = palette.textSecondary;
+      ctx.font = `700 ${isPort ? 39 : 37}px "Noto Sans TC", "Segoe UI", sans-serif`;
+      ctx.fillText(bibText, centerX, bibLineY);
+    }
 
-    // 8. 官方中英文對照主成績卡（4 欄・放大數值與標籤）
-    const cardTopY = bibLineY + (isPort ? 66 : (hasSplits ? 44 : 62));
+    // 7. 官方中英文對照主成績區（依 6 種格式切換卡片建築！）
+    const cardTopY = bibLineY + (isPort ? 62 : (hasSplits ? 44 : 60));
     const cardW = isPort ? contentW : Math.min(contentW, 2060);
-    const cardH = isPort ? 460 : 272;
+    const cardH = isPort ? 460 : 270;
     const cardX = centerX - cardW / 2;
-
-    ctx.save();
-    drawRoundedRect(ctx, cardX, cardTopY, cardW, cardH, 24);
-    ctx.fillStyle = palette.cardBg;
-    ctx.fill();
-    ctx.lineWidth = 2.5;
-    ctx.strokeStyle = palette.cardBorder;
-    ctx.stroke();
 
     const items = [
       { zh: metrics.primaryLabelZh, en: metrics.primaryLabelEn, val: metrics.primaryValue, highlight: true },
@@ -627,87 +1224,240 @@
       { zh: metrics.fourthLabelZh, en: metrics.fourthLabelEn, val: metrics.fourthValue, highlight: false }
     ];
 
-    if (isPort) {
-      // 直式 2x2 格
-      const cellW = cardW / 2;
-      const cellH = (cardH - 76) / 2;
-      ctx.strokeStyle = palette.divider;
-      ctx.lineWidth = 1.5;
+    ctx.save();
+    if (formatKey === 'modern_banner' || formatKey === 'sport_kinetic') {
+      // 4 張獨立卡片排版（modern_banner 圓角浮雕 / sport_kinetic 科技切角）
+      const gap = isPort ? 22 : 24;
+      const bodyH = cardH - 58;
+      if (isPort) {
+        const subW = (cardW - gap) / 2;
+        const subH = (bodyH - gap) / 2;
+        items.forEach((it, idx) => {
+          const col = idx % 2;
+          const r = Math.floor(idx / 2);
+          const bx = cardX + col * (subW + gap);
+          const by = cardTopY + r * (subH + gap);
+          if (formatKey === 'sport_kinetic') drawChamferedRect(ctx, bx, by, subW, subH, 22);
+          else drawRoundedRect(ctx, bx, by, subW, subH, 20);
+          ctx.fillStyle = it.highlight ? palette.cardHighlightBg : palette.cardBg;
+          ctx.fill();
+          ctx.lineWidth = it.highlight ? 3.5 : 2;
+          ctx.strokeStyle = it.highlight ? palette.goldMain : palette.cardBorder;
+          ctx.stroke();
+
+          if (formatKey === 'modern_banner') {
+            ctx.fillStyle = it.highlight ? palette.goldMain : palette.turGreen;
+            ctx.fillRect(bx + 28, by, subW - 56, 6);
+          }
+
+          const cx = bx + subW / 2;
+          ctx.fillStyle = palette.textMuted;
+          ctx.font = '700 28px "Noto Sans TC", "Microsoft JhengHei", sans-serif';
+          ctx.fillText(it.zh, cx, by + 42);
+          ctx.font = '600 20px "Segoe UI", Arial, sans-serif';
+          ctx.fillText(it.en, cx, by + 72);
+          ctx.fillStyle = it.highlight ? palette.turGreen : palette.textPrimary;
+          fitTextFont(ctx, it.val, subW - 40, 68, 32, '900 {size}px ui-monospace, "Segoe UI", monospace');
+          ctx.fillText(it.val, cx, by + 132);
+        });
+      } else {
+        const subW = (cardW - gap * 3) / 4;
+        items.forEach((it, idx) => {
+          const bx = cardX + idx * (subW + gap);
+          const by = cardTopY;
+          if (formatKey === 'sport_kinetic') drawChamferedRect(ctx, bx, by, subW, bodyH, 22);
+          else drawRoundedRect(ctx, bx, by, subW, bodyH, 20);
+          ctx.fillStyle = it.highlight ? palette.cardHighlightBg : palette.cardBg;
+          ctx.fill();
+          ctx.lineWidth = it.highlight ? 3.5 : 2;
+          ctx.strokeStyle = it.highlight ? palette.goldMain : palette.cardBorder;
+          ctx.stroke();
+
+          if (formatKey === 'modern_banner') {
+            ctx.fillStyle = it.highlight ? palette.goldMain : palette.turGreen;
+            ctx.fillRect(bx + 28, by, subW - 56, 6);
+          }
+
+          const cx = bx + subW / 2;
+          ctx.fillStyle = palette.textMuted;
+          ctx.font = '700 28px "Noto Sans TC", "Microsoft JhengHei", sans-serif';
+          ctx.fillText(it.zh, cx, by + 44);
+          ctx.font = '600 20px "Segoe UI", Arial, sans-serif';
+          ctx.fillText(it.en, cx, by + 74);
+          ctx.fillStyle = it.highlight ? palette.turGreen : palette.textPrimary;
+          fitTextFont(ctx, it.val, subW - 36, 68, 32, '900 {size}px ui-monospace, "Segoe UI", monospace');
+          ctx.fillText(it.val, cx, by + 144);
+        });
+      }
+
+      // 底部配速附註條
+      ctx.fillStyle = palette.textSecondary;
+      ctx.font = '700 27px "Noto Sans TC", "Segoe UI", sans-serif';
+      ctx.fillText(metrics.subNote, centerX, cardTopY + cardH - 22);
+
+    } else if (formatKey === 'editorial_minimal') {
+      // 極簡無框開放式排陣（上下細金橫線＋細垂直分隔線）
+      ctx.strokeStyle = palette.goldMain;
+      ctx.lineWidth = 3;
       ctx.beginPath();
-      ctx.moveTo(cardX + cellW, cardTopY + 24);
-      ctx.lineTo(cardX + cellW, cardTopY + cardH - 80);
-      ctx.moveTo(cardX + 36, cardTopY + cellH);
-      ctx.lineTo(cardX + cardW - 36, cardTopY + cellH);
+      ctx.moveTo(cardX, cardTopY);
+      ctx.lineTo(cardX + cardW, cardTopY);
+      ctx.moveTo(cardX, cardTopY + cardH - 58);
+      ctx.lineTo(cardX + cardW, cardTopY + cardH - 58);
       ctx.stroke();
 
-      items.forEach((it, idx) => {
-        const col = idx % 2;
-        const r = Math.floor(idx / 2);
-        const cx = cardX + col * cellW + cellW / 2;
-        const cy = cardTopY + r * cellH;
-        ctx.fillStyle = palette.textMuted;
-        ctx.font = '700 30px "Noto Sans TC", "Microsoft JhengHei", sans-serif';
-        ctx.fillText(it.zh, cx, cy + 44);
-        ctx.font = '600 21px "Segoe UI", Arial, sans-serif';
-        ctx.fillText(it.en, cx, cy + 74);
-        ctx.fillStyle = it.highlight ? palette.turGreen : palette.textPrimary;
-        fitTextFont(ctx, it.val, cellW - 48, 70, 34, '900 {size}px ui-monospace, "Segoe UI", monospace');
-        ctx.fillText(it.val, cx, cy + 138);
-      });
-    } else {
-      // 橫式 4x1 格
-      const cellW = cardW / 4;
-      const bodyH = cardH - 64;
-      ctx.strokeStyle = palette.divider;
-      ctx.lineWidth = 1.5;
-      for (let i = 1; i < 4; i++) {
+      if (isPort) {
+        const cellW = cardW / 2;
+        const cellH = (cardH - 58) / 2;
+        ctx.strokeStyle = palette.divider;
+        ctx.lineWidth = 1.5;
         ctx.beginPath();
-        ctx.moveTo(cardX + cellW * i, cardTopY + 26);
-        ctx.lineTo(cardX + cellW * i, cardTopY + bodyH - 10);
+        ctx.moveTo(cardX + cellW, cardTopY + 18);
+        ctx.lineTo(cardX + cellW, cardTopY + cardH - 76);
+        ctx.moveTo(cardX + 24, cardTopY + cellH);
+        ctx.lineTo(cardX + cardW - 24, cardTopY + cellH);
         ctx.stroke();
+
+        items.forEach((it, idx) => {
+          const col = idx % 2;
+          const r = Math.floor(idx / 2);
+          const cx = cardX + col * cellW + cellW / 2;
+          const cy = cardTopY + r * cellH;
+          ctx.fillStyle = palette.textMuted;
+          ctx.font = '700 28px "Noto Sans TC", "Microsoft JhengHei", sans-serif';
+          ctx.fillText(`${it.zh}  ${it.en}`, cx, cy + 48);
+          ctx.fillStyle = it.highlight ? palette.goldMain : palette.textPrimary;
+          fitTextFont(ctx, it.val, cellW - 44, 74, 34, '900 {size}px Georgia, ui-monospace, serif');
+          ctx.fillText(it.val, cx, cy + 124);
+        });
+      } else {
+        const cellW = cardW / 4;
+        ctx.strokeStyle = palette.divider;
+        ctx.lineWidth = 1.5;
+        for (let i = 1; i < 4; i++) {
+          ctx.beginPath();
+          ctx.moveTo(cardX + cellW * i, cardTopY + 24);
+          ctx.lineTo(cardX + cellW * i, cardTopY + cardH - 82);
+          ctx.stroke();
+        }
+        items.forEach((it, idx) => {
+          const cx = cardX + idx * cellW + cellW / 2;
+          ctx.fillStyle = palette.textMuted;
+          ctx.font = '700 28px "Noto Sans TC", "Microsoft JhengHei", sans-serif';
+          ctx.fillText(it.zh, cx, cardTopY + 46);
+          ctx.font = '600 20px "Segoe UI", Arial, sans-serif';
+          ctx.fillText(it.en, cx, cardTopY + 76);
+          ctx.fillStyle = it.highlight ? palette.goldMain : palette.textPrimary;
+          fitTextFont(ctx, it.val, cellW - 38, 76, 34, '900 {size}px Georgia, ui-monospace, serif');
+          ctx.fillText(it.val, cx, cardTopY + 148);
+        });
       }
-      items.forEach((it, idx) => {
-        const cx = cardX + idx * cellW + cellW / 2;
-        ctx.fillStyle = palette.textMuted;
-        ctx.font = '700 30px "Noto Sans TC", "Microsoft JhengHei", sans-serif';
-        ctx.fillText(it.zh, cx, cardTopY + 46);
-        ctx.font = '600 21px "Segoe UI", Arial, sans-serif';
-        ctx.fillText(it.en, cx, cardTopY + 76);
-        ctx.fillStyle = it.highlight ? palette.turGreen : palette.textPrimary;
-        fitTextFont(ctx, it.val, cellW - 40, 72, 34, '900 {size}px ui-monospace, "Segoe UI", monospace');
-        ctx.fillText(it.val, cx, cardTopY + 146);
-      });
-    }
 
-    // 卡片底部配速附註條
-    const stripY = cardTopY + cardH - 56;
-    ctx.strokeStyle = palette.divider;
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(cardX + 36, stripY - 12);
-    ctx.lineTo(cardX + cardW - 36, stripY - 12);
-    ctx.stroke();
+      ctx.fillStyle = palette.textSecondary;
+      ctx.font = '700 27px "Noto Sans TC", "Segoe UI", sans-serif';
+      ctx.fillText(metrics.subNote, centerX, cardTopY + cardH - 22);
 
-    ctx.fillStyle = palette.textSecondary;
-    ctx.font = '700 28px "Noto Sans TC", "Segoe UI", sans-serif';
-    ctx.fillText(metrics.subNote, centerX, stripY + 20);
-    ctx.restore();
-
-    // 9. 分段成績卡（分段成績 SPLIT TIMES / 繞圈分段摘要 LAP SPLITS）
-    if (hasSplits) {
-      const shownSplits = activeSplits.slice(0, 6);
-      const splitTopY = cardTopY + cardH + (isPort ? 34 : 26);
-      const splitH = isPort ? (shownSplits.length > 4 ? 372 : 284) : 196;
-
-      ctx.save();
-      drawRoundedRect(ctx, cardX, splitTopY, cardW, splitH, 20);
+    } else {
+      // classic_gold / mountain_trail / diploma_crest：整體典藏圓角主成績卡
+      drawRoundedRect(ctx, cardX, cardTopY, cardW, cardH, 24);
       ctx.fillStyle = palette.cardBg;
       ctx.fill();
-      ctx.lineWidth = 2;
+      ctx.lineWidth = 2.5;
       ctx.strokeStyle = palette.cardBorder;
       ctx.stroke();
 
-      // 分段卡標題條
+      if (formatKey === 'diploma_crest') {
+        drawRoundedRect(ctx, cardX + 9, cardTopY + 9, cardW - 18, cardH - 18, 17);
+        ctx.lineWidth = 1.2;
+        ctx.strokeStyle = palette.divider;
+        ctx.stroke();
+      } else if (formatKey === 'mountain_trail') {
+        ctx.fillStyle = palette.turGreen;
+        ctx.fillRect(cardX + 36, cardTopY, cardW - 72, 6);
+      }
+
+      if (isPort) {
+        const cellW = cardW / 2;
+        const cellH = (cardH - 76) / 2;
+        ctx.strokeStyle = palette.divider;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(cardX + cellW, cardTopY + 24);
+        ctx.lineTo(cardX + cellW, cardTopY + cardH - 80);
+        ctx.moveTo(cardX + 36, cardTopY + cellH);
+        ctx.lineTo(cardX + cardW - 36, cardTopY + cellH);
+        ctx.stroke();
+
+        items.forEach((it, idx) => {
+          const col = idx % 2;
+          const r = Math.floor(idx / 2);
+          const cx = cardX + col * cellW + cellW / 2;
+          const cy = cardTopY + r * cellH;
+          ctx.fillStyle = palette.textMuted;
+          ctx.font = '700 30px "Noto Sans TC", "Microsoft JhengHei", sans-serif';
+          ctx.fillText(it.zh, cx, cy + 44);
+          ctx.font = '600 21px "Segoe UI", Arial, sans-serif';
+          ctx.fillText(it.en, cx, cy + 74);
+          ctx.fillStyle = it.highlight ? palette.turGreen : palette.textPrimary;
+          fitTextFont(ctx, it.val, cellW - 48, 70, 34, '900 {size}px ui-monospace, "Segoe UI", monospace');
+          ctx.fillText(it.val, cx, cy + 138);
+        });
+      } else {
+        const cellW = cardW / 4;
+        const bodyH = cardH - 64;
+        ctx.strokeStyle = palette.divider;
+        ctx.lineWidth = 1.5;
+        for (let i = 1; i < 4; i++) {
+          ctx.beginPath();
+          ctx.moveTo(cardX + cellW * i, cardTopY + 26);
+          ctx.lineTo(cardX + cellW * i, cardTopY + bodyH - 10);
+          ctx.stroke();
+        }
+        items.forEach((it, idx) => {
+          const cx = cardX + idx * cellW + cellW / 2;
+          ctx.fillStyle = palette.textMuted;
+          ctx.font = '700 30px "Noto Sans TC", "Microsoft JhengHei", sans-serif';
+          ctx.fillText(it.zh, cx, cardTopY + 46);
+          ctx.font = '600 21px "Segoe UI", Arial, sans-serif';
+          ctx.fillText(it.en, cx, cardTopY + 76);
+          ctx.fillStyle = it.highlight ? palette.turGreen : palette.textPrimary;
+          fitTextFont(ctx, it.val, cellW - 40, 72, 34, '900 {size}px ui-monospace, "Segoe UI", monospace');
+          ctx.fillText(it.val, cx, cardTopY + 146);
+        });
+      }
+
+      const stripY = cardTopY + cardH - 56;
+      ctx.strokeStyle = palette.divider;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(cardX + 36, stripY - 12);
+      ctx.lineTo(cardX + cardW - 36, stripY - 12);
+      ctx.stroke();
+
+      ctx.fillStyle = palette.textSecondary;
+      ctx.font = '700 28px "Noto Sans TC", "Segoe UI", sans-serif';
+      ctx.fillText(metrics.subNote, centerX, stripY + 20);
+    }
+    ctx.restore();
+
+    // 8. 分段成績卡（分段成績 SPLIT TIMES / 繞圈分段摘要 LAP SPLITS）
+    if (hasSplits) {
+      const shownSplits = activeSplits.slice(0, 6);
+      const splitTopY = cardTopY + cardH + (isPort ? 32 : 24);
+      const splitH = isPort ? (shownSplits.length > 4 ? 366 : 280) : 192;
+
+      ctx.save();
+      if (formatKey === 'sport_kinetic') {
+        drawChamferedRect(ctx, cardX, splitTopY, cardW, splitH, 18);
+      } else {
+        drawRoundedRect(ctx, cardX, splitTopY, cardW, splitH, 20);
+      }
+      ctx.fillStyle = formatKey === 'editorial_minimal' ? 'transparent' : palette.cardBg;
+      ctx.fill();
+      ctx.lineWidth = formatKey === 'editorial_minimal' ? 1.5 : 2;
+      ctx.strokeStyle = palette.cardBorder;
+      ctx.stroke();
+
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillStyle = palette.goldMain;
@@ -722,7 +1472,6 @@
       ctx.stroke();
 
       if (isPort) {
-        // 直式採 2 欄網格排列分段
         const cols = Math.min(2, shownSplits.length);
         const rowsCount = Math.ceil(shownSplits.length / cols);
         const cellW = cardW / cols;
@@ -761,7 +1510,6 @@
           }
         });
       } else {
-        // 橫式採單列等寬欄位（最多 6 站）
         const cols = shownSplits.length;
         const cellW = cardW / cols;
         for (let i = 1; i < cols; i++) {
@@ -778,24 +1526,24 @@
 
           ctx.fillStyle = palette.textPrimary;
           fitTextFont(ctx, sp.time, cellW - 28, 40, 24, '900 {size}px ui-monospace, "Segoe UI", monospace');
-          ctx.fillText(sp.time, cx, splitTopY + 132);
+          ctx.fillText(sp.time, cx, splitTopY + 130);
 
           if (sp.sub) {
             ctx.fillStyle = palette.textMuted;
             ctx.font = '600 22px "Segoe UI", ui-monospace, sans-serif';
-            ctx.fillText(sp.sub, cx, splitTopY + 168);
+            ctx.fillText(sp.sub, cx, splitTopY + 165);
           }
         });
       }
       ctx.restore();
     }
 
-    // 10. 底部三欄並列官方落款區（左：活動日期與地點｜中：官方金色鋼印｜右：TUR 官方 LOGO ＋ 主辦單位；無賽事總監字樣）
-    const footerY = H - pad3 - (isPort ? 245 : 178);
+    // 9. 底部三欄並列官方落款區（左：活動日期與地點｜中：官方鋼印｜右：TUR 官方 LOGO ＋ 主辦單位）
+    const footerY = H - pad3 - (isPort ? 245 : 176);
     const leftX = pad3 + (isPort ? 285 : 400);
     const rightX = W - pad3 - (isPort ? 285 : 400);
 
-    // 左欄：活動日期（以活動日期為主，字體適度放大）
+    // 左欄：活動日期
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = palette.textMuted;
@@ -816,10 +1564,10 @@
       ctx.fillText(locationText, leftX, footerY + 76);
     }
 
-    // 中欄：官方金色完賽鋼印
-    drawOfficialSeal(ctx, centerX, footerY + 4, isPort ? 124 : 112, metrics.dateInfo.year, isDark);
+    // 中欄：官方完賽鋼印（隨配色主題自動調和）
+    drawOfficialSeal(ctx, centerX, footerY + 4, isPort ? 124 : 112, metrics.dateInfo.year, palette);
 
-    // 右欄：TUR 官方 LOGO 置於下方並列 ＋ 主辦單位名稱（取消賽事總監字樣）
+    // 右欄：TUR 官方 LOGO ＋ 主辦單位名稱
     const footLogoH = isPort ? 92 : 94;
     if (logoImg && logoImg.naturalWidth > 0) {
       const ratio = logoImg.naturalWidth / logoImg.naturalHeight;
@@ -858,13 +1606,13 @@
     fitTextFont(ctx, orgName, 520, 32, 22, '800 {size}px Georgia, "Times New Roman", serif');
     ctx.fillText(orgName, rightX, footerY + 80);
 
-    // 右下角官方流水編號（避開右下角古典角花飾紋）
+    // 右下角官方流水編號
     ctx.textAlign = 'right';
     ctx.fillStyle = palette.textMuted;
     ctx.font = '600 18px ui-monospace, monospace';
     ctx.fillText(`CERT NO. TUR-${metrics.dateInfo.year}-${metrics.bib}`, W - pad3 - ornSize - 42, H - pad3 - 26);
 
-    return { width: W, height: H, metrics };
+    return { width: W, height: H, metrics, format: formatKey, theme: themeKey };
   }
 
   /* ========================================================================
@@ -1682,6 +2430,8 @@
   }
 
   global.CertificateGenerator = {
+    OFFICIAL_THEMES,
+    OFFICIAL_FORMATS,
     loadImage,
     formatBilingualEventDate,
     extractRunnerMetrics,

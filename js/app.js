@@ -61,6 +61,7 @@
       onlyFinished: true,
       selectedBib: '',
       orientation: 'landscape',
+      format: 'classic_gold',
       theme: 'ivory_gold',
       englishName: '',
       organization: 'Taiwan Ultra Runners',
@@ -3232,6 +3233,7 @@
       row,
       options: {
         orientation: state.cert.orientation,
+        format: state.cert.format,
         theme: state.cert.theme,
         englishName: state.cert.englishName,
         organization: state.cert.organization,
@@ -3267,7 +3269,11 @@
 
     const caption = $('cert-preview-caption');
     if (caption) {
-      const modeLabel = state.cert.mode === 'custom' ? '自訂底圖套印' : `官方公版（${state.cert.orientation === 'portrait' ? 'A4 直式' : 'A4 橫式'}）`;
+      const fmtLabel = Cert?.OFFICIAL_FORMATS?.[state.cert.format]?.label || '經典燙金典藏式';
+      const thmLabel = Cert?.OFFICIAL_THEMES?.[state.cert.theme]?.label || '經典象牙金';
+      const modeLabel = state.cert.mode === 'custom'
+        ? '自訂底圖套印'
+        : `官方公版・${fmtLabel}・${thmLabel}（${state.cert.orientation === 'portrait' ? 'A4 直式' : 'A4 橫式'}）`;
       caption.textContent = `${modeLabel} ｜ 目前預覽：#${row.bib} ${row.name}（${row.categoryName || '--'}）`;
     }
   }
@@ -3327,6 +3333,7 @@
       if ($('cert-org-name')) $('cert-org-name').value = state.cert.organization;
       if ($('cert-show-splits')) $('cert-show-splits').checked = state.cert.showSplits;
       if ($('cert-orientation')) $('cert-orientation').value = state.cert.orientation;
+      if ($('cert-format')) $('cert-format').value = state.cert.format;
       if ($('cert-theme')) $('cert-theme').value = state.cert.theme;
       if ($('cert-custom-show-logo')) $('cert-custom-show-logo').checked = state.cert.showTurLogo;
       if ($('cert-bg-status') && !state.cert.bgDataUrl) $('cert-bg-status').textContent = '尚未上傳底圖（支援 A4 橫式或直式高解析圖檔）';
@@ -5137,6 +5144,10 @@
     // 官方公版選項即時預覽
     $('cert-orientation').addEventListener('change', (e) => {
       state.cert.orientation = e.target.value;
+      renderCertificatePreview();
+    });
+    $('cert-format')?.addEventListener('change', (e) => {
+      state.cert.format = e.target.value;
       renderCertificatePreview();
     });
     $('cert-theme').addEventListener('change', (e) => {
