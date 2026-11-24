@@ -868,15 +868,10 @@
     }
 
     const qLower = q.toLowerCase();
-    const qHash = await TE.sha256Hex(q.toUpperCase());
 
-    const matches = state.computed.rows.filter((row) => {
-      if (row.bib.toLowerCase().includes(qLower)) return true;
-      if (row.name.toLowerCase().includes(qLower)) return true;
-      if (row.idHash && row.idHash === qHash) return true;
-      if (row.idMasked && row.idMasked.toLowerCase() === qLower) return true;
-      return false;
-    });
+    const matches = state.computed.rows.filter((row) =>
+      String(row.name || '').toLowerCase().includes(qLower)
+    );
 
     container.classList.remove('hidden');
 
@@ -884,10 +879,7 @@
       const openIdSet = new Set(getOpenEvents().map((e) => e.eventId));
       const otherOpenIds = new Set();
       state.allRegistrations.forEach((r) => {
-        const hit = r.name.toLowerCase().includes(qLower)
-          || r.bib.toLowerCase().includes(qLower)
-          || (r.idHash && r.idHash === qHash)
-          || (r.idMasked && r.idMasked.toLowerCase() === qLower);
+        const hit = String(r.name || '').toLowerCase().includes(qLower);
         if (hit && openIdSet.has(r.eventId) && r.eventId !== state.selectedEventId) {
           otherOpenIds.add(r.eventId);
         }
@@ -895,10 +887,7 @@
 
       const allHist = buildUnifiedEntries({ includeLive: false, includeFinished: true, includeImported: true });
       const hasHist = allHist.some((e) =>
-        e.name.toLowerCase().includes(qLower)
-        || e.bib.toLowerCase().includes(qLower)
-        || (e.idHash && e.idHash === qHash)
-        || (e.idMasked && e.idMasked.toLowerCase() === qLower)
+        String(e.name || '').toLowerCase().includes(qLower)
       );
 
       const buttons = [];
@@ -1172,7 +1161,7 @@
       }
       tbody.innerHTML = rows
         .map((row) => `
-          <tr class="hover:bg-slate-800/40 cursor-pointer" data-pick-bib="${esc(row.bib)}">
+          <tr class="hover:bg-slate-800/40 cursor-pointer" data-pick-name="${esc(row.name)}">
             <td class="py-2.5 pr-3 font-mono-num font-black text-amber-400">${row.overallRank ?? '-'}</td>
             <td class="py-2.5 pr-3 font-mono-num font-bold text-sky-300">${row.categoryRank ?? '-'}</td>
             <td class="py-2.5 pr-3 font-mono-num font-bold text-white">${esc(row.bib)}</td>
@@ -1233,7 +1222,7 @@
               : '--';
 
         return `
-          <tr class="hover:bg-slate-800/40 cursor-pointer" data-pick-bib="${esc(row.bib)}">
+          <tr class="hover:bg-slate-800/40 cursor-pointer" data-pick-name="${esc(row.name)}">
             <td class="py-2.5 pr-3 font-mono-num font-black text-amber-400">${row.overallRank ?? '-'}</td>
             <td class="py-2.5 pr-3 font-mono-num font-bold text-sky-300">${row.categoryRank ?? '-'}</td>
             <td class="py-2.5 pr-3 font-mono-num font-bold text-white">${esc(row.bib)}</td>
@@ -1463,9 +1452,7 @@
     const shown = evEntriesAll.filter((e) => {
       if (state.historyEventCat !== 'ALL' && e.categoryName !== state.historyEventCat) return false;
       if (q) {
-        return String(e.name || '').toLowerCase().includes(q)
-          || String(e.bib || '').toLowerCase().includes(q)
-          || String(e.categoryName || '').toLowerCase().includes(q);
+        return String(e.name || '').toLowerCase().includes(q);
       }
       return true;
     });
@@ -1589,23 +1576,19 @@
       container.innerHTML = renderHistoryEventCardsByYear(
         filteredCatalog,
         allHistEntries,
-        `請於上方輸入「姓名」、「完整身份證字號」或「參賽編號」查詢「${yrLabel}」個人成績；或直接點選下方任一場次查看整場成績（共 ${filteredCatalog.length} 場）：`
+        `請於上方輸入「選手姓名」查詢「${yrLabel}」個人成績；或直接點選下方任一場次查看整場成績（共 ${filteredCatalog.length} 場）：`
       );
       return;
     }
 
     const qLower = q.toLowerCase();
-    const qHash = forceIdHash || (q ? await TE.sha256Hex(q.toUpperCase()) : '');
 
-    // 先取得該年度（或全部年度）歷年紀錄，依個人分組後篩選（無身份證的舊匯入紀錄同姓名自動合併）
+    // 先取得該年度（或全部年度）歷年紀錄，依個人分組後僅以姓名篩選
     const scopedEntries = allHistEntries.filter((e) => state.historyYear === 'ALL' || e.year === state.historyYear);
 
     const people = groupEntriesByPerson(scopedEntries).filter((person) => {
       if (forceIdHash) return person.idHash === forceIdHash;
-      if (person.name.toLowerCase().includes(qLower)) return true;
-      if (person.idHash && person.idHash === qHash) return true;
-      if (person.idMasked && person.idMasked.toLowerCase() === qLower) return true;
-      return person.records.some((r) => r.bib.toLowerCase().includes(qLower));
+      return String(person.name || '').toLowerCase().includes(qLower);
     });
 
     if (people.length === 0) {
@@ -2324,10 +2307,11 @@
     });
 
     $('pub-leaderboard-tbody').addEventListener('click', (e) => {
-      const tr = e.target.closest('[data-pick-bib]');
+      const tr = e.target.closest('[data-pick-name]');
       if (!tr) return;
-      $('pub-search-input').value = tr.dataset.pickBib;
-      runSearch(tr.dataset.pickBib);
+      const pickedName = tr.dataset.pickName || '';
+      $('pub-search-input').value = pickedName;
+      runSearch(pickedName);
       window.scrollTo({ top: 0, behavior: 'smooth' });
     });
 
