@@ -25,8 +25,11 @@
     computedCache: new Map(),
     catFilter: 'ALL',
     searchQuery: '',
+    historySubMode: 'person', // 'person' | 'event'
     historyYear: 'ALL',
     historyEventKey: 'ALL',
+    historyEventCat: 'ALL',
+    historyEventQuery: '',
     historyQuery: '',
     w800Year: '',
     w800HeroQuery: '',
@@ -1054,7 +1057,7 @@
     const st = statusBanner[row.status] || statusBanner.not_checked_in;
     const lastLoc = row.lastCheckpoint
       ? `${row.lastCheckpoint.name}（${TE.formatClockSec(row.lastScan.timestampMs)}）`
-      : (row.checkedIn ? `已於 ${TE.formatClockSec(row.checkInTimeMs)} 報到` : '尚未報到');
+      : (row.checkedIn ? '已報到' : '尚未報到');
 
     const etaBlock =
       row.status === 'on_course' && row.etaTimestampMs
@@ -1104,7 +1107,6 @@
             </div>
             <div class="text-xs text-slate-400 mt-1">
               組別：<strong class="text-slate-200">${esc(row.categoryName)}</strong>
-              ${row.idMasked ? ` ｜ 身份證：<code class="text-sky-300 font-mono-num">${esc(row.idMasked)}</code>` : ''}
             </div>
             ${renderOtherEventChips(row)}
           </div>
@@ -1116,12 +1118,12 @@
 
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div class="bg-slate-900 border border-slate-800 rounded-xl p-3">
-            <div class="text-[11px] text-slate-400 font-bold">報到狀態</div>
-            <div class="text-lg font-black font-mono-num ${row.checkedIn ? 'text-sky-300' : 'text-slate-500'} mt-0.5">
-              ${row.checkedIn ? `✅ ${TE.formatClockSec(row.checkInTimeMs)}` : '⏳ 未報到'}
+            <div class="text-[11px] text-slate-400 font-bold">起跑時間</div>
+            <div class="text-lg font-black font-mono-num text-sky-300 mt-0.5">
+              ${row.gunTimeMs ? TE.formatClockSec(row.gunTimeMs) : '未設定'}
             </div>
-            <div class="text-[11px] text-slate-400 font-mono-num">
-              起跑：${row.gunTimeMs ? TE.formatClockSec(row.gunTimeMs) : '未設定'}
+            <div class="text-[11px] text-slate-400">
+              狀態：${st.text}
             </div>
           </div>
           <div class="bg-slate-900 border border-slate-800 rounded-xl p-3">
@@ -1197,9 +1199,7 @@
         <th class="py-2.5 pr-3">組名次</th>
         <th class="py-2.5 pr-3">編號</th>
         <th class="py-2.5 pr-3">姓名</th>
-        <th class="py-2.5 pr-3">身份證 (隱碼)</th>
         <th class="py-2.5 pr-3">組別</th>
-        <th class="py-2.5 pr-3">報到</th>
         <th class="py-2.5 pr-3">最新動態</th>
         <th class="py-2.5 pr-3">完賽時間</th>
         <th class="py-2.5">配速 / ETA</th>
@@ -1207,7 +1207,7 @@
     `;
 
     if (rows.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="10" class="py-8 text-center text-slate-500">尚無報名或成績資料</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="8" class="py-8 text-center text-slate-500">尚無報名或成績資料</td></tr>';
       return;
     }
 
@@ -1237,14 +1237,12 @@
             <td class="py-2.5 pr-3 font-mono-num font-bold text-sky-300">${row.categoryRank ?? '-'}</td>
             <td class="py-2.5 pr-3 font-mono-num font-bold text-white">${esc(row.bib)}</td>
             <td class="py-2.5 pr-3 font-bold text-white">${esc(row.name)}</td>
-            <td class="py-2.5 pr-3 font-mono-num text-slate-400">${esc(row.idMasked || '--')}</td>
             <td class="py-2.5 pr-3">
               <span class="inline-flex items-center gap-1.5 text-xs font-bold">
                 <span class="w-2 h-2 rounded-full" style="background:${esc(row.categoryColor)}"></span>
                 ${esc(row.categoryName)}
               </span>
             </td>
-            <td class="py-2.5 pr-3 font-mono-num text-xs">${row.checkedIn ? `<span class="text-sky-300 font-bold">✅ ${TE.formatClockSec(row.checkInTimeMs)}</span>` : '<span class="text-slate-500">未報到</span>'}</td>
             <td class="py-2.5 pr-3">${locStr}</td>
             <td class="py-2.5 pr-3 font-mono-num font-bold text-emerald-400">
               ${row.gunDurationMs !== null ? TE.formatDuration(row.gunDurationMs, false) : '--'}
@@ -1257,36 +1255,315 @@
   }
 
   /* ========================================================================
-   * 模式 2：歷年個人成績查詢（合併系統已結束活動 ＋ 後台匯入之以前歷年成績）
+   * 模式 2：歷年成績查詢（按年度區分：個人成績查詢 ／ 選取場次成績查詢）
    * ======================================================================== */
+  function renderHistorySubModeUI() {
+    const isEventMode = state.historySubMode === 'event';
+    document.querySelectorAll('.pub-history-sub-btn').forEach((btn) => {
+      const sub = btn.dataset.historySub;
+      const active = sub === state.historySubMode;
+      if (sub === 'person') {
+        btn.className = active
+          ? 'pub-history-sub-btn flex-1 px-3 py-2 rounded-lg text-xs sm:text-sm font-black bg-amber-500 text-slate-950 transition shadow'
+          : 'pub-history-sub-btn flex-1 px-3 py-2 rounded-lg text-xs sm:text-sm font-bold text-slate-300 hover:bg-slate-800 transition';
+      } else {
+        btn.className = active
+          ? 'pub-history-sub-btn flex-1 px-3 py-2 rounded-lg text-xs sm:text-sm font-black bg-sky-500 text-slate-950 transition shadow'
+          : 'pub-history-sub-btn flex-1 px-3 py-2 rounded-lg text-xs sm:text-sm font-bold text-slate-300 hover:bg-slate-800 transition';
+      }
+      btn.setAttribute('aria-selected', active ? 'true' : 'false');
+    });
+
+    $('form-pub-history-search')?.classList.toggle('hidden', isEventMode);
+    $('pub-history-event-controls')?.classList.toggle('hidden', !isEventMode);
+
+    const hasChosenEvent = isEventMode && state.historyEventKey !== 'ALL';
+    const evtSel = $('pub-history-event-filter');
+    if (evtSel) {
+      evtSel.className = hasChosenEvent
+        ? 'sm:col-span-6 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs sm:text-sm font-bold text-white focus:border-sky-400 focus:outline-none'
+        : 'sm:col-span-12 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs sm:text-sm font-bold text-white focus:border-sky-400 focus:outline-none';
+    }
+    $('pub-history-event-cat-filter')?.classList.toggle('hidden', !hasChosenEvent);
+    $('pub-history-event-search')?.classList.toggle('hidden', !hasChosenEvent);
+  }
+
   function renderHistoryFilters() {
     const catalog = getHistoryEventsCatalog();
     const badge = $('pub-history-events-badge');
-    if (badge) badge.textContent = `歷年 ${catalog.length} 場`;
 
     const years = Array.from(new Set(catalog.map((c) => c.year).filter(Boolean))).sort((a, b) => b.localeCompare(a));
     const yearSel = $('pub-history-year-filter');
-    yearSel.innerHTML = '<option value="ALL">全部年份</option>' + years.map((y) => `<option value="${esc(y)}">${esc(y)} 年</option>`).join('');
+    yearSel.innerHTML = '<option value="ALL">全部年度</option>' + years.map((y) => `<option value="${esc(y)}">${esc(y)} 年度</option>`).join('');
     if (state.historyYear !== 'ALL' && !years.includes(state.historyYear)) {
       state.historyYear = 'ALL';
     }
     yearSel.value = state.historyYear;
 
     const filteredEvents = catalog.filter((c) => state.historyYear === 'ALL' || c.year === state.historyYear);
-    const evtSel = $('pub-history-event-filter');
-    evtSel.innerHTML = '<option value="ALL">全部歷年活動</option>' + filteredEvents
-      .map((c) => {
-        const icon = is800EventName(c.eventName) ? '⚔️' : (c.eventType === 'lap_timed' ? '🔁' : '🏃');
-        return `<option value="${esc(c.eventKey)}">${icon} ${esc(c.eventDate || '--')}｜${esc(c.eventName)}</option>`;
-      })
-      .join('');
-    if (state.historyEventKey !== 'ALL' && !filteredEvents.some((c) => c.eventKey === state.historyEventKey)) {
-      state.historyEventKey = 'ALL';
+    if (badge) {
+      badge.textContent = state.historyYear === 'ALL'
+        ? `歷年 ${catalog.length} 場`
+        : `${state.historyYear} 年度 ${filteredEvents.length} 場`;
     }
-    evtSel.value = state.historyEventKey;
+
+    const evtSel = $('pub-history-event-filter');
+    if (evtSel) {
+      evtSel.innerHTML =
+        `<option value="ALL">-- 請選取${state.historyYear === 'ALL' ? '歷年' : `${state.historyYear} 年度`}場次（共 ${filteredEvents.length} 場） --</option>` +
+        filteredEvents
+          .map((c) => {
+            const icon = is800EventName(c.eventName) ? '⚔️' : (c.eventType === 'lap_timed' ? '🔁' : '🏃');
+            return `<option value="${esc(c.eventKey)}">${icon} ${esc(c.eventDate || '--')}｜${esc(c.eventName)} (${c.count}人)</option>`;
+          })
+          .join('');
+      if (state.historyEventKey !== 'ALL' && !filteredEvents.some((c) => c.eventKey === state.historyEventKey)) {
+        state.historyEventKey = 'ALL';
+        state.historyEventCat = 'ALL';
+        state.historyEventQuery = '';
+        if ($('pub-history-event-search')) $('pub-history-event-search').value = '';
+      }
+      evtSel.value = state.historyEventKey;
+    }
+
+    renderHistorySubModeUI();
+  }
+
+  function renderHistoryEventCardsByYear(filteredCatalog, allHistEntries, hintText) {
+    if (!filteredCatalog.length) {
+      return `
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center text-sm text-slate-400">
+          此年度尚無歷年賽事紀錄。
+        </div>
+      `;
+    }
+
+    const entriesByEvent = new Map();
+    for (const e of allHistEntries) {
+      if (!entriesByEvent.has(e.eventKey)) entriesByEvent.set(e.eventKey, []);
+      entriesByEvent.get(e.eventKey).push(e);
+    }
+
+    const byYear = new Map();
+    for (const c of filteredCatalog) {
+      const y = c.year || '未標註年度';
+      if (!byYear.has(y)) byYear.set(y, []);
+      byYear.get(y).push(c);
+    }
+
+    const yearsSorted = Array.from(byYear.keys()).sort((a, b) => b.localeCompare(a));
+    const groupsHtml = yearsSorted.map((yr) => {
+      const list = byYear.get(yr);
+      const cards = list.map((c) => {
+        const is800 = is800EventName(c.eventName);
+        const icon = is800 ? '⚔️' : (c.eventType === 'lap_timed' ? '🔁' : '🏃');
+        const rows = entriesByEvent.get(c.eventKey) || [];
+        const finCount = rows.filter((r) => r.completed).length;
+        const sumKm = rows.reduce((s, r) => s + Number(r.distanceKm || 0), 0);
+        return `
+          <button type="button" data-pick-history-event="${esc(c.eventKey)}"
+            class="w-full text-left flex flex-wrap items-center justify-between gap-2.5 px-4 py-3 rounded-2xl bg-slate-950 border ${is800 ? 'border-amber-500/35 hover:border-amber-400' : 'border-slate-800 hover:border-sky-400'} hover:bg-slate-900 transition group">
+            <div class="flex items-center gap-2 min-w-0">
+              <span class="shrink-0">${icon}</span>
+              <span class="font-mono-num text-xs font-bold text-amber-300 shrink-0">${esc(c.eventDate || '--')}</span>
+              <span class="font-black text-white text-sm sm:text-base group-hover:text-sky-300 transition truncate">${esc(c.eventName)}</span>
+              ${c.sourceType === 'imported' ? '<span class="px-1.5 py-0.5 rounded text-[10px] bg-slate-800 text-slate-400 shrink-0">歷年匯入</span>' : ''}
+            </div>
+            <div class="flex items-center gap-3 text-xs font-mono-num shrink-0 ml-auto">
+              <span class="text-slate-400">參賽 <strong class="text-sky-300">${rows.length || c.count}</strong> ｜ 完賽 <strong class="text-emerald-400">${finCount}</strong>${sumKm > 0 ? ` ｜ ${sumKm.toFixed(0)} km` : ''}</span>
+              <span class="font-black text-sky-400 group-hover:translate-x-0.5 transition">看成績 →</span>
+            </div>
+          </button>
+        `;
+      }).join('');
+
+      return `
+        <div class="space-y-2">
+          <div class="flex items-center justify-between px-1">
+            <span class="text-xs sm:text-sm font-black text-amber-300">📅 ${esc(yr)} 年度</span>
+            <span class="text-xs font-mono-num text-slate-400">${list.length} 場</span>
+          </div>
+          <div class="space-y-2">${cards}</div>
+        </div>
+      `;
+    }).join('');
+
+    return `
+      <div class="bg-slate-900 border border-slate-800 rounded-3xl p-4 sm:p-5 space-y-4">
+        <div class="text-xs text-slate-400">${hintText}</div>
+        <div class="space-y-4">${groupsHtml}</div>
+      </div>
+    `;
+  }
+
+  function renderHistoryEventView() {
+    const container = $('pub-history-results');
+    const catalog = getHistoryEventsCatalog();
+    if (catalog.length === 0) {
+      container.innerHTML = `
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center space-y-1.5">
+          <div class="text-3xl">📜</div>
+          <div class="text-base font-black text-white">尚無歷年成績資料</div>
+          <p class="text-xs text-slate-400">已結束之賽事或由後台匯入之以前歷年成績將自動合併顯示於此</p>
+        </div>
+      `;
+      return;
+    }
+
+    const filteredCatalog = catalog.filter((c) => state.historyYear === 'ALL' || c.year === state.historyYear);
+    const allHistEntries = buildUnifiedEntries({ includeLive: false, includeFinished: true, includeImported: true });
+
+    renderHistorySubModeUI();
+
+    // 尚未選取單一場次：按年度列出可點擊之場次清單
+    if (state.historyEventKey === 'ALL') {
+      const yrText = state.historyYear === 'ALL' ? '全部年度' : `${state.historyYear} 年度`;
+      container.innerHTML = renderHistoryEventCardsByYear(
+        filteredCatalog,
+        allHistEntries,
+        `目前顯示「${yrText}」共 ${filteredCatalog.length} 場歷年活動，請於上方選單選取或直接點選下方任一場次查看完整成績：`
+      );
+      return;
+    }
+
+    const targetEv = filteredCatalog.find((c) => c.eventKey === state.historyEventKey)
+      || catalog.find((c) => c.eventKey === state.historyEventKey);
+    if (!targetEv) {
+      state.historyEventKey = 'ALL';
+      renderHistoryFilters();
+      renderHistoryEventView();
+      return;
+    }
+
+    const evEntriesAll = allHistEntries
+      .filter((e) => e.eventKey === targetEv.eventKey)
+      .sort((a, b) => {
+        const ra = a.overallRank ? Number(a.overallRank) : 999999;
+        const rb = b.overallRank ? Number(b.overallRank) : 999999;
+        if (ra !== rb) return ra - rb;
+        if (a.completed !== b.completed) return a.completed ? -1 : 1;
+        if (Number(b.distanceKm || 0) !== Number(a.distanceKm || 0)) return Number(b.distanceKm || 0) - Number(a.distanceKm || 0);
+        if (a.finishTimeMs !== null && b.finishTimeMs !== null && a.finishTimeMs !== b.finishTimeMs) return a.finishTimeMs - b.finishTimeMs;
+        return String(a.bib || '').localeCompare(String(b.bib || ''), 'zh-Hant', { numeric: true });
+      });
+
+    // 更新該場次組別下拉選單
+    const cats = Array.from(new Set(evEntriesAll.map((e) => e.categoryName).filter(Boolean)));
+    const catSel = $('pub-history-event-cat-filter');
+    if (catSel) {
+      catSel.innerHTML = '<option value="ALL">全部組別</option>' + cats.map((cat) => `<option value="${esc(cat)}">${esc(cat)}</option>`).join('');
+      if (state.historyEventCat !== 'ALL' && !cats.includes(state.historyEventCat)) {
+        state.historyEventCat = 'ALL';
+      }
+      catSel.value = state.historyEventCat;
+    }
+
+    const q = String(state.historyEventQuery || '').trim().toLowerCase();
+    const shown = evEntriesAll.filter((e) => {
+      if (state.historyEventCat !== 'ALL' && e.categoryName !== state.historyEventCat) return false;
+      if (q) {
+        return String(e.name || '').toLowerCase().includes(q)
+          || String(e.bib || '').toLowerCase().includes(q)
+          || String(e.categoryName || '').toLowerCase().includes(q);
+      }
+      return true;
+    });
+
+    const finCount = evEntriesAll.filter((e) => e.completed).length;
+    const totalKm = evEntriesAll.reduce((s, e) => s + Number(e.distanceKm || 0), 0);
+    const is800 = is800EventName(targetEv.eventName);
+    const icon = is800 ? '⚔️' : (targetEv.eventType === 'lap_timed' ? '🔁' : '🏃');
+
+    const tbodyHtml = !shown.length
+      ? '<tr><td colspan="10" class="py-8 text-center text-slate-500">查無符合條件的選手成績</td></tr>'
+      : shown.map((r, idx) => {
+          const rankNum = r.overallRank || (r.completed ? idx + 1 : null);
+          const rankDisp = rankNum === 1 ? '🥇' : rankNum === 2 ? '🥈' : rankNum === 3 ? '🥉' : (rankNum ? `#${rankNum}` : '-');
+          const scoreText = r.laps > 0
+            ? `${r.laps} 圈${r.finishTimeText ? ` (${r.finishTimeText})` : ''}`
+            : (r.finishTimeText || '--');
+          const kmText = Number(r.distanceKm || 0) > 0 ? `${Number(r.distanceKm).toFixed(2)} km` : '--';
+          const statusCls = r.completed ? 'text-emerald-400 font-bold' : 'text-slate-400';
+          return `
+            <tr class="hover:bg-slate-800/45">
+              <td class="py-2.5 px-3 font-mono-num font-black text-amber-400">${rankDisp}</td>
+              <td class="py-2.5 px-2 font-mono-num font-bold text-sky-300">${r.categoryRank ? `#${r.categoryRank}` : '-'}</td>
+              <td class="py-2.5 px-2 font-mono-num font-bold text-slate-200">${esc(r.bib || '--')}</td>
+              <td class="py-2.5 px-2 font-bold text-white">
+                <button type="button" data-open-history-query="${esc(r.name)}" data-open-history-idhash="${esc(r.idHash || '')}"
+                  class="text-left font-bold text-white hover:text-amber-300 underline decoration-slate-600 hover:decoration-amber-400 underline-offset-2 transition">
+                  ${esc(r.name)}
+                </button>
+              </td>
+              <td class="py-2.5 px-2 text-sky-300 font-bold">${esc(r.categoryName || '--')}</td>
+              <td class="py-2.5 px-2 font-mono-num font-black text-emerald-400">${esc(kmText)}</td>
+              <td class="py-2.5 px-2 font-mono-num text-slate-200">${esc(scoreText)}</td>
+              <td class="py-2.5 px-2 font-mono-num text-slate-300">${esc(r.avgPace || '--')}</td>
+              <td class="py-2.5 px-2 ${statusCls}">${esc(r.statusText || (r.completed ? '完賽' : '未完賽'))}</td>
+              <td class="py-2.5 px-3 text-right">
+                ${r.completed
+                  ? `<button type="button" data-open-cert-eventkey="${esc(r.eventKey)}" data-open-cert-bib="${esc(r.bib || '')}" data-open-cert-name="${esc(r.name)}" class="px-2 py-0.5 rounded-lg text-xs font-bold bg-emerald-500/20 hover:bg-emerald-500/35 border border-emerald-500/40 text-emerald-300">🏅 印證書</button>`
+                  : '<span class="text-slate-600 text-xs">--</span>'}
+              </td>
+            </tr>
+          `;
+        }).join('');
+
+    container.innerHTML = `
+      <section class="bg-slate-900 border border-sky-500/40 rounded-3xl p-4 sm:p-5 space-y-4 shadow-xl">
+        <div class="flex flex-wrap items-start justify-between gap-3 pb-3 border-b border-slate-800">
+          <div class="space-y-1 min-w-0">
+            <div class="flex items-center gap-2 flex-wrap">
+              <button type="button" data-back-history-events="true"
+                class="px-2.5 py-1 rounded-xl text-xs font-black bg-slate-800 hover:bg-slate-700 border border-slate-700 text-sky-300 transition">
+                ← 返回場次清單
+              </button>
+              <span class="font-mono-num text-xs font-bold px-2 py-0.5 rounded bg-slate-800 text-amber-300">${esc(targetEv.eventDate || '--')}</span>
+              ${is800 ? '<span class="px-2 py-0.5 rounded text-xs font-black bg-amber-500/20 text-amber-300">⚔️ 八百壯士</span>' : ''}
+            </div>
+            <h3 class="text-base sm:text-xl font-black text-white">${icon} ${esc(targetEv.eventName)}</h3>
+          </div>
+          <div class="flex flex-wrap items-center gap-2 text-xs font-mono-num">
+            <span class="px-2.5 py-1 rounded-xl bg-slate-950 border border-slate-800 text-slate-300">參賽 <strong class="text-sky-300">${evEntriesAll.length}</strong> 人</span>
+            <span class="px-2.5 py-1 rounded-xl bg-slate-950 border border-emerald-500/30 text-emerald-300">完賽 <strong>${finCount}</strong> 人</span>
+            <span class="px-2.5 py-1 rounded-xl bg-slate-950 border border-amber-500/30 text-amber-300">總里程 <strong>${totalKm.toFixed(1)}</strong> km</span>
+          </div>
+        </div>
+
+        <div class="flex items-center justify-between text-xs text-slate-400">
+          <span>點選選手姓名可切換查詢該選手跨年度個人合併成績</span>
+          <span class="font-mono-num">顯示 ${shown.length} / ${evEntriesAll.length} 筆</span>
+        </div>
+
+        <div class="overflow-x-auto border border-slate-800 rounded-2xl">
+          <table class="w-full text-xs sm:text-sm text-left whitespace-nowrap">
+            <thead class="bg-slate-950 text-xs text-slate-400 border-b border-slate-800">
+              <tr>
+                <th class="py-2.5 px-3">總名次</th>
+                <th class="py-2.5 px-2">組名次</th>
+                <th class="py-2.5 px-2">編號</th>
+                <th class="py-2.5 px-2">姓名</th>
+                <th class="py-2.5 px-2">組別</th>
+                <th class="py-2.5 px-2">里程</th>
+                <th class="py-2.5 px-2">成績 / 圈數</th>
+                <th class="py-2.5 px-2">配速</th>
+                <th class="py-2.5 px-2">狀態</th>
+                <th class="py-2.5 px-3 text-right">證書</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-800/70">${tbodyHtml}</tbody>
+          </table>
+        </div>
+      </section>
+    `;
   }
 
   async function runHistorySearch(rawQuery, { forceIdHash = '' } = {}) {
+    if (state.historySubMode === 'event' && !forceIdHash) {
+      renderHistoryEventView();
+      return;
+    }
+
     const q = String(rawQuery ?? '').trim();
     state.historyQuery = q;
     const container = $('pub-history-results');
@@ -1303,52 +1580,26 @@
       return;
     }
 
-    const filteredCatalog = catalog.filter((c) => {
-      if (state.historyYear !== 'ALL' && c.year !== state.historyYear) return false;
-      if (state.historyEventKey !== 'ALL' && c.eventKey !== state.historyEventKey) return false;
-      return true;
-    });
+    const filteredCatalog = catalog.filter((c) => state.historyYear === 'ALL' || c.year === state.historyYear);
+    const allHistEntries = buildUnifiedEntries({ includeLive: false, includeFinished: true, includeImported: true });
 
     if (!q && !forceIdHash) {
-      const eventListHtml = filteredCatalog
-        .map((c) => {
-          const is800 = is800EventName(c.eventName);
-          const icon = is800 ? '⚔️' : (c.eventType === 'lap_timed' ? '🔁' : '🏃');
-          return `
-            <div class="flex flex-wrap items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl bg-slate-950 border ${is800 ? 'border-amber-500/30' : 'border-slate-800'} text-xs">
-              <div class="flex items-center gap-2 min-w-0">
-                <span>${icon}</span>
-                <span class="font-mono-num text-amber-300 shrink-0">${esc(c.eventDate || '--')}</span>
-                <span class="font-bold text-white truncate">${esc(c.eventName)}</span>
-                ${c.sourceType === 'imported' ? '<span class="px-1.5 py-0.5 rounded text-[10px] bg-slate-800 text-slate-400">歷年匯入</span>' : ''}
-              </div>
-              <span class="font-mono-num text-slate-400 shrink-0">${c.count} 筆</span>
-            </div>
-          `;
-        })
-        .join('');
-
-      container.innerHTML = `
-        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
-          <div class="text-xs text-slate-400">請輸入「姓名」、「完整身份證字號」或「參賽編號」查詢個人歷年合併成績（共 ${filteredCatalog.length} 場）：</div>
-          <div class="space-y-1.5">${eventListHtml}</div>
-        </div>
-      `;
+      const yrLabel = state.historyYear === 'ALL' ? '全部年度' : `${state.historyYear} 年度`;
+      container.innerHTML = renderHistoryEventCardsByYear(
+        filteredCatalog,
+        allHistEntries,
+        `請於上方輸入「姓名」、「完整身份證字號」或「參賽編號」查詢「${yrLabel}」個人成績；或直接點選下方任一場次查看整場成績（共 ${filteredCatalog.length} 場）：`
+      );
       return;
     }
 
     const qLower = q.toLowerCase();
     const qHash = forceIdHash || (q ? await TE.sha256Hex(q.toUpperCase()) : '');
 
-    // 先取得所有歷年紀錄，先依個人分組再依搜尋條件篩選（確保搜尋同身份證時，無身份證的舊匯入紀錄也能合併命中！）
-    const allEntries = buildUnifiedEntries({ includeLive: false, includeFinished: true, includeImported: true })
-      .filter((e) => {
-        if (state.historyYear !== 'ALL' && e.year !== state.historyYear) return false;
-        if (state.historyEventKey !== 'ALL' && e.eventKey !== state.historyEventKey) return false;
-        return true;
-      });
+    // 先取得該年度（或全部年度）歷年紀錄，依個人分組後篩選（無身份證的舊匯入紀錄同姓名自動合併）
+    const scopedEntries = allHistEntries.filter((e) => state.historyYear === 'ALL' || e.year === state.historyYear);
 
-    const people = groupEntriesByPerson(allEntries).filter((person) => {
+    const people = groupEntriesByPerson(scopedEntries).filter((person) => {
       if (forceIdHash) return person.idHash === forceIdHash;
       if (person.name.toLowerCase().includes(qLower)) return true;
       if (person.idHash && person.idHash === qHash) return true;
@@ -1357,9 +1608,10 @@
     });
 
     if (people.length === 0) {
+      const yrHint = state.historyYear === 'ALL' ? '歷年成績' : `${state.historyYear} 年度成績`;
       container.innerHTML = `
         <div class="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center text-sm text-slate-400">
-          歷年成績中查無符合「<strong class="text-white">${esc(q)}</strong>」的個人紀錄。
+          ${esc(yrHint)}中查無符合「<strong class="text-white">${esc(q)}</strong>」的個人紀錄。
         </div>
       `;
       return;
@@ -1479,12 +1731,33 @@
     const totalKm = records.reduce((sum, r) => sum + Number(r.distanceKm || 0), 0);
     const has800 = records.some((r) => is800EventName(r.eventName));
 
+    // 按年度分組呈現個人歷年成績
+    const byYear = new Map();
+    for (const r of records) {
+      const y = r.year || '未標註年度';
+      if (!byYear.has(y)) byYear.set(y, []);
+      byYear.get(y).push(r);
+    }
+    const yearsSorted = Array.from(byYear.keys()).sort((a, b) => b.localeCompare(a));
+    const groupedHtml = yearsSorted.map((yr) => {
+      const yrRecs = byYear.get(yr);
+      const yrKm = yrRecs.reduce((s, r) => s + Number(r.distanceKm || 0), 0);
+      return `
+        <div class="space-y-2">
+          <div class="flex items-center justify-between px-1">
+            <span class="text-xs font-black text-amber-300">📅 ${esc(yr)} 年度</span>
+            <span class="text-xs font-mono-num text-slate-400">${yrRecs.length} 場${yrKm > 0 ? ` ｜ ${yrKm.toFixed(2)} km` : ''}</span>
+          </div>
+          <div class="space-y-2.5">${yrRecs.map(renderUnifiedRecordRow).join('')}</div>
+        </div>
+      `;
+    }).join('');
+
     return `
       <section class="bg-slate-900 border border-amber-500/30 rounded-3xl p-4 sm:p-5 space-y-4 shadow-xl">
         <div class="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-800">
           <div class="flex items-center gap-2.5 flex-wrap">
             <span class="text-xl sm:text-2xl font-black text-white">${esc(person.name)}</span>
-            ${person.idMasked ? `<code class="px-2 py-0.5 rounded bg-slate-950 border border-slate-800 text-xs font-mono-num text-sky-300">${esc(person.idMasked)}</code>` : ''}
             ${has800 ? `<button type="button" data-open-800-hero="${esc(person.name)}" class="px-2.5 py-0.5 rounded-full text-xs font-black bg-amber-500/20 hover:bg-amber-500/35 border border-amber-500/40 text-amber-300">⚔️ 查看八百壯士英雄榜</button>` : ''}
           </div>
           <div class="flex flex-wrap items-center gap-2 text-xs font-mono-num">
@@ -1494,7 +1767,7 @@
           </div>
         </div>
 
-        <div class="space-y-2.5">${records.map(renderUnifiedRecordRow).join('')}</div>
+        <div class="space-y-4">${groupedHtml}</div>
       </section>
     `;
   }
@@ -1748,7 +2021,6 @@
               <div class="min-w-0">
                 <div class="flex items-center gap-2 flex-wrap">
                   <span class="text-base sm:text-lg font-black text-white">${esc(h.name)}</span>
-                  ${h.idMasked ? `<code class="text-[11px] font-mono-num text-sky-300">${esc(h.idMasked)}</code>` : ''}
                   <span class="px-2 py-0.5 rounded-full text-[11px] font-bold bg-slate-800 text-slate-300 font-mono-num">${esc(h.yearSpan)}</span>
                 </div>
                 <div class="text-xs text-slate-400 font-mono-num mt-0.5">
@@ -2083,10 +2355,36 @@
         return;
       }
 
+      const pickHistEvBtn = e.target.closest('[data-pick-history-event]');
+      if (pickHistEvBtn) {
+        state.historySubMode = 'event';
+        state.historyEventKey = pickHistEvBtn.dataset.pickHistoryEvent || 'ALL';
+        state.historyEventCat = 'ALL';
+        state.historyEventQuery = '';
+        if ($('pub-history-event-search')) $('pub-history-event-search').value = '';
+        renderHistoryFilters();
+        renderHistoryEventView();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        return;
+      }
+
+      const backHistEvBtn = e.target.closest('[data-back-history-events]');
+      if (backHistEvBtn) {
+        state.historySubMode = 'event';
+        state.historyEventKey = 'ALL';
+        state.historyEventCat = 'ALL';
+        state.historyEventQuery = '';
+        if ($('pub-history-event-search')) $('pub-history-event-search').value = '';
+        renderHistoryFilters();
+        renderHistoryEventView();
+        return;
+      }
+
       const histBtn = e.target.closest('[data-open-history-query]');
       if (histBtn) {
         const q = histBtn.dataset.openHistoryQuery || '';
         const idHash = histBtn.dataset.openHistoryIdhash || '';
+        state.historySubMode = 'person';
         state.historyYear = 'ALL';
         state.historyEventKey = 'ALL';
         state.historyQuery = q;
@@ -2111,20 +2409,48 @@
     $('pub-history-results').addEventListener('click', handleCrossJump);
     $('pub-800-hero-list').addEventListener('click', handleCrossJump);
 
-    // 歷年成績查詢事件
+    // 歷年成績查詢事件（年度切換 ＋ 個人成績查詢 ／ 場次成績查詢雙模式）
+    document.querySelectorAll('.pub-history-sub-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        state.historySubMode = btn.dataset.historySub === 'event' ? 'event' : 'person';
+        renderHistoryFilters();
+        runHistorySearch($('pub-history-input').value);
+      });
+    });
+
     $('pub-history-year-filter').addEventListener('change', (e) => {
       state.historyYear = e.target.value;
+      state.historyEventKey = 'ALL';
+      state.historyEventCat = 'ALL';
+      state.historyEventQuery = '';
+      if ($('pub-history-event-search')) $('pub-history-event-search').value = '';
       renderHistoryFilters();
       runHistorySearch($('pub-history-input').value);
     });
 
     $('pub-history-event-filter').addEventListener('change', (e) => {
       state.historyEventKey = e.target.value;
-      runHistorySearch($('pub-history-input').value);
+      state.historyEventCat = 'ALL';
+      state.historyEventQuery = '';
+      if ($('pub-history-event-search')) $('pub-history-event-search').value = '';
+      renderHistorySubModeUI();
+      renderHistoryEventView();
+    });
+
+    $('pub-history-event-cat-filter')?.addEventListener('change', (e) => {
+      state.historyEventCat = e.target.value;
+      renderHistoryEventView();
+    });
+
+    $('pub-history-event-search')?.addEventListener('input', (e) => {
+      state.historyEventQuery = e.target.value;
+      renderHistoryEventView();
     });
 
     $('form-pub-history-search').addEventListener('submit', (e) => {
       e.preventDefault();
+      state.historySubMode = 'person';
+      renderHistorySubModeUI();
       runHistorySearch($('pub-history-input').value);
     });
 

@@ -19,7 +19,7 @@
       }
     })();
   </script>
-  <link rel="stylesheet" href="./css/style.css?v=3.12.13" />
+  <link rel="stylesheet" href="./css/style.css?v=3.12.15" />
 </head>
 <body class="min-h-screen bg-slate-950 text-slate-100 pb-12">
 
@@ -190,40 +190,69 @@
     </div>
 
     <!-- ================================================================== -->
-    <!-- 模式 2：歷年成績查詢（系統已結束活動 ＋ 匯入歷年成績 個人合併查詢） -->
+    <!-- 模式 2：歷年成績查詢（按年度區分：個人成績查詢 ／ 選取場次成績查詢） -->
     <!-- ================================================================== -->
     <div id="pub-view-history" class="hidden space-y-5">
       <section class="bg-slate-900 border border-amber-500/40 rounded-3xl p-4 sm:p-5 space-y-4 shadow-xl">
-        <div class="flex flex-wrap items-center justify-between gap-2">
-          <h2 class="text-base sm:text-lg font-black text-amber-300">📜 歷年個人成績查詢</h2>
+        <div class="flex flex-wrap items-center justify-between gap-2.5">
+          <h2 class="text-base sm:text-lg font-black text-amber-300">📜 歷年成績查詢</h2>
           <span id="pub-history-events-badge" class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-slate-800 text-slate-300 font-mono-num">
             歷年 0 場
           </span>
         </div>
 
-        <form id="form-pub-history-search" class="space-y-2.5">
-          <div class="grid grid-cols-1 sm:grid-cols-12 gap-2">
+        <!-- 步驟 1：選擇年度 ＋ 切換查詢方式（個人查詢 ／ 場次成績查詢） -->
+        <div class="flex flex-col sm:flex-row sm:items-center gap-2.5">
+          <div class="flex items-center gap-2 sm:w-52 shrink-0">
+            <label for="pub-history-year-filter" class="text-xs font-black text-amber-300 shrink-0">📅 年度</label>
             <select id="pub-history-year-filter"
               style="background-color:#0f172a; color:#f8fafc;"
-              class="sm:col-span-3 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs sm:text-sm font-bold text-white focus:border-amber-400 focus:outline-none">
-              <option value="ALL">全部年份</option>
-            </select>
-            <select id="pub-history-event-filter"
-              style="background-color:#0f172a; color:#f8fafc;"
-              class="sm:col-span-9 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs sm:text-sm font-bold text-white focus:border-amber-400 focus:outline-none">
-              <option value="ALL">全部歷年活動</option>
+              class="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs sm:text-sm font-bold text-white focus:border-amber-400 focus:outline-none">
+              <option value="ALL">全部年度</option>
             </select>
           </div>
 
+          <div class="inline-flex flex-1 p-1 rounded-xl bg-slate-950 border border-slate-800 gap-1" role="tablist" aria-label="歷年查詢方式">
+            <button type="button" data-history-sub="person"
+              class="pub-history-sub-btn flex-1 px-3 py-2 rounded-lg text-xs sm:text-sm font-black bg-amber-500 text-slate-950 transition shadow">
+              👤 個人成績查詢
+            </button>
+            <button type="button" data-history-sub="event"
+              class="pub-history-sub-btn flex-1 px-3 py-2 rounded-lg text-xs sm:text-sm font-bold text-slate-300 hover:bg-slate-800 transition">
+              🏟️ 場次成績查詢
+            </button>
+          </div>
+        </div>
+
+        <!-- 子模式 A：個人歷年成績查詢表單 -->
+        <form id="form-pub-history-search" class="space-y-2.5">
           <div class="flex flex-col sm:flex-row gap-2.5">
             <input id="pub-history-input" type="search" placeholder="🔍 輸入選手姓名、完整身份證字號或參賽編號"
-              class="flex-1 text-base font-bold bg-slate-950 border border-slate-700 rounded-2xl px-4 py-3 text-white focus:border-amber-400 focus:outline-none" />
+              class="flex-1 text-base font-bold bg-slate-950 border border-slate-700 rounded-2xl px-4 py-2.5 text-white focus:border-amber-400 focus:outline-none" />
             <button type="submit"
-              class="px-7 py-3 rounded-2xl text-base font-black bg-amber-500 hover:bg-amber-400 text-slate-950 transition shrink-0">
-              查詢歷年成績
+              class="px-6 py-2.5 rounded-2xl text-sm sm:text-base font-black bg-amber-500 hover:bg-amber-400 text-slate-950 transition shrink-0">
+              查詢個人成績
             </button>
           </div>
         </form>
+
+        <!-- 子模式 B：選取歷年場次成績查詢表單 -->
+        <div id="pub-history-event-controls" class="hidden space-y-2.5">
+          <div class="grid grid-cols-1 sm:grid-cols-12 gap-2.5">
+            <select id="pub-history-event-filter"
+              style="background-color:#0f172a; color:#f8fafc;"
+              class="sm:col-span-6 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs sm:text-sm font-bold text-white focus:border-sky-400 focus:outline-none">
+              <option value="ALL">-- 請選取歷年場次 --</option>
+            </select>
+            <select id="pub-history-event-cat-filter"
+              style="background-color:#0f172a; color:#f8fafc;"
+              class="hidden sm:col-span-3 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs sm:text-sm font-bold text-white focus:border-sky-400 focus:outline-none">
+              <option value="ALL">全部組別</option>
+            </select>
+            <input id="pub-history-event-search" type="search" placeholder="🔍 篩選本場選手姓名 / 編號"
+              class="hidden sm:col-span-3 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs sm:text-sm font-bold text-white focus:border-sky-400 focus:outline-none" />
+          </div>
+        </div>
       </section>
 
       <div id="pub-history-results" class="space-y-4"></div>
@@ -506,7 +535,7 @@
     </div>
 
     <footer class="text-center text-xs text-slate-500 pt-2">
-      TUR (Taiwan Ultra Runners) 路跑晶片計時平台 • 每 20 秒自動更新 • 身份證字號全面隱碼保護
+      TUR (Taiwan Ultra Runners) 路跑晶片計時平台 • 每 20 秒自動更新 • 全面隱藏身份證字號與報到時間
     </footer>
   </main>
 
@@ -560,11 +589,11 @@
     </div>
   </div>
 
-  <script src="./js/config.js?v=3.12.13"></script>
-  <script src="./js/timing-engine.js?v=3.12.13"></script>
-  <script src="./js/db.js?v=3.12.13"></script>
-  <script src="./js/sync.js?v=3.12.13"></script>
-  <script src="./js/certificate.js?v=3.12.13"></script>
-  <script src="./js/public-app.js?v=3.12.13"></script>
+  <script src="./js/config.js?v=3.12.15"></script>
+  <script src="./js/timing-engine.js?v=3.12.15"></script>
+  <script src="./js/db.js?v=3.12.15"></script>
+  <script src="./js/sync.js?v=3.12.15"></script>
+  <script src="./js/certificate.js?v=3.12.15"></script>
+  <script src="./js/public-app.js?v=3.12.15"></script>
 </body>
 </html>
