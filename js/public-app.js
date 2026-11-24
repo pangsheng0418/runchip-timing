@@ -30,6 +30,12 @@
     historyQuery: '',
     w800Year: '',
     w800HeroQuery: '',
+    w800Modal: {
+      open: false,
+      step: 'events', // 'events' | 'runners'
+      selectedEventKey: '',
+      runnerQuery: ''
+    },
     cert: {
       style: 'official', // 'official' | 'custom'
       eventKey: 'ALL',
@@ -353,7 +359,31 @@
     return Array.from(map.values()).sort((a, b) => String(b.eventDate || '').localeCompare(String(a.eventDate || '')));
   }
 
+  const FONT_SCALE_KEY = 'tur_font_scale_v1';
+  const FONT_SCALE_OPTIONS = ['sm', 'md', 'lg', 'xl'];
+  const FONT_SCALE_LABELS = { sm: '小', md: '標準', lg: '大', xl: '特大' };
+
+  function getSavedFontScale() {
+    try {
+      const s = localStorage.getItem(FONT_SCALE_KEY) || 'md';
+      return FONT_SCALE_OPTIONS.includes(s) ? s : 'md';
+    } catch {
+      return 'md';
+    }
+  }
+
+  function applyPublicFontScale(scale, save = true) {
+    const valid = FONT_SCALE_OPTIONS.includes(scale) ? scale : 'md';
+    document.documentElement.setAttribute('data-font-scale', valid);
+    if (save) {
+      try { localStorage.setItem(FONT_SCALE_KEY, valid); } catch {}
+    }
+    const btn = $('btn-pub-font-cycle');
+    if (btn) btn.textContent = `🔤 字體：${FONT_SCALE_LABELS[valid]}`;
+  }
+
   async function initPublicPage() {
+    applyPublicFontScale(getSavedFontScale(), false);
     const params = new URLSearchParams(location.search);
     const paramApi = (params.get('api') || '').trim();
     const paramEvent = (params.get('event') || '').trim();
@@ -957,12 +987,9 @@
               <span class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-purple-500/20 text-purple-300 border border-purple-500/40">
                 🔁 ${esc(row.categoryName)} (${row.durationHours}H)
               </span>
-              ${row.checkedIn
-                ? `<span class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-sky-500/20 text-sky-300 border border-sky-500/40">✅ 已報到 ${TE.formatClockSec(row.checkInTimeMs)}</span>`
-                : '<span class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-slate-800 text-slate-400 border border-slate-700">⏳ 未報到</span>'}
             </div>
             <div class="text-xs text-slate-400 mt-1">
-              單圈 ${row.lapDistanceKm} km ${row.idMasked ? ` ｜ 身份證：<code class="text-sky-300 font-mono-num">${esc(row.idMasked)}</code>` : ''}
+              單圈 ${row.lapDistanceKm} km
             </div>
             ${renderOtherEventChips(row)}
           </div>
@@ -1128,9 +1155,7 @@
           <th class="py-2.5 pr-3">組名次</th>
           <th class="py-2.5 pr-3">編號</th>
           <th class="py-2.5 pr-3">姓名</th>
-          <th class="py-2.5 pr-3">身份證 (隱碼)</th>
           <th class="py-2.5 pr-3">限時組別</th>
-          <th class="py-2.5 pr-3">報到</th>
           <th class="py-2.5 pr-3">圈數</th>
           <th class="py-2.5 pr-3">總里程</th>
           <th class="py-2.5 pr-3">耗時</th>
@@ -1139,7 +1164,7 @@
         </tr>
       `;
       if (rows.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="12" class="py-8 text-center text-slate-500">尚無繞圈成績資料</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="10" class="py-8 text-center text-slate-500">尚無繞圈成績資料</td></tr>';
         return;
       }
       tbody.innerHTML = rows
@@ -1149,14 +1174,12 @@
             <td class="py-2.5 pr-3 font-mono-num font-bold text-sky-300">${row.categoryRank ?? '-'}</td>
             <td class="py-2.5 pr-3 font-mono-num font-bold text-white">${esc(row.bib)}</td>
             <td class="py-2.5 pr-3 font-bold text-white">${esc(row.name)}</td>
-            <td class="py-2.5 pr-3 font-mono-num text-slate-400">${esc(row.idMasked || '--')}</td>
             <td class="py-2.5 pr-3">
               <span class="inline-flex items-center gap-1.5 text-xs font-bold">
                 <span class="w-2 h-2 rounded-full" style="background:${esc(row.categoryColor)}"></span>
                 ${esc(row.categoryName)}
               </span>
             </td>
-            <td class="py-2.5 pr-3 font-mono-num text-xs">${row.checkedIn ? `<span class="text-sky-300 font-bold">✅ ${TE.formatClockSec(row.checkInTimeMs)}</span>` : '<span class="text-slate-500">未報到</span>'}</td>
             <td class="py-2.5 pr-3 font-mono-num font-black text-purple-300">${row.lapCount} 圈</td>
             <td class="py-2.5 pr-3 font-mono-num font-black text-emerald-400">${row.totalDistanceKm.toFixed(2)} km</td>
             <td class="py-2.5 pr-3 font-mono-num text-sky-300">${row.totalElapsedMs !== null ? TE.formatDuration(row.totalElapsedMs, false) : '--'}</td>
@@ -1499,7 +1522,7 @@
     yearSel.innerHTML = years.map((y) => `<option value="${esc(y)}">${esc(y)} 年度</option>`).join('');
     yearSel.value = state.w800Year;
 
-    // 2. 渲染「當年度八百壯士成績整合資訊」
+    // 2. 渲染「當年度八百壯士成績整合資訊」（僅顯示年度 KPI；場次與選手明細由「年度場次」數字點入鑽取查看）
     const yrCatalog = catalog800.filter((c) => c.year === state.w800Year);
     const yrEntries = all800Entries.filter((e) => e.year === state.w800Year);
     const yrFinishers = yrEntries.filter((e) => e.completed).length;
@@ -1510,76 +1533,159 @@
     $('pub-800-yr-finishers').textContent = String(yrFinishers);
     $('pub-800-yr-km').textContent = yrTotalKm.toFixed(1);
 
-    const statusBadgeMap = {
-      active: '<span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300">進行中</span>',
-      upcoming: '<span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-sky-500/20 text-sky-300">籌備中</span>',
-      finished: '<span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-300">已結束</span>',
-      imported: '<span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/15 text-amber-300">歷年匯入</span>'
-    };
-
-    $('pub-800-year-events-list').innerHTML = yrCatalog.map((ev) => {
-      const evRows = yrEntries.filter((e) => e.eventKey === ev.eventKey);
-      const evFin = evRows.filter((e) => e.completed).length;
-      const evKm = evRows.reduce((s, e) => s + Number(e.distanceKm || 0), 0);
-      return `
-        <div class="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-1">
-          <div class="flex items-center justify-between gap-2">
-            <span class="font-bold text-white text-sm truncate">⚔️ ${esc(ev.eventName)}</span>
-            ${statusBadgeMap[ev.status] || ''}
-          </div>
-          <div class="flex items-center justify-between text-xs font-mono-num text-slate-400">
-            <span>${esc(ev.eventDate || '--')}</span>
-            <span>參賽 ${evRows.length} ｜ 完賽 <strong class="text-emerald-400">${evFin}</strong> ｜ ${evKm.toFixed(1)} km</span>
-          </div>
-        </div>
-      `;
-    }).join('');
-
-    // 當年度個人整合排行榜（同一選手當年度多場八百壯士合併加總里程與場次）
-    const yrPeople = groupEntriesByPerson(yrEntries).map((p) => {
-      const recs = [...p.records].sort((a, b) => String(b.eventDate || '').localeCompare(String(a.eventDate || '')));
-      const totalKm = recs.reduce((s, r) => s + Number(r.distanceKm || 0), 0);
-      const completed = recs.filter((r) => r.completed).length;
-      const bestTimeMs = recs.reduce((best, r) => {
-        if (!r.completed || r.finishTimeMs === null) return best;
-        return best === null ? r.finishTimeMs : Math.min(best, r.finishTimeMs);
-      }, null);
-      return { ...p, records: recs, totalKm, completed, bestTimeMs };
-    }).sort((a, b) => {
-      if (b.totalKm !== a.totalKm) return b.totalKm - a.totalKm;
-      if (b.completed !== a.completed) return b.completed - a.completed;
-      if (a.bestTimeMs !== null && b.bestTimeMs !== null) return a.bestTimeMs - b.bestTimeMs;
-      return a.name.localeCompare(b.name, 'zh-Hant');
-    });
-
-    $('pub-800-yr-runners-count').textContent = `${yrPeople.length} 人`;
-    const yrTbody = $('pub-800-year-tbody');
-    if (!yrPeople.length) {
-      yrTbody.innerHTML = '<tr><td colspan="6" class="py-6 text-center text-slate-500">本年度尚無八百壯士成績紀錄</td></tr>';
-    } else {
-      yrTbody.innerHTML = yrPeople.map((p, idx) => {
-        const medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx + 1}`;
-        const racesInline = p.records.map((r) => {
-          const val = r.laps > 0
-            ? `${r.distanceKm.toFixed(1)}km/${r.laps}圈`
-            : (r.finishTimeText ? `${r.finishTimeText}${r.distanceKm > 0 ? ` (${r.distanceKm}K)` : ''}` : (r.distanceKm > 0 ? `${r.distanceKm}K` : r.statusText));
-          return `<span class="inline-block px-2 py-0.5 rounded bg-slate-950 border border-slate-800 text-[11px] mr-1 mb-1">${esc(r.eventName)} <strong class="text-sky-300">${esc(r.categoryName)}</strong> <strong class="text-emerald-400">${esc(val)}</strong></span>`;
-        }).join('');
-        return `
-          <tr class="hover:bg-slate-800/40 align-top">
-            <td class="py-2.5 px-3 font-mono-num font-black text-amber-400">${medal}</td>
-            <td class="py-2.5 px-2 font-bold text-white">${esc(p.name)}</td>
-            <td class="py-2.5 px-2 font-mono-num text-slate-400">${esc(p.idMasked || '--')}</td>
-            <td class="py-2.5 px-2 font-mono-num text-sky-300 font-bold">完賽 ${p.completed} / ${p.records.length} 場</td>
-            <td class="py-2.5 px-2 font-mono-num font-black text-emerald-400">${p.totalKm.toFixed(2)} km</td>
-            <td class="py-2.5 px-3 whitespace-normal min-w-[240px]">${racesInline}</td>
-          </tr>
-        `;
-      }).join('');
+    if (state.w800Modal.open) {
+      renderWarriors800EventsModal(all800Entries, catalog800);
     }
 
-    // 3. 渲染「⚔️ 八百壯士歷年英雄榜（跨年度總榜）」
+    // 3. 渲染「⚔️ 八百壯士歷年英雄榜（跨年度總榜，維持原狀）」
     await renderWarriors800HeroList(all800Entries);
+  }
+
+  function openWarriors800EventsModal() {
+    state.w800Modal.open = true;
+    state.w800Modal.step = 'events';
+    state.w800Modal.selectedEventKey = '';
+    state.w800Modal.runnerQuery = '';
+    if ($('modal-800-runner-search')) $('modal-800-runner-search').value = '';
+    $('modal-800-events')?.classList.remove('hidden');
+    renderWarriors800EventsModal();
+  }
+
+  function closeWarriors800EventsModal() {
+    state.w800Modal.open = false;
+    $('modal-800-events')?.classList.add('hidden');
+  }
+
+  function renderWarriors800EventsModal(preloadedEntries = null, preloadedCatalog = null) {
+    const modal = $('modal-800-events');
+    if (!modal || !state.w800Modal.open) return;
+
+    const all800Entries = preloadedEntries || buildUnifiedEntries({ includeLive: true, includeFinished: true, includeImported: true, only800: true });
+    const catalog800 = preloadedCatalog || get800EventsCatalog();
+    const yrCatalog = catalog800.filter((c) => c.year === state.w800Year);
+    const yrEntries = all800Entries.filter((e) => e.year === state.w800Year);
+
+    const statusBadgeMap = {
+      active: '<span class="px-2 py-0.5 rounded text-xs font-bold bg-emerald-500/20 text-emerald-300">進行中</span>',
+      upcoming: '<span class="px-2 py-0.5 rounded text-xs font-bold bg-sky-500/20 text-sky-300">籌備中</span>',
+      finished: '<span class="px-2 py-0.5 rounded text-xs font-bold bg-slate-800 text-slate-300">已結束</span>',
+      imported: '<span class="px-2 py-0.5 rounded text-xs font-bold bg-amber-500/15 text-amber-300">歷年匯入</span>'
+    };
+
+    const stepEventsEl = $('modal-800-step-events');
+    const stepRunnersEl = $('modal-800-step-runners');
+    const backBtn = $('btn-modal-800-back');
+
+    if (state.w800Modal.step === 'runners' && state.w800Modal.selectedEventKey) {
+      const targetEv = yrCatalog.find((c) => c.eventKey === state.w800Modal.selectedEventKey);
+      if (!targetEv) {
+        state.w800Modal.step = 'events';
+        state.w800Modal.selectedEventKey = '';
+      } else {
+        const evRowsAll = yrEntries
+          .filter((e) => e.eventKey === targetEv.eventKey)
+          .sort((a, b) => {
+            const ra = a.overallRank ? Number(a.overallRank) : 999999;
+            const rb = b.overallRank ? Number(b.overallRank) : 999999;
+            if (ra !== rb) return ra - rb;
+            if (a.completed !== b.completed) return a.completed ? -1 : 1;
+            if (Number(b.distanceKm || 0) !== Number(a.distanceKm || 0)) return Number(b.distanceKm || 0) - Number(a.distanceKm || 0);
+            if (a.finishTimeMs !== null && b.finishTimeMs !== null && a.finishTimeMs !== b.finishTimeMs) return a.finishTimeMs - b.finishTimeMs;
+            return String(a.bib || '').localeCompare(String(b.bib || ''), 'zh-Hant', { numeric: true });
+          });
+
+        const evFin = evRowsAll.filter((r) => r.completed).length;
+        const evKm = evRowsAll.reduce((s, r) => s + Number(r.distanceKm || 0), 0);
+
+        $('modal-800-title').textContent = `⚔️ ${targetEv.eventName}`;
+        $('modal-800-subtitle').textContent = `${targetEv.eventDate || '--'} ｜ 參賽 ${evRowsAll.length} 人 ｜ 完賽 ${evFin} 人 ｜ 總里程 ${evKm.toFixed(1)} km`;
+        backBtn?.classList.remove('hidden');
+        stepEventsEl?.classList.add('hidden');
+        stepRunnersEl?.classList.remove('hidden');
+
+        const q = String(state.w800Modal.runnerQuery || '').trim().toLowerCase();
+        const filteredRows = q
+          ? evRowsAll.filter((r) =>
+              String(r.name || '').toLowerCase().includes(q)
+              || String(r.bib || '').toLowerCase().includes(q)
+              || String(r.categoryName || '').toLowerCase().includes(q)
+            )
+          : evRowsAll;
+
+        if ($('modal-800-runner-count')) {
+          $('modal-800-runner-count').textContent = q
+            ? `符合 ${filteredRows.length} / ${evRowsAll.length} 人`
+            : `共 ${evRowsAll.length} 人`;
+        }
+
+        const tbody = $('modal-800-runners-tbody');
+        if (!filteredRows.length) {
+          tbody.innerHTML = '<tr><td colspan="7" class="py-8 text-center text-slate-500">查無符合條件的選手成績明細</td></tr>';
+        } else {
+          tbody.innerHTML = filteredRows
+            .map((r, idx) => {
+              const rankNum = r.overallRank || (r.completed ? idx + 1 : null);
+              const rankDisp = rankNum === 1 ? '🥇' : rankNum === 2 ? '🥈' : rankNum === 3 ? '🥉' : (rankNum ? `#${rankNum}` : '-');
+              const scoreText = r.laps > 0
+                ? `${r.laps} 圈${r.finishTimeText ? ` (${r.finishTimeText})` : ''}`
+                : (r.finishTimeText || '--');
+              const kmText = Number(r.distanceKm || 0) > 0 ? `${Number(r.distanceKm).toFixed(2)} km` : '--';
+              const statusCls = r.completed ? 'text-emerald-400 font-bold' : 'text-slate-400';
+              return `
+                <tr class="hover:bg-slate-800/45">
+                  <td class="py-2.5 px-3 font-mono-num font-black text-amber-400">${rankDisp}</td>
+                  <td class="py-2.5 px-2 font-mono-num font-bold text-slate-200">${esc(r.bib || '--')}</td>
+                  <td class="py-2.5 px-2 font-bold text-white">${esc(r.name)}</td>
+                  <td class="py-2.5 px-2 text-sky-300 font-bold">${esc(r.categoryName || '--')}</td>
+                  <td class="py-2.5 px-2 font-mono-num font-black text-emerald-400">${esc(kmText)}</td>
+                  <td class="py-2.5 px-2 font-mono-num text-slate-200">${esc(scoreText)}</td>
+                  <td class="py-2.5 px-3 ${statusCls}">${esc(r.statusText || (r.completed ? '完賽' : '未完賽'))}</td>
+                </tr>
+              `;
+            })
+            .join('');
+        }
+        return;
+      }
+    }
+
+    // 第一層：列出當年度各場次清單（點任一場次進入第二層）
+    $('modal-800-title').textContent = `⚔️ ${state.w800Year} 年度八百壯士場次明細`;
+    $('modal-800-subtitle').textContent = `共 ${yrCatalog.length} 場 ｜ 點選任一場次查看所有選手明細成績`;
+    backBtn?.classList.add('hidden');
+    stepEventsEl?.classList.remove('hidden');
+    stepRunnersEl?.classList.add('hidden');
+
+    if (!yrCatalog.length) {
+      stepEventsEl.innerHTML = '<div class="py-8 text-center text-slate-400">本年度尚無八百壯士場次資料</div>';
+      return;
+    }
+
+    stepEventsEl.innerHTML = yrCatalog
+      .map((ev, idx) => {
+        const evRows = yrEntries.filter((e) => e.eventKey === ev.eventKey);
+        const evFin = evRows.filter((e) => e.completed).length;
+        const evKm = evRows.reduce((s, e) => s + Number(e.distanceKm || 0), 0);
+        return `
+          <button type="button" data-w800-event-key="${esc(ev.eventKey)}"
+            class="w-full text-left p-4 rounded-2xl bg-slate-950 border border-slate-800 hover:border-amber-400/70 hover:bg-slate-900 transition space-y-2 group">
+            <div class="flex items-center justify-between gap-2">
+              <span class="font-black text-white text-sm sm:text-base group-hover:text-amber-300 transition">
+                ${idx + 1}. ⚔️ ${esc(ev.eventName)}
+              </span>
+              <div class="flex items-center gap-2 shrink-0">
+                ${statusBadgeMap[ev.status] || ''}
+                <span class="text-xs font-black text-sky-400 group-hover:translate-x-0.5 transition">選手明細 →</span>
+              </div>
+            </div>
+            <div class="flex flex-wrap items-center justify-between gap-2 text-xs font-mono-num text-slate-400">
+              <span>📅 ${esc(ev.eventDate || '--')}</span>
+              <span>參賽 <strong class="text-sky-300">${evRows.length}</strong> 人 ｜ 完賽 <strong class="text-emerald-400">${evFin}</strong> 人 ｜ 總里程 <strong class="text-amber-300">${evKm.toFixed(1)}</strong> km</span>
+            </div>
+          </button>
+        `;
+      })
+      .join('');
   }
 
   async function renderWarriors800HeroList(preloadedEntries = null) {
@@ -2026,10 +2132,49 @@
       if (!e.target.value.trim()) runHistorySearch('');
     });
 
+    // 全系統字體循環切換按鈕（與首頁共享設定）
+    $('btn-pub-font-cycle')?.addEventListener('click', () => {
+      const cur = getSavedFontScale();
+      const idx = FONT_SCALE_OPTIONS.indexOf(cur);
+      const next = FONT_SCALE_OPTIONS[(idx + 1) % FONT_SCALE_OPTIONS.length];
+      applyPublicFontScale(next, true);
+    });
+
     // 八百壯士系統事件
     $('pub-800-year-select').addEventListener('change', (e) => {
       state.w800Year = e.target.value;
+      state.w800Modal.step = 'events';
+      state.w800Modal.selectedEventKey = '';
       renderWarriors800Tab();
+    });
+
+    $('btn-pub-800-open-events')?.addEventListener('click', openWarriors800EventsModal);
+    $('btn-close-modal-800')?.addEventListener('click', closeWarriors800EventsModal);
+    $('modal-800-events')?.addEventListener('click', (e) => {
+      if (e.target === $('modal-800-events')) closeWarriors800EventsModal();
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && state.w800Modal.open) closeWarriors800EventsModal();
+    });
+    $('btn-modal-800-back')?.addEventListener('click', () => {
+      state.w800Modal.step = 'events';
+      state.w800Modal.selectedEventKey = '';
+      state.w800Modal.runnerQuery = '';
+      if ($('modal-800-runner-search')) $('modal-800-runner-search').value = '';
+      renderWarriors800EventsModal();
+    });
+    $('modal-800-step-events')?.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-w800-event-key]');
+      if (!btn) return;
+      state.w800Modal.step = 'runners';
+      state.w800Modal.selectedEventKey = btn.dataset.w800EventKey || '';
+      state.w800Modal.runnerQuery = '';
+      if ($('modal-800-runner-search')) $('modal-800-runner-search').value = '';
+      renderWarriors800EventsModal();
+    });
+    $('modal-800-runner-search')?.addEventListener('input', (e) => {
+      state.w800Modal.runnerQuery = e.target.value;
+      renderWarriors800EventsModal();
     });
 
     $('form-pub-800-hero').addEventListener('submit', (e) => {

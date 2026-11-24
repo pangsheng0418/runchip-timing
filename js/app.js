@@ -182,9 +182,69 @@
   }
 
   /* ========================================================================
+   * 全系統字體大小控制與密碼防暫存保護
+   * ======================================================================== */
+  const FONT_SCALE_KEY = 'tur_font_scale_v1';
+  const FONT_SCALE_OPTIONS = ['sm', 'md', 'lg', 'xl'];
+
+  function getSavedFontScale() {
+    try {
+      const saved = localStorage.getItem(FONT_SCALE_KEY) || 'md';
+      return FONT_SCALE_OPTIONS.includes(saved) ? saved : 'md';
+    } catch {
+      return 'md';
+    }
+  }
+
+  function applyFontScale(scale, { save = true, toast = false } = {}) {
+    const valid = FONT_SCALE_OPTIONS.includes(scale) ? scale : 'md';
+    document.documentElement.setAttribute('data-font-scale', valid);
+    if (save) {
+      try { localStorage.setItem(FONT_SCALE_KEY, valid); } catch {}
+    }
+    document.querySelectorAll('.font-scale-btn').forEach((btn) => {
+      const active = btn.dataset.fontScale === valid;
+      btn.className = active
+        ? 'font-scale-btn px-2.5 sm:px-3 py-1 rounded-lg text-xs font-black transition bg-sky-500 text-slate-950 shadow'
+        : 'font-scale-btn px-2.5 sm:px-3 py-1 rounded-lg text-xs font-black transition text-slate-300 hover:bg-slate-800';
+      btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+    if (toast) {
+      const labels = { sm: '小 (100%)', md: '標準 (112%)', lg: '大 (125%)', xl: '特大 (138%)' };
+      showToast(`🔤 已切換系統字體為「${labels[valid]}」`, 'info');
+    }
+  }
+
+  function initNoCachePasswordInputs() {
+    const supportsTextSecurity =
+      typeof CSS !== 'undefined' &&
+      typeof CSS.supports === 'function' &&
+      (CSS.supports('-webkit-text-security', 'disc') || CSS.supports('text-security', 'disc'));
+    document.querySelectorAll('.tur-secret-input').forEach((el) => {
+      if (!supportsTextSecurity) {
+        el.type = 'password';
+        el.setAttribute('autocomplete', 'new-password');
+      } else {
+        el.type = 'text';
+        el.setAttribute('autocomplete', 'off');
+      }
+      el.value = '';
+    });
+  }
+
+  function clearLoginInputs() {
+    ['staff-login-user', 'staff-login-pass', 'admin-login-user', 'admin-login-pass'].forEach((id) => {
+      const el = $(id);
+      if (el) el.value = '';
+    });
+  }
+
+  /* ========================================================================
    * 初始化與資料重新載入
    * ======================================================================== */
   async function initApp() {
+    applyFontScale(getSavedFontScale(), { save: false });
+    initNoCachePasswordInputs();
     registerServiceWorker();
     await DB.init();
 
@@ -369,8 +429,16 @@
     renderHeader();
     renderEventDropdowns();
     updateNetworkIndicators();
-    if (viewName === 'staff-login') renderStaffLoginGroups();
-    if (viewName === 'admin-login') renderAdminLoginView();
+    if (viewName === 'staff-login') {
+      state.staffLoginSelectedGroup = '';
+      clearLoginInputs();
+      renderStaffLoginGroups();
+    }
+    if (viewName === 'admin-login') {
+      state.adminLoginSelectedUser = '';
+      clearLoginInputs();
+      renderAdminLoginView();
+    }
     if (viewName === 'staff-workspace') renderStaffWorkspace();
     if (viewName === 'admin-workspace') {
       renderAdminWorkspace();
@@ -1177,6 +1245,7 @@
       lockedEventId,
       loginAt: Date.now()
     };
+    clearLoginInputs();
     DB.saveSession(state.session);
     await reloadState();
 
@@ -1215,8 +1284,8 @@
     state.session = null;
     state.adminZone = null;
     state.adminLoginSelectedUser = '';
-    if ($('admin-login-user')) $('admin-login-user').value = '';
-    if ($('admin-login-pass')) $('admin-login-pass').value = '';
+    state.staffLoginSelectedGroup = '';
+    clearLoginInputs();
     DB.saveSession(null);
     showToast('已登出並返回作業區大廳', 'info');
     switchView('portal');
@@ -1342,40 +1411,30 @@
       col3Label.textContent = isCheckIn ? '報到進度' : isLap ? '圈數 / 里程' : '經過時間';
     }
 
-    // 模擬器列出所有「共用晶片」（並標示該晶片是否已報名本活動／是否已報到，方便測試比對與攔截！）
-    const evtRegById = new Map(
-      evtRegs.map((r) => [String(r.idNumber || '').toUpperCase(), r])
-    );
+    // 模擬器僅直接載入「本場活動」已報名人員，不載入其他未參加本場活動之人員
     const mockSel = $('mock-chip-select');
     const prevVal = mockSel.value;
 
-    // 合併共用晶片主檔 + 進行中／籌備中活動已報名人員（排除已結束活動名單）
-    const openEventIdSet = new Set(getOpenEvents().map((e) => e.eventId));
-    const chipPoolMap = new Map();
-    state.chips.forEach((c) => chipPoolMap.set(c.idNumber, { name: c.name, idNumber: c.idNumber, nfcUid: c.nfcUid }));
-    state.allRegistrations.forEach((r) => {
-      if (!openEventIdSet.has(r.eventId)) return;
-      if (r.idNumber && !chipPoolMap.has(r.idNumber)) {
-        chipPoolMap.set(r.idNumber, { name: r.name, idNumber: r.idNumber, nfcUid: '' });
-      }
-    });
+    const sortedEvtRegs = [...evtRegs].sort((a, b) =>
+      String(a.bib || '').localeCompare(String(b.bib || ''), 'zh-Hant', { numeric: true })
+    );
+    const validKeySet = new Set();
 
-    const pool = Array.from(chipPoolMap.values());
     mockSel.innerHTML =
-      '<option value="">-- 隨機刷過一張晶片 --</option>' +
-      pool
-        .map((c) => {
-          const reg = evtRegById.get(c.idNumber);
-          let tag = '⚠️未報本場';
-          if (reg) {
-            tag = isCheckIn
-              ? (checkedInBibSet.has(reg.bib) ? '✅已報到' : '⏳未報到')
-              : '✅已報本場';
-          }
-          return `<option value="${esc(c.idNumber)}">${esc(c.name)} (${esc(c.idNumber)}) ${tag}</option>`;
+      `<option value="">${sortedEvtRegs.length ? `-- 隨機刷過本場選手（共 ${sortedEvtRegs.length} 人） --` : '-- 本活動尚無報名選手 --'}</option>` +
+      sortedEvtRegs
+        .map((reg) => {
+          const idUpper = String(reg.idNumber || '').trim().toUpperCase();
+          const optKey = idUpper || `BIB:${reg.bib}`;
+          validKeySet.add(optKey);
+          const tag = isCheckIn
+            ? (checkedInBibSet.has(reg.bib) ? '✅已報到' : '⏳未報到')
+            : '✅本場選手';
+          const idHint = reg.idNumber ? ` (${reg.idNumber})` : '';
+          return `<option value="${esc(optKey)}">${esc(reg.bib ? `#${reg.bib} ` : '')}${esc(reg.name)}${esc(idHint)} ${tag}</option>`;
         })
         .join('');
-    if (prevVal && chipPoolMap.has(prevVal)) mockSel.value = prevVal;
+    if (prevVal && validKeySet.has(prevVal)) mockSel.value = prevVal;
 
     renderRecentCheckpointScans(evt?.eventId || '', lockedCp?.id || '');
   }
@@ -3783,6 +3842,13 @@
       }
     });
 
+    // 首頁字體大小即時切換按鈕
+    document.querySelectorAll('.font-scale-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        applyFontScale(btn.dataset.fontScale, { save: true, toast: true });
+      });
+    });
+
     // 大廳導覽、手動同步與快速綁定雲端網址
     $('btn-portal-staff').addEventListener('click', () => switchView('staff-login'));
     $('btn-portal-admin').addEventListener('click', () => switchView('admin-login'));
@@ -3826,19 +3892,22 @@
       $('staff-login-pass').focus();
     });
 
-    $('btn-staff-fill-test-pass').addEventListener('click', () => {
-      if (!$('staff-login-user').value.trim()) {
-        const firstBtn = $('staff-login-group-grid')?.querySelector('[data-pick-staff-group]');
-        if (firstBtn) {
-          const u = firstBtn.dataset.pickStaffGroup;
-          state.staffLoginSelectedGroup = u;
-          $('staff-login-user').value = u;
-          renderStaffLoginGroups();
+    const fillTestPassBtn = $('btn-staff-fill-test-pass');
+    if (fillTestPassBtn) {
+      fillTestPassBtn.addEventListener('click', () => {
+        if (!$('staff-login-user').value.trim()) {
+          const firstBtn = $('staff-login-group-grid')?.querySelector('[data-pick-staff-group]');
+          if (firstBtn) {
+            const u = firstBtn.dataset.pickStaffGroup;
+            state.staffLoginSelectedGroup = u;
+            $('staff-login-user').value = u;
+            renderStaffLoginGroups();
+          }
         }
-      }
-      $('staff-login-pass').value = '1111';
-      $('staff-login-pass').focus();
-    });
+        $('staff-login-pass').value = '1111';
+        $('staff-login-pass').focus();
+      });
+    }
 
     $('form-staff-login').addEventListener('submit', (e) => {
       e.preventDefault();
@@ -3943,34 +4012,39 @@
     });
 
     $('btn-mock-scan').addEventListener('click', async () => {
-      if (state.allRegistrations.length === 0) {
-        await DB.loadDemoData();
-        if (state.session?.mode === 'staff') {
-          state.session.lockedEventId = 'EVT-2026-800-EAST';
-          DB.saveSession(state.session);
+      const evt = getActiveEvent();
+      const evtRegs = evt ? state.allRegistrations.filter((r) => r.eventId === evt.eventId) : [];
+      if (!evtRegs.length) {
+        return showToast('本場活動尚無報名選手，請先於後台匯入名單或點右側「載入模擬資料」', 'warn');
+      }
+
+      const chosenKey = $('mock-chip-select').value;
+      let reg = null;
+      if (chosenKey) {
+        if (chosenKey.startsWith('BIB:')) {
+          const targetBib = chosenKey.slice(4);
+          reg = evtRegs.find((r) => String(r.bib || '') === targetBib) || null;
+        } else {
+          reg = evtRegs.find((r) => String(r.idNumber || '').trim().toUpperCase() === chosenKey) || null;
         }
-        await reloadState();
       }
-      const chosenId = $('mock-chip-select').value;
-      let chip = chosenId ? state.chips.find((c) => c.idNumber === chosenId) : null;
-      if (!chip && chosenId) {
-        const r = state.allRegistrations.find((x) => x.idNumber === chosenId);
-        if (r) chip = { name: r.name, idNumber: r.idNumber, nfcUid: '' };
+      if (!reg) {
+        reg = evtRegs[Math.floor(Math.random() * evtRegs.length)];
       }
-      if (!chip) {
-        const evt = getActiveEvent();
-        const evtRegs = state.allRegistrations.filter((r) => evt && r.eventId === evt.eventId);
-        const pick = evtRegs[Math.floor(Math.random() * evtRegs.length)] || state.chips[0];
-        if (!pick) return showToast('請先匯入本活動選手名單或載入模擬資料', 'warn');
-        chip = { name: pick.name, idNumber: pick.idNumber, nfcUid: pick.nfcUid || '' };
-      }
-      // 模擬晶片內只有「姓名＋身份證字號」（不含 bib 或組別），完整測試真實比對邏輯！
+      if (!reg) return showToast('本場活動尚無報名選手可供模擬感應', 'warn');
+
+      const matchedChip = reg.idNumber
+        ? state.chips.find((c) => String(c.idNumber || '').trim().toUpperCase() === String(reg.idNumber || '').trim().toUpperCase())
+        : null;
+
+      // 模擬晶片僅使用本場活動選手資料進行感應比對
       await processIncomingScan({
-        name: chip.name,
-        idNumber: chip.idNumber,
-        nfcUid: chip.nfcUid || '',
+        name: reg.name,
+        idNumber: reg.idNumber || '',
+        bib: reg.idNumber ? '' : (reg.bib || ''),
+        nfcUid: matchedChip?.nfcUid || '',
         source: 'mock',
-        note: '模擬共用晶片刷過'
+        note: '模擬本場選手晶片刷過'
       });
     });
 

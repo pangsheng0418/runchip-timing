@@ -8,7 +8,18 @@
   <link rel="icon" type="image/png" href="./tur-icon.png" />
   <link rel="apple-touch-icon" href="./tur-icon.png" />
   <script src="https://cdn.tailwindcss.com"></script>
-  <link rel="stylesheet" href="./css/style.css?v=3.12.12" />
+  <script>
+    (function () {
+      try {
+        var s = localStorage.getItem('tur_font_scale_v1') || 'md';
+        if (['sm', 'md', 'lg', 'xl'].indexOf(s) === -1) s = 'md';
+        document.documentElement.setAttribute('data-font-scale', s);
+      } catch (e) {
+        document.documentElement.setAttribute('data-font-scale', 'md');
+      }
+    })();
+  </script>
+  <link rel="stylesheet" href="./css/style.css?v=3.12.13" />
 </head>
 <body class="min-h-screen bg-slate-950 text-slate-100 pb-12">
 
@@ -34,6 +45,10 @@
 
         <div class="flex items-center gap-2 flex-wrap">
           <span id="pub-last-updated" class="text-xs text-slate-400 font-mono-num">--</span>
+          <button id="btn-pub-font-cycle" type="button" title="切換全系統字體大小"
+            class="px-2.5 py-1.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 border border-slate-700 text-sky-300 transition">
+            🔤 字體：標準
+          </button>
           <button id="btn-pub-refresh" type="button"
             class="px-3 py-1.5 rounded-xl text-xs font-bold bg-sky-600 hover:bg-sky-500 text-white transition">
             🔄 更新
@@ -235,12 +250,16 @@
             </select>
           </div>
 
-          <!-- 年度整合 KPI -->
+          <!-- 年度整合 KPI（年度場次數字可點入查看場次明細與各場次選手明細成績） -->
           <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <div class="bg-slate-950 border border-slate-800 rounded-2xl p-3.5">
-              <div class="text-xs font-bold text-slate-400">年度場次</div>
-              <div id="pub-800-yr-events" class="text-2xl sm:text-3xl font-black text-white font-mono-num mt-0.5">0</div>
-            </div>
+            <button id="btn-pub-800-open-events" type="button"
+              class="text-left bg-slate-950 border border-sky-500/50 hover:border-sky-400 hover:bg-sky-950/35 rounded-2xl p-3.5 transition group focus:outline-none focus:ring-2 focus:ring-sky-400 cursor-pointer">
+              <div class="flex items-center justify-between gap-1 text-xs font-bold text-sky-300">
+                <span>年度場次</span>
+                <span class="text-[11px] font-bold text-sky-400 group-hover:translate-x-0.5 transition">場次明細 ▸</span>
+              </div>
+              <div id="pub-800-yr-events" class="text-2xl sm:text-3xl font-black text-sky-300 underline decoration-sky-400/75 underline-offset-4 group-hover:text-white font-mono-num mt-0.5">0</div>
+            </button>
             <div class="bg-slate-950 border border-sky-500/30 rounded-2xl p-3.5">
               <div class="text-xs font-bold text-sky-400">參賽人次</div>
               <div id="pub-800-yr-entries" class="text-2xl sm:text-3xl font-black text-sky-400 font-mono-num mt-0.5">0</div>
@@ -252,32 +271,6 @@
             <div class="bg-slate-950 border border-amber-500/30 rounded-2xl p-3.5">
               <div class="text-xs font-bold text-amber-400">年度總里程 (km)</div>
               <div id="pub-800-yr-km" class="text-2xl sm:text-3xl font-black text-amber-400 font-mono-num mt-0.5">0</div>
-            </div>
-          </div>
-
-          <!-- 當年度各場次摘要 -->
-          <div id="pub-800-year-events-list" class="grid grid-cols-1 md:grid-cols-2 gap-2.5"></div>
-
-          <!-- 當年度個人整合排行榜 -->
-          <div class="space-y-2 pt-1">
-            <div class="flex items-center justify-between">
-              <h3 class="text-sm font-extrabold text-white">🏅 當年度個人整合排名</h3>
-              <span id="pub-800-yr-runners-count" class="text-xs font-mono-num text-slate-400">0 人</span>
-            </div>
-            <div class="overflow-x-auto border border-slate-800 rounded-2xl">
-              <table class="w-full text-xs sm:text-sm text-left whitespace-nowrap">
-                <thead class="bg-slate-950 text-xs text-slate-400 border-b border-slate-800">
-                  <tr>
-                    <th class="py-2.5 px-3">名次</th>
-                    <th class="py-2.5 px-2">姓名</th>
-                    <th class="py-2.5 px-2">身份證 (隱碼)</th>
-                    <th class="py-2.5 px-2">年度場次</th>
-                    <th class="py-2.5 px-2">年度總里程</th>
-                    <th class="py-2.5 px-3">當年度參與場次與成績</th>
-                  </tr>
-                </thead>
-                <tbody id="pub-800-year-tbody" class="divide-y divide-slate-800/70"></tbody>
-              </table>
             </div>
           </div>
         </section>
@@ -517,11 +510,61 @@
     </footer>
   </main>
 
-  <script src="./js/config.js?v=3.12.12"></script>
-  <script src="./js/timing-engine.js?v=3.12.12"></script>
-  <script src="./js/db.js?v=3.12.12"></script>
-  <script src="./js/sync.js?v=3.12.12"></script>
-  <script src="./js/certificate.js?v=3.12.12"></script>
-  <script src="./js/public-app.js?v=3.12.12"></script>
+  <!-- Modal：八百壯士年度場次明細 → 該場次所有選手明細成績 -->
+  <div id="modal-800-events" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
+    <div class="bg-slate-900 border border-amber-500/45 rounded-3xl max-w-4xl w-full max-h-[88vh] flex flex-col shadow-2xl overflow-hidden">
+      <div class="flex items-center justify-between gap-2 px-4 sm:px-5 py-3.5 border-b border-slate-800 bg-slate-950/70 shrink-0">
+        <div class="flex items-center gap-2 min-w-0">
+          <button id="btn-modal-800-back" type="button"
+            class="hidden px-2.5 py-1 rounded-xl text-xs font-black bg-slate-800 hover:bg-slate-700 border border-slate-700 text-sky-300 shrink-0 transition">
+            ← 返回場次
+          </button>
+          <div class="min-w-0">
+            <h3 id="modal-800-title" class="text-sm sm:text-base font-black text-amber-300 truncate">⚔️ 年度場次明細</h3>
+            <div id="modal-800-subtitle" class="text-xs text-slate-400 font-mono-num truncate">--</div>
+          </div>
+        </div>
+        <button id="btn-close-modal-800" type="button" aria-label="關閉視窗"
+          class="w-9 h-9 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-black text-base shrink-0 transition">
+          ✕
+        </button>
+      </div>
+
+      <!-- 第一層：當年度所有場次清單 -->
+      <div id="modal-800-step-events" class="p-4 sm:p-5 overflow-y-auto space-y-2.5 flex-1"></div>
+
+      <!-- 第二層：單一場次所有選手明細成績 -->
+      <div id="modal-800-step-runners" class="hidden p-4 sm:p-5 overflow-y-auto space-y-3 flex-1">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <input id="modal-800-runner-search" type="search" placeholder="🔍 篩選本場選手姓名、編號或組別"
+            class="flex-1 min-w-[200px] bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-sm font-bold text-white focus:border-amber-400 focus:outline-none" />
+          <span id="modal-800-runner-count" class="text-xs font-mono-num font-bold text-slate-300 px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800">0 人</span>
+        </div>
+        <div class="overflow-x-auto border border-slate-800 rounded-2xl">
+          <table class="w-full text-xs sm:text-sm text-left whitespace-nowrap">
+            <thead class="bg-slate-950 text-xs text-slate-400 border-b border-slate-800">
+              <tr>
+                <th class="py-2.5 px-3">名次</th>
+                <th class="py-2.5 px-2">編號</th>
+                <th class="py-2.5 px-2">姓名</th>
+                <th class="py-2.5 px-2">組別</th>
+                <th class="py-2.5 px-2">里程</th>
+                <th class="py-2.5 px-2">成績 / 圈數</th>
+                <th class="py-2.5 px-3">狀態</th>
+              </tr>
+            </thead>
+            <tbody id="modal-800-runners-tbody" class="divide-y divide-slate-800/70"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="./js/config.js?v=3.12.13"></script>
+  <script src="./js/timing-engine.js?v=3.12.13"></script>
+  <script src="./js/db.js?v=3.12.13"></script>
+  <script src="./js/sync.js?v=3.12.13"></script>
+  <script src="./js/certificate.js?v=3.12.13"></script>
+  <script src="./js/public-app.js?v=3.12.13"></script>
 </body>
 </html>

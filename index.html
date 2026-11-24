@@ -10,13 +10,24 @@
   <link rel="apple-touch-icon" href="./tur-icon.png" />
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
-  <link rel="stylesheet" href="./css/style.css?v=3.12.12" />
+  <script>
+    (function () {
+      try {
+        var s = localStorage.getItem('tur_font_scale_v1') || 'md';
+        if (['sm', 'md', 'lg', 'xl'].indexOf(s) === -1) s = 'md';
+        document.documentElement.setAttribute('data-font-scale', s);
+      } catch (e) {
+        document.documentElement.setAttribute('data-font-scale', 'md');
+      }
+    })();
+  </script>
+  <link rel="stylesheet" href="./css/style.css?v=3.12.13" />
 </head>
-<body class="min-h-screen tur-stage-bg text-slate-100 pb-10">
+<body class="min-h-screen tur-stage-bg text-slate-100 pb-8">
 
   <!-- 頂部狀態列 -->
   <header class="tur-header-bar">
-    <div class="max-w-7xl mx-auto px-3 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-2">
+    <div class="max-w-7xl mx-auto px-3 sm:px-6 py-2.5 flex flex-wrap items-center justify-between gap-2">
       <div class="flex items-center gap-3 min-w-0 cursor-pointer" id="header-brand-home" title="返回大廳">
         <div class="bg-white px-2.5 py-1 rounded-xl shadow-md ring-1 ring-lime-400/35 shrink-0 flex items-center">
           <img src="./tur-logo.jpg" alt="TUR Taiwan Ultra Runners" class="h-7 sm:h-8 w-auto object-contain" />
@@ -58,38 +69,40 @@
   <!-- 全域 Toast -->
   <div id="toast-container" class="fixed top-20 right-4 z-50 flex flex-col gap-2 max-w-sm w-[calc(100vw-2rem)] pointer-events-none"></div>
 
-  <main class="max-w-7xl mx-auto px-3 sm:px-6 py-6 sm:py-10 space-y-6">
+  <main class="max-w-7xl mx-auto px-3 sm:px-6 py-3 sm:py-6 space-y-4 sm:space-y-6">
 
     <!-- ================================================================== -->
-    <!-- VIEW 1：大廳入口（專業運動科技極簡風格） -->
+    <!-- VIEW 1：大廳入口（專業運動科技極簡風格，手機一屏完整呈現） -->
     <!-- ================================================================== -->
-    <section id="view-portal" class="app-view space-y-7 sm:space-y-9 py-4 sm:py-8">
+    <section id="view-portal" class="app-view space-y-3.5 sm:space-y-6 py-1 sm:py-4">
       <div class="text-center">
-        <div id="portal-net-banner" class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-bold bg-emerald-950/70 border border-emerald-500/40 text-emerald-300 shadow-lg">
+        <div id="portal-net-banner" class="inline-flex items-center gap-2 px-3.5 py-1 rounded-full text-xs font-bold bg-emerald-950/70 border border-emerald-500/40 text-emerald-300 shadow-lg">
           🟢 就緒
         </div>
       </div>
 
       <!-- 活動選取控制列 -->
-      <div class="max-w-4xl mx-auto tur-control-bar rounded-2xl p-4 sm:p-4.5 space-y-2.5">
-        <div class="flex flex-col sm:flex-row sm:items-center gap-3">
-          <label for="portal-event-select" class="inline-flex items-center gap-2 text-sm font-black tracking-wide text-sky-300 shrink-0">
+      <div class="max-w-4xl mx-auto tur-control-bar rounded-2xl p-3 sm:p-4 space-y-2">
+        <div class="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
+          <label for="portal-event-select" class="inline-flex items-center gap-1.5 text-xs sm:text-sm font-black tracking-wide text-sky-300 shrink-0">
             <span class="w-2 h-2 rounded-full bg-lime-400 shadow-[0_0_8px_#a3e635]"></span>
             <span>目前活動</span>
           </label>
-          <select id="portal-event-select"
-            style="background-color:#070d1b; color:#f8fafc;"
-            class="flex-1 bg-slate-950 border border-slate-700/90 hover:border-sky-500/60 rounded-xl px-4 py-3 text-sm sm:text-base font-bold text-white focus:border-sky-400 focus:outline-none transition">
-          </select>
-          <span id="portal-event-select-empty" class="hidden flex-1 text-sm font-bold text-slate-400 px-4 py-3 rounded-xl bg-slate-950/70 border border-slate-800">
-            🔒 目前無開放活動
-          </span>
-          <button id="btn-portal-sync-now" type="button"
-            class="px-5 py-3 rounded-xl text-xs sm:text-sm font-black bg-gradient-to-r from-sky-500 to-cyan-400 hover:from-sky-400 hover:to-cyan-300 text-slate-950 shrink-0 transition shadow-lg shadow-sky-950/60">
-            🔄 同步
-          </button>
+          <div class="flex items-center gap-2 flex-1 min-w-0">
+            <select id="portal-event-select"
+              style="background-color:#070d1b; color:#f8fafc;"
+              class="flex-1 min-w-0 bg-slate-950 border border-slate-700/90 hover:border-sky-500/60 rounded-xl px-3 py-2 sm:py-2.5 text-sm font-bold text-white focus:border-sky-400 focus:outline-none transition">
+            </select>
+            <span id="portal-event-select-empty" class="hidden flex-1 min-w-0 text-sm font-bold text-slate-400 px-3 py-2 rounded-xl bg-slate-950/70 border border-slate-800 truncate">
+              🔒 目前無開放活動
+            </span>
+            <button id="btn-portal-sync-now" type="button"
+              class="px-3.5 sm:px-5 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-black bg-gradient-to-r from-sky-500 to-cyan-400 hover:from-sky-400 hover:to-cyan-300 text-slate-950 shrink-0 transition shadow-lg shadow-sky-950/60">
+              🔄 同步
+            </button>
+          </div>
         </div>
-        <div id="portal-cloud-tip" class="hidden text-xs text-amber-300 flex flex-wrap items-center justify-between gap-2 pt-2.5 border-t border-slate-800/80">
+        <div id="portal-cloud-tip" class="hidden text-xs text-amber-300 flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800/80">
           <span>⚠️ 尚未綁定雲端網址（目前為本機模式）</span>
           <button id="btn-portal-bind-url" type="button" class="px-3 py-1 rounded-lg text-xs font-black bg-amber-500 hover:bg-amber-400 text-slate-950">
             🔗 綁定網址
@@ -97,22 +110,45 @@
         </div>
       </div>
 
-      <!-- 三大作業區（專業質感文字方框入口） -->
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-4xl mx-auto">
+      <!-- 四大作業區（小圖示美化＋精簡方格，手機 2×2 一屏全覽） -->
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4 max-w-4xl mx-auto">
+        <a id="portal-link-register" href="https://runner2026.vercel.app/" target="_blank" rel="noopener noreferrer"
+          class="portal-entry-box portal-entry-rose text-base sm:text-xl">
+          <span class="portal-entry-icon" aria-hidden="true">📝</span>
+          <span>活動報名</span>
+        </a>
+
         <a id="portal-link-public" href="./public.html"
-          class="portal-entry-box portal-entry-sky text-2xl sm:text-3xl">
-          公開查詢
+          class="portal-entry-box portal-entry-sky text-base sm:text-xl">
+          <span class="portal-entry-icon" aria-hidden="true">🏆</span>
+          <span>成績查詢</span>
         </a>
 
         <button id="btn-portal-staff" type="button"
-          class="portal-entry-box portal-entry-emerald text-2xl sm:text-3xl">
-          晶片作業
+          class="portal-entry-box portal-entry-emerald text-base sm:text-xl">
+          <span class="portal-entry-icon" aria-hidden="true">📡</span>
+          <span>晶片作業</span>
         </button>
 
         <button id="btn-portal-admin" type="button"
-          class="portal-entry-box portal-entry-amber text-2xl sm:text-3xl">
-          後台管理
+          class="portal-entry-box portal-entry-amber text-base sm:text-xl">
+          <span class="portal-entry-icon" aria-hidden="true">🛡️</span>
+          <span>後台管理</span>
         </button>
+      </div>
+
+      <!-- 首頁字體大小調整列（全系統即時生效並記憶） -->
+      <div id="portal-font-scale-bar" class="max-w-4xl mx-auto tur-control-bar rounded-2xl px-3 py-2 sm:px-4 sm:py-2.5 flex flex-wrap items-center justify-between gap-2">
+        <span class="inline-flex items-center gap-1.5 text-xs sm:text-sm font-black text-slate-200 shrink-0">
+          <span>🔤</span>
+          <span>字體大小</span>
+        </span>
+        <div class="inline-flex items-center gap-1.5 bg-slate-950/90 border border-slate-800 rounded-xl p-1" role="group" aria-label="字體大小調整">
+          <button type="button" data-font-scale="sm" class="font-scale-btn px-2.5 sm:px-3 py-1 rounded-lg text-xs font-black transition text-slate-300 hover:bg-slate-800">小</button>
+          <button type="button" data-font-scale="md" class="font-scale-btn px-2.5 sm:px-3 py-1 rounded-lg text-xs font-black transition bg-sky-500 text-slate-950 shadow">標準</button>
+          <button type="button" data-font-scale="lg" class="font-scale-btn px-2.5 sm:px-3 py-1 rounded-lg text-xs font-black transition text-slate-300 hover:bg-slate-800">大</button>
+          <button type="button" data-font-scale="xl" class="font-scale-btn px-2.5 sm:px-3 py-1 rounded-lg text-xs font-black transition text-slate-300 hover:bg-slate-800">特大</button>
+        </div>
       </div>
     </section>
 
@@ -145,7 +181,7 @@
           </div>
         </div>
 
-        <form id="form-staff-login" class="space-y-4">
+        <form id="form-staff-login" autocomplete="off" class="space-y-4">
           <!-- 步驟 1：選擇作業活動 -->
           <div class="space-y-1.5">
             <label for="staff-login-event" class="block text-xs font-black text-emerald-300">1. 選擇作業活動</label>
@@ -179,13 +215,13 @@
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label for="staff-login-user" class="block text-xs font-bold text-slate-400 mb-1">作業組別帳號</label>
-                <input id="staff-login-user" required autocomplete="username" type="text" placeholder="點選上方組別或輸入帳號"
+                <input id="staff-login-user" required autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-form-type="other" type="text" placeholder="點選上方組別或輸入帳號"
                   class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm font-bold font-mono-num text-white focus:border-emerald-400 focus:outline-none" />
               </div>
               <div>
                 <label for="staff-login-pass" class="block text-xs font-bold text-slate-400 mb-1">密碼</label>
-                <input id="staff-login-pass" required autocomplete="current-password" type="password" placeholder="請輸入密碼"
-                  class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm font-bold text-white focus:border-emerald-400 focus:outline-none" />
+                <input id="staff-login-pass" required autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-form-type="other" type="text" inputmode="text" placeholder="請輸入密碼（不暫存）"
+                  class="tur-secret-input w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm font-bold text-white focus:border-emerald-400 focus:outline-none" />
               </div>
             </div>
 
@@ -195,17 +231,6 @@
             </button>
           </div>
         </form>
-
-        <details class="pt-2 border-t border-slate-800 text-xs">
-          <summary class="cursor-pointer font-bold text-slate-400 hover:text-slate-200 select-none">🧪 測試環境快捷密碼填寫</summary>
-          <div class="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400">
-            <span>選定上方任一組別後，可一鍵帶入預設測試密碼（正式賽事請於後台修改密碼）：</span>
-            <button id="btn-staff-fill-test-pass" type="button"
-              class="px-3 py-1.5 rounded-lg font-bold bg-slate-800 hover:bg-slate-700 border border-slate-700 text-emerald-300">
-              填入預設測試密碼
-            </button>
-          </div>
-        </details>
       </div>
     </section>
 
@@ -267,7 +292,7 @@
         </div>
 
         <!-- 步驟 3：輸入帳號密碼登入 -->
-        <form id="form-admin-login" class="space-y-3.5 pt-2 border-t border-slate-800">
+        <form id="form-admin-login" autocomplete="off" class="space-y-3.5 pt-2 border-t border-slate-800">
           <div class="flex flex-wrap items-center justify-between gap-2">
             <span class="text-xs font-extrabold text-slate-200">3. 輸入帳號密碼登入</span>
             <span id="admin-login-role-badge" class="px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-500/15 border border-amber-500/35 text-amber-300">
@@ -277,13 +302,13 @@
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label class="block text-xs font-bold text-slate-400 mb-1">帳號</label>
-              <input id="admin-login-user" required autocomplete="username" type="text" placeholder="請點選上方帳號或手動輸入"
+              <input id="admin-login-user" required autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-form-type="other" type="text" placeholder="請點選上方帳號或手動輸入"
                 class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-base font-mono-num font-bold text-white focus:border-amber-400 focus:outline-none" />
             </div>
             <div>
               <label class="block text-xs font-bold text-slate-400 mb-1">密碼</label>
-              <input id="admin-login-pass" required autocomplete="current-password" type="password" placeholder="請輸入密碼"
-                class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-base font-bold text-white focus:border-amber-400 focus:outline-none" />
+              <input id="admin-login-pass" required autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-form-type="other" type="text" inputmode="text" placeholder="請輸入密碼（不暫存）"
+                class="tur-secret-input w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-base font-bold text-white focus:border-amber-400 focus:outline-none" />
             </div>
           </div>
           <button id="btn-admin-login-submit" type="submit"
@@ -743,18 +768,18 @@
         <!-- 我的帳密（折疊收納） -->
         <details class="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5">
           <summary class="cursor-pointer text-sm font-extrabold text-amber-300 select-none">🛡️ 我的管理者帳密</summary>
-          <form id="form-admin-credentials" class="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end mt-4">
+          <form id="form-admin-credentials" autocomplete="off" class="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end mt-4">
             <div>
               <label class="block text-xs font-bold text-slate-400 mb-1">帳號</label>
-              <input id="cfg-admin-user" type="text" required class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm font-mono-num text-white" />
+              <input id="cfg-admin-user" type="text" autocomplete="off" required class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm font-mono-num text-white" />
             </div>
             <div>
               <label class="block text-xs font-bold text-slate-400 mb-1">名稱</label>
-              <input id="cfg-admin-displayname" type="text" required class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm font-bold text-white" />
+              <input id="cfg-admin-displayname" type="text" autocomplete="off" required class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm font-bold text-white" />
             </div>
             <div>
               <label class="block text-xs font-bold text-slate-400 mb-1">密碼</label>
-              <input id="cfg-admin-pass" type="text" required class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm font-mono-num text-white" />
+              <input id="cfg-admin-pass" type="text" autocomplete="off" required class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm font-mono-num text-white" />
             </div>
             <div>
               <button type="submit" class="w-full py-2.5 rounded-xl text-xs font-black bg-amber-500 hover:bg-amber-400 text-slate-950">
@@ -1948,13 +1973,13 @@
     </div>
   </div>
 
-  <script src="./js/config.js?v=3.12.12"></script>
-  <script src="./js/timing-engine.js?v=3.12.12"></script>
-  <script src="./js/db.js?v=3.12.12"></script>
-  <script src="./js/nfc.js?v=3.12.12"></script>
-  <script src="./js/sync.js?v=3.12.12"></script>
-  <script src="./js/excel.js?v=3.12.12"></script>
-  <script src="./js/certificate.js?v=3.12.12"></script>
-  <script src="./js/app.js?v=3.12.12"></script>
+  <script src="./js/config.js?v=3.12.13"></script>
+  <script src="./js/timing-engine.js?v=3.12.13"></script>
+  <script src="./js/db.js?v=3.12.13"></script>
+  <script src="./js/nfc.js?v=3.12.13"></script>
+  <script src="./js/sync.js?v=3.12.13"></script>
+  <script src="./js/excel.js?v=3.12.13"></script>
+  <script src="./js/certificate.js?v=3.12.13"></script>
+  <script src="./js/app.js?v=3.12.13"></script>
 </body>
 </html>
