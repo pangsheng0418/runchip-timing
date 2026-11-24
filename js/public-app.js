@@ -32,6 +32,7 @@
     historyEventQuery: '',
     historyQuery: '',
     w800Year: '',
+    w800HeroYear: '', // 指定年度 (如 '2026') 或 'ALL' (歷年總累計)
     w800HeroQuery: '',
     w800Modal: {
       open: false,
@@ -1774,10 +1775,35 @@
     if (!state.w800Year || !years.includes(state.w800Year)) {
       state.w800Year = years.includes(currentYear) ? currentYear : (years[0] || currentYear);
     }
+    if (!state.w800HeroYear || (state.w800HeroYear !== 'ALL' && !years.includes(state.w800HeroYear))) {
+      state.w800HeroYear = state.w800Year;
+    }
 
     const yearSel = $('pub-800-year-select');
     yearSel.innerHTML = years.map((y) => `<option value="${esc(y)}">${esc(y)} 年度</option>`).join('');
     yearSel.value = state.w800Year;
+
+    // 建立英雄榜年度選單與快速切換膠囊（預設分年度顯示，避免混在一起；另附「歷年總累計」）
+    const heroYearSel = $('pub-800-hero-year-select');
+    if (heroYearSel) {
+      heroYearSel.innerHTML =
+        years.map((y) => `<option value="${esc(y)}">${esc(y)} 年度</option>`).join('')
+        + '<option value="ALL">歷年總累計</option>';
+      heroYearSel.value = state.w800HeroYear;
+    }
+    const heroPills = $('pub-800-hero-year-pills');
+    if (heroPills) {
+      const pillItems = [
+        ...years.map((y) => ({ val: y, label: `📅 ${y} 年度` })),
+        { val: 'ALL', label: '🏆 歷年總累計' }
+      ];
+      heroPills.innerHTML = pillItems
+        .map((it) => {
+          const active = it.val === state.w800HeroYear;
+          return `<button type="button" data-w800-hero-year="${esc(it.val)}" class="px-3 py-1 rounded-xl text-xs font-black transition ${active ? 'bg-amber-500 text-slate-950 shadow' : 'bg-slate-950 border border-slate-700 text-slate-300 hover:border-amber-400/70 hover:text-amber-200'}">${esc(it.label)}</button>`;
+        })
+        .join('');
+    }
 
     // 2. 渲染「當年度八百壯士成績整合資訊」（僅顯示年度 KPI；場次與選手明細由「年度場次」數字點入鑽取查看）
     const yrCatalog = catalog800.filter((c) => c.year === state.w800Year);
@@ -1794,7 +1820,7 @@
       renderWarriors800EventsModal(all800Entries, catalog800);
     }
 
-    // 3. 渲染「⚔️ 八百壯士歷年英雄榜（跨年度總榜，維持原狀）」
+    // 3. 渲染「⚔️ 八百壯士英雄榜（依選定年度區分顯示）」
     await renderWarriors800HeroList(all800Entries);
   }
 
@@ -1947,7 +1973,13 @@
 
   async function renderWarriors800HeroList(preloadedEntries = null) {
     const all800Entries = preloadedEntries || buildUnifiedEntries({ includeLive: true, includeFinished: true, includeImported: true, only800: true });
-    const allHeroes = groupEntriesByPerson(all800Entries).map((p) => {
+    const heroYear = state.w800HeroYear || state.w800Year || 'ALL';
+    const isAllYears = heroYear === 'ALL';
+    const scopedEntries = isAllYears
+      ? all800Entries
+      : all800Entries.filter((e) => e.year === heroYear);
+
+    const allHeroes = groupEntriesByPerson(scopedEntries).map((p) => {
       const recs = [...p.records].sort((a, b) => String(b.eventDate || '').localeCompare(String(a.eventDate || '')));
       const totalKm = recs.reduce((s, r) => s + Number(r.distanceKm || 0), 0);
       const completed = recs.filter((r) => r.completed).length;
@@ -1967,27 +1999,34 @@
     }).map((h, idx) => ({ ...h, heroRank: idx + 1 }));
 
     const totalAllKm = allHeroes.reduce((s, h) => s + h.totalKm, 0);
-    $('pub-800-hero-summary').textContent = `歷年累計 ${allHeroes.length} 位英雄 ｜ 總里程 ${totalAllKm.toFixed(1)} km`;
+    if ($('pub-800-hero-title')) {
+      $('pub-800-hero-title').textContent = isAllYears
+        ? '⚔️ 八百壯士歷年英雄榜（跨年度總累計）'
+        : `⚔️ ${heroYear} 年度八百壯士英雄榜`;
+    }
+    $('pub-800-hero-summary').textContent = isAllYears
+      ? `歷年累計 ${allHeroes.length} 位英雄 ｜ 總里程 ${totalAllKm.toFixed(1)} km`
+      : `${heroYear} 年度共 ${allHeroes.length} 位英雄 ｜ 年度總里程 ${totalAllKm.toFixed(1)} km`;
 
     const q = (state.w800HeroQuery || '').trim();
     let shown = allHeroes;
     if (q) {
       const qLower = q.toLowerCase();
-      const qHash = await TE.sha256Hex(q.toUpperCase());
       shown = allHeroes.filter((h) =>
-        h.name.toLowerCase().includes(qLower)
-        || (h.idHash && h.idHash === qHash)
-        || (h.idMasked && h.idMasked.toLowerCase() === qLower)
-        || h.records.some((r) => r.bib.toLowerCase().includes(qLower))
+        String(h.name || '').toLowerCase().includes(qLower)
       );
     }
 
     const listEl = $('pub-800-hero-list');
     if (!shown.length) {
-      listEl.innerHTML = `<div class="p-6 rounded-2xl bg-slate-950 border border-slate-800 text-center text-sm text-slate-400">歷年英雄榜查無符合「<strong class="text-white">${esc(q)}</strong>」的紀錄</div>`;
+      const scopeLabel = isAllYears ? '歷年英雄榜' : `${heroYear} 年度英雄榜`;
+      listEl.innerHTML = q
+        ? `<div class="p-6 rounded-2xl bg-slate-950 border border-slate-800 text-center text-sm text-slate-400">${esc(scopeLabel)}查無符合「<strong class="text-white">${esc(q)}</strong>」的紀錄</div>`
+        : `<div class="p-6 rounded-2xl bg-slate-950 border border-slate-800 text-center text-sm text-slate-400">${esc(scopeLabel)}尚無紀錄</div>`;
       return;
     }
 
+    const kmLabel = isAllYears ? '歷年累計里程' : `${heroYear} 年度里程`;
     listEl.innerHTML = shown.slice(0, 100).map((h) => {
       const rankBadge = h.heroRank === 1
         ? '<span class="text-2xl">🥇</span>'
@@ -2014,7 +2053,7 @@
             </div>
             <div class="flex items-center gap-3 ml-auto">
               <div class="text-right">
-                <div class="text-[10px] text-slate-400 font-bold">歷年累計里程</div>
+                <div class="text-[10px] text-slate-400 font-bold">${esc(kmLabel)}</div>
                 <div class="text-lg sm:text-xl font-black font-mono-num text-amber-400">${h.totalKm.toFixed(2)} km</div>
               </div>
               <span class="text-xs text-sky-400 font-bold">明細 ▾</span>
@@ -2335,6 +2374,7 @@
       if (w800Btn) {
         const name = w800Btn.dataset.open800Hero || '';
         state.w800HeroQuery = name;
+        state.w800HeroYear = 'ALL';
         $('pub-800-hero-search').value = name;
         state.mode = 'warriors800';
         renderModeUI();
@@ -2457,8 +2497,21 @@
     // 八百壯士系統事件
     $('pub-800-year-select').addEventListener('change', (e) => {
       state.w800Year = e.target.value;
+      state.w800HeroYear = e.target.value;
       state.w800Modal.step = 'events';
       state.w800Modal.selectedEventKey = '';
+      renderWarriors800Tab();
+    });
+
+    $('pub-800-hero-year-select')?.addEventListener('change', (e) => {
+      state.w800HeroYear = e.target.value;
+      renderWarriors800Tab();
+    });
+
+    $('pub-800-hero-year-pills')?.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-w800-hero-year]');
+      if (!btn) return;
+      state.w800HeroYear = btn.dataset.w800HeroYear || 'ALL';
       renderWarriors800Tab();
     });
 

@@ -19,7 +19,7 @@
       }
     })();
   </script>
-  <link rel="stylesheet" href="./css/style.css?v=3.12.17" />
+  <link rel="stylesheet" href="./css/style.css?v=3.12.18" />
 </head>
 <body class="min-h-screen bg-slate-950 text-slate-100 pb-12">
 
@@ -304,22 +304,31 @@
           </div>
         </section>
 
-        <!-- B. ⚔️ 八百壯士歷年英雄榜（跨年度總榜查詢） -->
+        <!-- B. ⚔️ 八百壯士歷年英雄榜（依年度區分，避免不同年度混在一起） -->
         <section class="bg-slate-900 border border-amber-500/30 rounded-3xl p-4 sm:p-5 space-y-4 shadow-xl">
           <div class="flex flex-wrap items-center justify-between gap-2.5">
             <div>
-              <h2 class="text-base sm:text-lg font-black text-amber-300">⚔️ 八百壯士歷年英雄榜</h2>
+              <h2 id="pub-800-hero-title" class="text-base sm:text-lg font-black text-amber-300">⚔️ 八百壯士英雄榜</h2>
               <div id="pub-800-hero-summary" class="text-xs text-slate-400 font-mono-num mt-0.5">--</div>
             </div>
-            <form id="form-pub-800-hero" class="flex gap-2 w-full sm:w-auto">
-              <input id="pub-800-hero-search" type="search" placeholder="🔍 搜尋英雄姓名 / 身份證 / 編號"
-                class="flex-1 sm:w-64 bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs sm:text-sm font-bold text-white focus:border-amber-400 focus:outline-none" />
-              <button type="submit"
-                class="px-4 py-2 rounded-xl text-xs font-black bg-amber-500 hover:bg-amber-400 text-slate-950 shrink-0">
-                查詢
-              </button>
-            </form>
+            <div class="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+              <select id="pub-800-hero-year-select"
+                style="background-color:#0f172a; color:#f8fafc;"
+                class="bg-slate-950 border border-amber-500/50 rounded-xl px-3 py-2 text-xs sm:text-sm font-black text-amber-300 focus:outline-none">
+              </select>
+              <form id="form-pub-800-hero" class="flex gap-2 flex-1 sm:flex-initial">
+                <input id="pub-800-hero-search" type="search" placeholder="🔍 搜尋英雄姓名"
+                  class="flex-1 sm:w-56 bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs sm:text-sm font-bold text-white focus:border-amber-400 focus:outline-none" />
+                <button type="submit"
+                  class="px-4 py-2 rounded-xl text-xs font-black bg-amber-500 hover:bg-amber-400 text-slate-950 shrink-0">
+                  查詢
+                </button>
+              </form>
+            </div>
           </div>
+
+          <!-- 年度快速切換按鈕（獨立顯示各年度，避免混在一起） -->
+          <div id="pub-800-hero-year-pills" class="flex flex-wrap items-center gap-1.5"></div>
 
           <div id="pub-800-hero-list" class="space-y-2.5"></div>
         </section>
@@ -604,11 +613,11 @@
     </div>
   </div>
 
-  <script src="./js/config.js?v=3.12.17"></script>
-  <script src="./js/timing-engine.js?v=3.12.17"></script>
-  <script src="./js/db.js?v=3.12.17"></script>
-  <script src="./js/sync.js?v=3.12.17"></script>
-  <script src="./js/certificate.js?v=3.12.17"></script>
-  <script src="./js/public-app.js?v=3.12.17"></script>
+  <script src="./js/config.js?v=3.12.18"></script>
+  <script src="./js/timing-engine.js?v=3.12.18"></script>
+  <script src="./js/db.js?v=3.12.18"></script>
+  <script src="./js/sync.js?v=3.12.18"></script>
+  <script src="./js/certificate.js?v=3.12.18"></script>
+  <script src="./js/public-app.js?v=3.12.18"></script>
 </body>
 </html>
