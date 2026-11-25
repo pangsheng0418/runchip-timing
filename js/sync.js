@@ -23,34 +23,58 @@
       return s.mode === 'online' && Boolean(s.gasUrl && s.gasUrl.trim());
     }
 
-    async _get(url, params = {}) {
+    async _get(url, params = {}, timeoutMs = 18000) {
       const target = new URL(url);
       Object.entries({ ...params, _t: Date.now() }).forEach(([k, v]) => {
         if (v !== undefined && v !== null && v !== '') target.searchParams.set(k, String(v));
       });
-      const resp = await fetch(target.toString(), { method: 'GET', redirect: 'follow', cache: 'no-store' });
-      if (!resp.ok) throw new Error(`HTTP 錯誤 (${resp.status})`);
-      const json = await resp.json();
-      if (!json.ok) throw new Error(json.error || '雲端 API 回傳錯誤');
-      return json;
+      const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      const timer = ctrl ? setTimeout(() => ctrl.abort(), timeoutMs) : null;
+      try {
+        const resp = await fetch(target.toString(), {
+          method: 'GET',
+          redirect: 'follow',
+          cache: 'no-store',
+          signal: ctrl ? ctrl.signal : undefined
+        });
+        if (!resp.ok) throw new Error(`HTTP 錯誤 (${resp.status})`);
+        const json = await resp.json();
+        if (!json.ok) throw new Error(json.error || '雲端 API 回傳錯誤');
+        return json;
+      } catch (err) {
+        if (err && err.name === 'AbortError') throw new Error('雲端連線逾時，請稍後重試');
+        throw err;
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
     }
 
-    async _post(url, body) {
-      const resp = await fetch(url, {
-        method: 'POST',
-        redirect: 'follow',
-        cache: 'no-store',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify(body)
-      });
-      if (!resp.ok) throw new Error(`HTTP 錯誤 (${resp.status})`);
-      const json = await resp.json();
-      if (!json.ok) {
-        const err = new Error(json.error || '雲端 API 寫入失敗');
-        err.multiAdmin = Boolean(json.multiAdmin);
+    async _post(url, body, timeoutMs = 20000) {
+      const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      const timer = ctrl ? setTimeout(() => ctrl.abort(), timeoutMs) : null;
+      try {
+        const resp = await fetch(url, {
+          method: 'POST',
+          redirect: 'follow',
+          cache: 'no-store',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify(body),
+          signal: ctrl ? ctrl.signal : undefined
+        });
+        if (!resp.ok) throw new Error(`HTTP 錯誤 (${resp.status})`);
+        const json = await resp.json();
+        if (!json.ok) {
+          const err = new Error(json.error || '雲端 API 寫入失敗');
+          err.multiAdmin = Boolean(json.multiAdmin);
+          throw err;
+        }
+        return json;
+      } catch (err) {
+        if (err && err.name === 'AbortError') throw new Error('雲端請求逾時，請稍後重試');
         throw err;
+      } finally {
+        if (timer) clearTimeout(timer);
       }
-      return json;
     }
 
     _buildScopedPlatformPayload(platform, auth, extra = {}) {
@@ -114,10 +138,10 @@
       return res;
     }
 
-    async loginCloud(mode, username, password) {
+    async loginCloud(mode, username, password, { lite = false } = {}) {
       const url = this.getUrl();
       if (!url) throw new Error('尚未設定雲端 API 網址');
-      const res = await this._post(url, { action: 'login', mode, username, password });
+      const res = await this._post(url, { action: 'login', mode, username, password, lite: Boolean(lite) });
       if (mode === 'admin') {
         const acc = res.account || { username, isSuperAdmin: true, displayName: username, role: 'admin' };
         if (res.data) {
@@ -131,7 +155,9 @@
         if (res.data) await global.RaceDB.mergeCloudData(res.data);
         if (res.account) await global.RaceDB.cacheStaffAccount(res.account);
       }
-      global.RaceDB.saveDeviceSettings({ lastSyncAt: Date.now() });
+      if (!lite || res.data) {
+        global.RaceDB.saveDeviceSettings({ lastSyncAt: Date.now() });
+      }
       return res;
     }
 

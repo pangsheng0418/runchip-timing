@@ -21,7 +21,7 @@
       }
     })();
   </script>
-  <link rel="stylesheet" href="./css/style.css?v=3.12.19" />
+  <link rel="stylesheet" href="./css/style.css?v=3.13.1" />
 </head>
 <body class="min-h-screen tur-stage-bg text-slate-100 pb-8">
 
@@ -58,8 +58,8 @@
 
         <div id="header-user-box" class="hidden inline-flex items-center gap-2 pl-2.5 pr-1.5 py-1 rounded-xl bg-slate-800/90 border border-slate-700/80">
           <span id="header-user-label" class="text-xs font-bold text-sky-300"></span>
-          <button id="btn-logout" type="button" class="px-2.5 py-1 rounded-lg text-xs font-extrabold bg-rose-600/85 hover:bg-rose-500 text-white transition">
-            登出
+          <button id="btn-logout" type="button" class="px-2.5 py-1 rounded-lg text-xs font-extrabold bg-rose-600/85 hover:bg-rose-500 text-white transition" title="登出並切換其他人員">
+            登出 / 換人
           </button>
         </div>
       </div>
@@ -125,15 +125,21 @@
         </a>
 
         <button id="btn-portal-staff" type="button"
-          class="portal-entry-box portal-entry-emerald text-base sm:text-xl">
-          <span class="portal-entry-icon" aria-hidden="true">📡</span>
-          <span>晶片作業</span>
+          class="portal-entry-box portal-entry-emerald text-base sm:text-xl flex-col !gap-1">
+          <span class="inline-flex items-center gap-2">
+            <span class="portal-entry-icon" aria-hidden="true">📡</span>
+            <span>晶片作業</span>
+          </span>
+          <span id="portal-staff-session-tag" class="hidden text-[11px] font-bold text-emerald-300 bg-emerald-950/80 border border-emerald-500/40 px-2 py-0.5 rounded-full"></span>
         </button>
 
         <button id="btn-portal-admin" type="button"
-          class="portal-entry-box portal-entry-amber text-base sm:text-xl">
-          <span class="portal-entry-icon" aria-hidden="true">🛡️</span>
-          <span>後台管理</span>
+          class="portal-entry-box portal-entry-amber text-base sm:text-xl flex-col !gap-1">
+          <span class="inline-flex items-center gap-2">
+            <span class="portal-entry-icon" aria-hidden="true">🛡️</span>
+            <span>後台管理</span>
+          </span>
+          <span id="portal-admin-session-tag" class="hidden text-[11px] font-bold text-amber-300 bg-amber-950/80 border border-amber-500/40 px-2 py-0.5 rounded-full"></span>
         </button>
       </div>
 
@@ -220,7 +226,7 @@
               </div>
               <div>
                 <label for="staff-login-pass" class="block text-xs font-bold text-slate-400 mb-1">密碼</label>
-                <input id="staff-login-pass" required autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-form-type="other" type="text" inputmode="text" placeholder="請輸入密碼（不暫存）"
+                <input id="staff-login-pass" name="tur_stf_p_nocache" required readonly autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other" type="text" inputmode="text" value="" placeholder="請手動輸入密碼（預設空白）"
                   class="tur-secret-input w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm font-bold text-white focus:border-emerald-400 focus:outline-none" />
               </div>
             </div>
@@ -235,87 +241,69 @@
     </section>
 
     <!-- ================================================================== -->
-    <!-- VIEW 3：後台管理登入（區分最高管理權責 ／ 活動承辦人其他帳號） -->
+    <!-- VIEW 3：後台管理登入（極簡化：直接區分最高管理權責 ／ 活動承辦人，登入後自動維持狀態） -->
     <!-- ================================================================== -->
-    <section id="view-admin-login" class="app-view hidden max-w-xl mx-auto py-4 space-y-4">
+    <section id="view-admin-login" class="app-view hidden max-w-md mx-auto py-4 space-y-4">
       <div class="flex items-center justify-between gap-2">
         <button type="button" data-goto="portal" class="text-xs font-bold text-slate-400 hover:text-white">
           ← 返回大廳
         </button>
         <button type="button" data-goto="staff-login" class="text-xs font-bold text-emerald-300 hover:text-emerald-200">
-          📡 現場作業人員登入 →
+          📡 作業人員登入 →
         </button>
       </div>
 
-      <div class="bg-slate-900 border border-amber-500/40 rounded-3xl p-5 sm:p-6 space-y-5 shadow-2xl">
+      <div id="admin-login-card" class="bg-slate-900 border border-amber-500/45 rounded-3xl p-5 sm:p-6 space-y-4 shadow-2xl">
+        <!-- 身分雙切頁籤：直接區分最高管理權責與活動承辦人 -->
+        <div id="admin-login-role-selector" class="grid grid-cols-2 gap-2 p-1 rounded-2xl bg-slate-950 border border-slate-800">
+          <button type="button" data-admin-login-role="super"
+            class="admin-login-role-btn py-2.5 px-3 rounded-xl text-xs sm:text-sm font-black bg-amber-500 text-slate-950 shadow transition text-center">
+            🛡️ 最高管理權責
+          </button>
+          <button type="button" data-admin-login-role="coordinator"
+            class="admin-login-role-btn py-2.5 px-3 rounded-xl text-xs sm:text-sm font-bold text-slate-300 hover:bg-slate-800 transition text-center">
+            👤 活動承辦人
+          </button>
+        </div>
+
         <div class="flex items-center gap-3">
-          <div id="admin-login-icon" class="w-12 h-12 rounded-2xl bg-amber-500/15 border border-amber-500/35 flex items-center justify-center text-2xl shrink-0">
+          <div id="admin-login-icon" class="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/35 flex items-center justify-center text-xl shrink-0">
             🛡️
           </div>
           <div class="min-w-0">
-            <h2 id="admin-login-title" class="text-xl sm:text-2xl font-black text-white">後台管理登入</h2>
-            <p id="admin-login-subtitle" class="text-xs text-slate-400 mt-0.5">請先選擇管理身分（最高管理權責 或 活動承辦人），再輸入帳密登入</p>
+            <h2 id="admin-login-title" class="text-lg sm:text-xl font-black text-white">最高管理權責登入</h2>
+            <p id="admin-login-subtitle" class="text-xs text-slate-400 mt-0.5">管理全平台帳號、歷年匯入與資料庫備份還原</p>
           </div>
         </div>
 
-        <!-- 步驟 1：選擇登入身分（最高管理權責 vs 活動承辦人） -->
-        <div class="space-y-2">
-          <label class="block text-xs font-extrabold text-amber-300">1. 選擇後台管理身分</label>
-          <div id="admin-login-role-selector" class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-            <button type="button" data-admin-login-role="super"
-              class="admin-login-role-btn text-left rounded-2xl p-3.5 border-2 border-amber-400 bg-amber-500/15 transition space-y-1">
-              <div class="flex items-center justify-between gap-2">
-                <span class="text-sm font-black text-amber-300">🛡️ 最高管理權責</span>
-                <span class="admin-role-check text-[11px] font-black text-amber-300">✓ 已選取</span>
-              </div>
-              <div class="text-[11px] text-slate-300 leading-snug">全平台帳號・歷年活動匯入・資料庫備份還原</div>
-            </button>
-
-            <button type="button" data-admin-login-role="coordinator"
-              class="admin-login-role-btn text-left rounded-2xl p-3.5 border border-slate-700 bg-slate-950/80 hover:border-sky-400/70 transition space-y-1">
-              <div class="flex items-center justify-between gap-2">
-                <span class="text-sm font-black text-sky-300">👤 活動承辦人（其他帳號）</span>
-                <span class="admin-role-check text-[11px] font-bold text-slate-500">點選切換</span>
-              </div>
-              <div class="text-[11px] text-slate-400 leading-snug">承辦活動賽務・名單成績・結案匯出與證書</div>
-            </button>
-          </div>
-        </div>
-
-        <!-- 步驟 2：依所選身分顯示可快速選取之帳號清單 -->
-        <div id="admin-login-accounts-wrap" class="space-y-2">
-          <div class="flex items-center justify-between gap-2">
-            <label id="admin-login-accounts-label" class="block text-xs font-extrabold text-amber-300">2. 選擇最高管理權責帳號（或手動輸入）</label>
-            <span id="admin-login-accounts-count" class="text-[11px] font-mono-num font-bold text-slate-400">0 個帳號</span>
-          </div>
-          <div id="admin-login-account-grid" class="grid grid-cols-1 sm:grid-cols-2 gap-2"></div>
-        </div>
-
-        <!-- 步驟 3：輸入帳號密碼登入 -->
-        <form id="form-admin-login" autocomplete="off" class="space-y-3.5 pt-2 border-t border-slate-800">
-          <div class="flex flex-wrap items-center justify-between gap-2">
-            <span class="text-xs font-extrabold text-slate-200">3. 輸入帳號密碼登入</span>
-            <span id="admin-login-role-badge" class="px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-500/15 border border-amber-500/35 text-amber-300">
-              🛡️ 身分：最高管理權責
-            </span>
-          </div>
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label class="block text-xs font-bold text-slate-400 mb-1">帳號</label>
-              <input id="admin-login-user" required autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-form-type="other" type="text" placeholder="請點選上方帳號或手動輸入"
-                class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-base font-mono-num font-bold text-white focus:border-amber-400 focus:outline-none" />
+        <!-- 帳號密碼登入表單（全面禁止自動填入，最高管理權責與活動承辦人密碼均預設空白） -->
+        <form id="form-admin-login" autocomplete="off" class="space-y-3.5">
+          <div>
+            <div class="flex items-center justify-between gap-2 mb-1">
+              <label for="admin-login-user" class="text-xs font-bold text-slate-300">管理員帳號</label>
+              <span id="admin-login-accounts-count" class="text-[11px] font-mono-num text-slate-500"></span>
             </div>
-            <div>
-              <label class="block text-xs font-bold text-slate-400 mb-1">密碼</label>
-              <input id="admin-login-pass" required autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-form-type="other" type="text" inputmode="text" placeholder="請輸入密碼（不暫存）"
-                class="tur-secret-input w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-base font-bold text-white focus:border-amber-400 focus:outline-none" />
-            </div>
+            <input id="admin-login-user" name="tur_adm_u_nocache" required readonly autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other" type="text" value="" placeholder="請輸入帳號"
+              class="tur-no-autofill w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-base font-mono-num font-bold text-white focus:border-amber-400 focus:outline-none" />
+            <!-- 精簡快速選取帳號膠囊（僅當本機有對應身分帳號時顯示） -->
+            <div id="admin-login-account-grid" class="flex flex-wrap gap-1.5 mt-2"></div>
           </div>
+
+          <div>
+            <label for="admin-login-pass" class="block text-xs font-bold text-slate-300 mb-1">登入密碼（預設空白，請手動輸入）</label>
+            <input id="admin-login-pass" name="tur_adm_p_nocache" required readonly autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other" type="text" inputmode="text" value="" placeholder="請手動輸入密碼（不可自動填入）"
+              class="tur-secret-input w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-base font-bold text-white focus:border-amber-400 focus:outline-none" />
+          </div>
+
           <button id="btn-admin-login-submit" type="submit"
-            class="w-full py-3.5 rounded-xl text-base font-black bg-amber-500 hover:bg-amber-400 text-slate-950 transition shadow">
-            🛡️ 以最高管理權責登入
+            class="w-full py-3.5 rounded-xl text-base font-black bg-amber-500 hover:bg-amber-400 text-slate-950 transition shadow-lg">
+            🛡️ 登入最高管理權責後台
           </button>
         </form>
+
+        <div class="rounded-xl bg-slate-950/80 border border-slate-800 px-3.5 py-2 text-[11px] text-slate-400 leading-relaxed">
+          ✅ <strong class="text-slate-200">自動維持登入：</strong>登入後下次點「後台管理」將直接進入；如需切換其他人員，請點右上角「<strong class="text-rose-300">登出 / 換人</strong>」。
+        </div>
       </div>
     </section>
 
@@ -778,8 +766,9 @@
               <input id="cfg-admin-displayname" type="text" autocomplete="off" required class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm font-bold text-white" />
             </div>
             <div>
-              <label class="block text-xs font-bold text-slate-400 mb-1">密碼</label>
-              <input id="cfg-admin-pass" type="text" autocomplete="off" required class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm font-mono-num text-white" />
+              <label class="block text-xs font-bold text-slate-400 mb-1">變更密碼（預設空白）</label>
+              <input id="cfg-admin-pass" name="tur_cfg_p_nocache" type="text" readonly autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other" value="" placeholder="留空不修改；輸入即變更"
+                class="tur-secret-input w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm font-mono-num text-white" />
             </div>
             <div>
               <button type="submit" class="w-full py-2.5 rounded-xl text-xs font-black bg-amber-500 hover:bg-amber-400 text-slate-950">
@@ -1589,100 +1578,153 @@
 <!-- ==================== 資料庫專區 2：備份還原與雲端同步 ==================== -->
       <div id="admin-tab-sync" class="admin-panel hidden space-y-4">
         <!-- 本機資料庫即時統計總覽 -->
-        <div class="bg-slate-900 border border-sky-500/40 rounded-2xl p-4 sm:p-5 space-y-3">
+        <div class="bg-slate-900 border border-sky-500/40 rounded-2xl p-4 space-y-2.5">
           <div class="flex flex-wrap items-center justify-between gap-2">
-            <h2 id="db-overview-title" class="text-base font-extrabold text-sky-300">🗄️ 資料庫總覽與備份還原</h2>
+            <h2 id="db-overview-title" class="text-sm sm:text-base font-extrabold text-sky-300">🗄️ 本機資料庫總覽</h2>
             <span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-sky-500/15 border border-sky-500/35 text-sky-300">
               本機 IndexedDB ＋ 雲端 Google Sheets
             </span>
           </div>
-          <div id="db-stats-bar" class="grid grid-cols-2 sm:grid-cols-5 gap-2.5"></div>
+          <div id="db-stats-bar" class="grid grid-cols-2 sm:grid-cols-5 gap-2"></div>
         </div>
 
-        <!-- 合併一體化：本機備份與還原（JSON，僅最高管理權責顯示） ＋ 雲端資料庫同步 -->
-        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 space-y-5">
-          <!-- A. 本機備份與還原（僅最高管理權責可見可操作，活動承辦人隱藏防誤觸） -->
-          <div id="admin-backup-restore-section" class="space-y-3">
-            <div class="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <div class="flex flex-wrap items-center gap-2">
-                  <h3 class="text-sm sm:text-base font-extrabold text-white">💾 備份與還原 (.json)</h3>
-                  <span class="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-500/20 border border-amber-500/40 text-amber-300">🛡️ 僅最高管理權責限定</span>
-                </div>
-                <p class="text-xs text-slate-400 mt-0.5">完整備份本機活動、共用晶片、報名名單、感應與歷年紀錄；支援「合併匯入（自動去重）」與「覆蓋還原」</p>
-              </div>
+        <!-- A. 簡化版：本機備份與還原（僅最高管理權責顯示） -->
+        <div id="admin-backup-restore-section" class="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 space-y-4">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div class="flex flex-wrap items-center gap-2">
+              <h3 class="text-sm sm:text-base font-extrabold text-white">💾 資料庫備份與還原</h3>
+              <span class="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-500/20 border border-amber-500/40 text-amber-300">🛡️ 僅最高管理權責</span>
             </div>
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+            <span id="backup-summary-text" class="text-[11px] font-mono-num text-slate-400">--</span>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <!-- 1. 一鍵備份 -->
+            <div class="rounded-2xl bg-slate-950/90 border border-slate-800 p-4 flex flex-col justify-between gap-3">
+              <div>
+                <div class="text-xs font-black text-sky-300">1. 下載本機備份</div>
+                <p class="text-xs text-slate-400 mt-1">將全部活動、晶片、報名、感應與歷年成績打包成單一 <code class="text-sky-300">.json</code> 檔保存。</p>
+              </div>
               <button id="btn-backup-download" type="button"
-                class="py-3 px-4 rounded-xl text-xs sm:text-sm font-black bg-sky-500 hover:bg-sky-400 text-slate-950 transition shadow text-center">
+                class="w-full py-3 px-4 rounded-xl text-sm font-black bg-sky-500 hover:bg-sky-400 text-slate-950 transition shadow text-center">
                 ⬇️ 下載完整備份 (.json)
               </button>
-              <label class="cursor-pointer py-3 px-4 rounded-xl text-xs sm:text-sm font-black bg-indigo-600 hover:bg-indigo-500 text-white transition shadow text-center">
-                ➕ 合併還原（保留現有＋去重）
-                <input id="input-backup-merge" type="file" accept=".json" class="hidden" />
-              </label>
-              <label id="btn-backup-replace-label" class="cursor-pointer py-3 px-4 rounded-xl text-xs sm:text-sm font-bold bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 transition text-center">
-                ♻️ 覆蓋還原（全機還原）
-                <input id="input-backup-replace" type="file" accept=".json" class="hidden" />
+            </div>
+
+            <!-- 2. 選擇模式並還原 -->
+            <div class="rounded-2xl bg-slate-950/90 border border-slate-800 p-4 flex flex-col justify-between gap-3">
+              <div class="space-y-2">
+                <div class="text-xs font-black text-indigo-300">2. 匯入備份檔還原</div>
+                <div class="grid grid-cols-2 gap-2 text-xs">
+                  <label class="cursor-pointer rounded-xl border border-indigo-500/40 bg-indigo-950/35 px-2.5 py-2 flex items-start gap-2">
+                    <input type="radio" name="backup-restore-mode" value="merge" checked class="accent-indigo-400 mt-0.5 shrink-0" />
+                    <span class="leading-tight">
+                      <strong class="block text-white">➕ 合併還原</strong>
+                      <span class="text-[11px] text-slate-400">保留現有＋去重</span>
+                    </span>
+                  </label>
+                  <label class="cursor-pointer rounded-xl border border-amber-500/35 bg-amber-950/25 px-2.5 py-2 flex items-start gap-2">
+                    <input type="radio" name="backup-restore-mode" value="replace" class="accent-amber-400 mt-0.5 shrink-0" />
+                    <span class="leading-tight">
+                      <strong class="block text-amber-300">♻️ 覆蓋還原</strong>
+                      <span class="text-[11px] text-slate-400">清空後完整取代</span>
+                    </span>
+                  </label>
+                </div>
+              </div>
+              <label id="btn-backup-restore-pick"
+                class="cursor-pointer w-full py-3 px-4 rounded-xl text-sm font-black bg-indigo-600 hover:bg-indigo-500 text-white transition shadow text-center block">
+                📂 選擇備份檔 (.json) 並還原
+                <input id="input-backup-file" type="file" accept=".json" class="hidden" />
               </label>
             </div>
           </div>
 
-          <hr id="admin-backup-restore-divider" class="border-slate-800" />
+          <div id="backup-restore-result" class="hidden rounded-xl border px-3.5 py-2.5 text-xs font-bold"></div>
+        </div>
 
-          <!-- B. 雲端資料庫同步 -->
-          <div class="space-y-3.5">
-            <div class="flex flex-wrap items-center justify-between gap-2">
-              <h3 class="text-sm sm:text-base font-extrabold text-white">☁️ 雲端資料庫同步</h3>
-              <div class="flex items-center gap-3 text-xs font-bold">
-                <label class="inline-flex items-center gap-1.5 cursor-pointer text-slate-300">
-                  <input type="radio" name="sync-mode" value="offline" class="accent-emerald-500" />
-                  <span>單機離線</span>
-                </label>
-                <label class="inline-flex items-center gap-1.5 cursor-pointer text-sky-300">
-                  <input type="radio" name="sync-mode" value="online" class="accent-sky-500" />
-                  <span>雲端連線</span>
-                </label>
-              </div>
+        <!-- B. 雲端資料庫同步（含單機離線 ⇄ 雲端連線 互動步驟說明） -->
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 space-y-4">
+          <div class="flex flex-wrap items-center justify-between gap-2.5">
+            <h3 class="text-sm sm:text-base font-extrabold text-white">☁️ 雲端資料庫同步</h3>
+            <div class="inline-flex items-center gap-1.5 bg-slate-950 border border-slate-800 rounded-xl p-1 text-xs font-bold">
+              <label class="inline-flex items-center gap-1.5 cursor-pointer px-2.5 py-1.5 rounded-lg hover:bg-slate-800 text-slate-200">
+                <input type="radio" name="sync-mode" value="offline" class="accent-emerald-500" />
+                <span>📴 單機離線</span>
+              </label>
+              <label class="inline-flex items-center gap-1.5 cursor-pointer px-2.5 py-1.5 rounded-lg hover:bg-slate-800 text-sky-300">
+                <input type="radio" name="sync-mode" value="online" class="accent-sky-500" />
+                <span>🌐 雲端連線</span>
+              </label>
             </div>
+          </div>
 
+          <!-- 目前模式即時說明列 -->
+          <div id="sync-mode-callout" class="rounded-xl border border-sky-500/35 bg-sky-950/30 px-3.5 py-2.5 text-xs space-y-1">
+            <div id="sync-mode-callout-title" class="font-black text-sky-300">🌐 目前為「雲端連線模式」</div>
+            <div id="sync-status-info" class="text-slate-300 font-mono-num">--</div>
+          </div>
+
+          <!-- GAS 網址與快速操作 -->
+          <div class="space-y-2.5">
             <div class="flex flex-col sm:flex-row gap-2">
               <input id="input-gas-url" type="url" placeholder="Google Apps Script 網址 (https://script.google.com/macros/s/.../exec)"
-                class="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs sm:text-sm font-mono-num text-white" />
-              <button id="btn-save-gas-url" type="button" class="px-4 py-2 rounded-xl text-xs sm:text-sm font-bold bg-sky-600 hover:bg-sky-500 text-white shrink-0">
-                儲存測試
+                class="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm font-mono-num text-white" />
+              <button id="btn-save-gas-url" type="button" class="px-4 py-2.5 rounded-xl text-xs sm:text-sm font-black bg-sky-600 hover:bg-sky-500 text-white shrink-0">
+                💾 儲存並測試
               </button>
             </div>
 
             <div class="flex flex-wrap gap-2">
-              <button id="btn-sync-upload" type="button" class="px-4 py-2 rounded-xl text-xs font-black bg-emerald-500 hover:bg-emerald-400 text-slate-950">
-                🔄 雙向同步
+              <button id="btn-sync-upload" type="button" class="px-4 py-2.5 rounded-xl text-xs sm:text-sm font-black bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow">
+                🔄 立即雙向同步
               </button>
-              <button id="btn-copy-staff-link" type="button" class="px-3.5 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white">
-                📡 作業員連結
+              <button id="btn-copy-staff-link" type="button" class="px-3.5 py-2.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white">
+                📡 複製作業員連結
               </button>
-              <button id="btn-copy-public-link" type="button" class="px-3.5 py-2 rounded-xl text-xs font-bold bg-sky-600 hover:bg-sky-500 text-white">
-                🌐 公開查詢連結
+              <button id="btn-copy-public-link" type="button" class="px-3.5 py-2.5 rounded-xl text-xs font-bold bg-sky-600 hover:bg-sky-500 text-white">
+                🌐 複製公開查詢連結
               </button>
             </div>
-
-            <details class="border-t border-slate-800 pt-2.5 text-xs">
-              <summary class="cursor-pointer font-bold text-slate-400 hover:text-slate-200 select-none">進階同步工具</summary>
-              <div class="flex flex-wrap gap-2 mt-2.5">
-                <button id="btn-sync-pull" type="button" class="px-3.5 py-2 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-white border border-slate-700">
-                  ⬇️ 僅拉取雲端
-                </button>
-                <button id="btn-sync-push-platform" type="button" class="px-3.5 py-2 rounded-xl text-xs font-bold bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40">
-                  📤 強制推送設定
-                </button>
-                <button id="btn-copy-config-js" type="button" class="px-3.5 py-2 rounded-xl text-xs font-bold bg-purple-600/80 hover:bg-purple-500 text-white">
-                  📋 複製 config.js
-                </button>
-              </div>
-            </details>
-
-            <div id="sync-status-info" class="text-xs text-slate-400 font-mono-num"></div>
           </div>
+
+          <!-- 單機離線 ⇄ 雲端連線 互動操作步驟指南 -->
+          <div class="rounded-2xl bg-slate-950/90 border border-slate-800 p-3.5 sm:p-4 space-y-2.5">
+            <div class="text-xs font-black text-amber-300">📖 單機離線 ⇄ 雲端連線 互動操作步驟</div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs leading-relaxed">
+              <div class="rounded-xl bg-slate-900/90 border border-slate-800 p-3 space-y-1">
+                <div class="font-black text-emerald-300">步驟 1｜依現場環境選模式</div>
+                <div class="text-slate-300"><strong class="text-white">📴 單機離線</strong>：資料只存本機，不自動上傳（適合無網路、練習測試）。<br/><strong class="text-sky-300">🌐 雲端連線</strong>：多機即時共用 Google 試算表。</div>
+              </div>
+              <div class="rounded-xl bg-slate-900/90 border border-slate-800 p-3 space-y-1">
+                <div class="font-black text-amber-300">步驟 2｜離線作業安全暫存</div>
+                <div class="text-slate-300">無論在單機離線或突發斷網，新增活動、匯入名單、刷晶片皆正常保存，右上角會累計顯示 <strong class="text-amber-300">☁️ 同步 (N)</strong> 待上傳筆數。</div>
+              </div>
+              <div class="rounded-xl bg-slate-900/90 border border-slate-800 p-3 space-y-1">
+                <div class="font-black text-sky-300">步驟 3｜切回連線按「雙向同步」</div>
+                <div class="text-slate-300">恢復網路後，切換至 <strong class="text-sky-300">🌐 雲端連線</strong> 並按「<strong class="text-emerald-300">🔄 立即雙向同步</strong>」：系統會<strong>先上傳</strong>本機異動（自動去重），<strong>再下載</strong>雲端最新資料。</div>
+              </div>
+              <div class="rounded-xl bg-slate-900/90 border border-slate-800 p-3 space-y-1">
+                <div class="font-black text-purple-300">步驟 4｜特殊單向同步（進階）</div>
+                <div class="text-slate-300">新手機抓全量資料請點「<strong>⬇️ 僅拉取雲端</strong>」；剛用 JSON 還原備份、要覆蓋寫上雲端請點「<strong>📤 強制推送設定</strong>」。</div>
+              </div>
+            </div>
+          </div>
+
+          <details class="border-t border-slate-800 pt-2.5 text-xs">
+            <summary class="cursor-pointer font-bold text-slate-400 hover:text-slate-200 select-none">⚙️ 進階單向同步工具</summary>
+            <div class="flex flex-wrap gap-2 mt-2.5">
+              <button id="btn-sync-pull" type="button" class="px-3.5 py-2 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-white border border-slate-700">
+                ⬇️ 僅拉取雲端（抓最新回本機）
+              </button>
+              <button id="btn-sync-push-platform" type="button" class="px-3.5 py-2 rounded-xl text-xs font-bold bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40">
+                📤 強制推送本機設定至雲端
+              </button>
+              <button id="btn-copy-config-js" type="button" class="px-3.5 py-2 rounded-xl text-xs font-bold bg-purple-600/80 hover:bg-purple-500 text-white">
+                📋 複製 config.js
+              </button>
+            </div>
+          </details>
         </div>
 
         <details id="admin-maintenance-card" class="bg-slate-900 border border-rose-500/30 rounded-2xl p-4 sm:p-5">
@@ -1988,13 +2030,13 @@
     </div>
   </div>
 
-  <script src="./js/config.js?v=3.12.19"></script>
-  <script src="./js/timing-engine.js?v=3.12.19"></script>
-  <script src="./js/db.js?v=3.12.19"></script>
-  <script src="./js/nfc.js?v=3.12.19"></script>
-  <script src="./js/sync.js?v=3.12.19"></script>
-  <script src="./js/excel.js?v=3.12.19"></script>
-  <script src="./js/certificate.js?v=3.12.19"></script>
-  <script src="./js/app.js?v=3.12.19"></script>
+  <script src="./js/config.js?v=3.13.1"></script>
+  <script src="./js/timing-engine.js?v=3.13.1"></script>
+  <script src="./js/db.js?v=3.13.1"></script>
+  <script src="./js/nfc.js?v=3.13.1"></script>
+  <script src="./js/sync.js?v=3.13.1"></script>
+  <script src="./js/excel.js?v=3.13.1"></script>
+  <script src="./js/certificate.js?v=3.13.1"></script>
+  <script src="./js/app.js?v=3.13.1"></script>
 </body>
 </html>

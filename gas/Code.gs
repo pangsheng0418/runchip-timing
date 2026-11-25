@@ -145,6 +145,15 @@ function getOrCreateSheet_(ss, name, headers) {
   return sheet;
 }
 
+const CACHE_PUBLIC_KEY = 'tur_public_data_v311';
+const CACHE_PUBLIC_TTL_SEC = 20;
+
+function invalidatePublicCache_() {
+  try {
+    CacheService.getScriptCache().remove(CACHE_PUBLIC_KEY);
+  } catch (e) {}
+}
+
 /**
  * HTTP GET 入口（公開查詢與連線測試，密碼驗證一律走 POST）
  */
@@ -156,22 +165,40 @@ function doGet(e) {
     if (action === 'ping') {
       return jsonResponse_({
         ok: true,
-        apiVersion: '3.10',
+        apiVersion: '3.11',
         multiAdmin: true,
         serverTimeMs: Date.now(),
-        message: 'TUR (Taiwan Ultra Runners) 路跑計時平台 API v3.10 運作正常'
+        message: 'TUR (Taiwan Ultra Runners) 路跑計時平台 API v3.11 運作正常'
       });
     }
 
     if (action === 'publicData') {
-      const data = readAllData_(true, null);
-      return jsonResponse_({
+      const cache = CacheService.getScriptCache();
+      if (params.nocache !== '1') {
+        try {
+          const cached = cache.get(CACHE_PUBLIC_KEY);
+          if (cached) {
+            return ContentService
+              .createTextOutput(cached)
+              .setMimeType(ContentService.MimeType.JSON);
+          }
+        } catch (err) {}
+      }
+
+      const data = readAllData_(true, null, null);
+      const jsonStr = JSON.stringify({
         ok: true,
-        apiVersion: '3.9',
+        apiVersion: '3.11',
         multiAdmin: true,
         serverTimeMs: Date.now(),
         data: data
       });
+      if (jsonStr.length < 90000) {
+        try { cache.put(CACHE_PUBLIC_KEY, jsonStr, CACHE_PUBLIC_TTL_SEC); } catch (err) {}
+      }
+      return ContentService
+        .createTextOutput(jsonStr)
+        .setMimeType(ContentService.MimeType.JSON);
     }
 
     return jsonResponse_({ ok: false, error: '未知的 GET action: ' + action });
@@ -182,12 +209,10 @@ function doGet(e) {
 
 /**
  * HTTP POST 入口（使用 text/plain;charset=utf-8 避免 CORS 預檢）
+ * 效能優化：純讀取請求 (login / fullSync) 不搶寫入鎖，且 login 支援 lite 極速驗證模式
  */
 function doPost(e) {
-  const lock = LockService.getScriptLock();
   try {
-    lock.waitLock(15000);
-
     const rawBody = e && e.postData && e.postData.contents ? e.postData.contents : '{}';
     const payload = JSON.parse(rawBody);
     const action = payload.action;
@@ -195,30 +220,33 @@ function doPost(e) {
 
     const gCfg = readGlobalConfigMap_();
 
-    // 1. 登入驗證（作業人員或各管理者帳號）
+    // 1. 登入驗證（免寫入鎖；支援 lite=true 極速驗證，不重複回傳整包資料）
     if (action === 'login') {
       const mode = payload.mode || 'staff';
       const u = String(payload.username || '').trim();
       const p = String(payload.password || '');
+      const isLite = Boolean(payload.lite);
 
       if (mode === 'admin') {
         const matchedAdmin = verifyAdminAccount_({ username: u, password: p }, gCfg);
         if (!matchedAdmin) {
           return jsonResponse_({ ok: false, multiAdmin: true, error: '管理員帳號或密碼錯誤，或帳號已停用' });
         }
-        return jsonResponse_({
+        const resp = {
           ok: true,
-          apiVersion: '3.5',
+          apiVersion: '3.11',
           multiAdmin: true,
+          lite: isLite,
           serverTimeMs: Date.now(),
           account: {
             username: matchedAdmin.username,
             displayName: matchedAdmin.displayName || matchedAdmin.username,
             isSuperAdmin: matchedAdmin.isSuperAdmin,
             role: 'admin'
-          },
-          data: readAllData_(false, matchedAdmin)
-        });
+          }
+        };
+        if (!isLite) resp.data = readAllData_(false, matchedAdmin, gCfg);
+        return jsonResponse_(resp);
       }
 
       const staffList = readStaffList_();
@@ -228,17 +256,19 @@ function doPost(e) {
       if (!matched) {
         return jsonResponse_({ ok: false, multiAdmin: true, error: '作業員帳號或密碼錯誤，或帳號已停用' });
       }
-      return jsonResponse_({
+      const resp = {
         ok: true,
-        apiVersion: '3.5',
+        apiVersion: '3.11',
         multiAdmin: true,
+        lite: isLite,
         serverTimeMs: Date.now(),
-        account: matched,
-        data: readAllData_(false, null)
-      });
+        account: matched
+      };
+      if (!isLite) resp.data = readAllData_(false, null, gCfg);
+      return jsonResponse_(resp);
     }
 
-    // 2. 授權同步拉取（管理員僅回傳該管理員本人建立的活動，避免看見或誤改他人活動）
+    // 2. 授權同步拉取（免寫入鎖；管理員僅回傳該管理員本人建立的活動，避免看見或誤改他人活動）
     if (action === 'fullSync') {
       const callerAdmin = verifyAdminAccount_(payload.auth, gCfg);
       const isStaff = !callerAdmin && verifyStaff_(payload.auth);
@@ -247,104 +277,117 @@ function doPost(e) {
       }
       return jsonResponse_({
         ok: true,
-        apiVersion: '3.5',
+        apiVersion: '3.11',
         multiAdmin: true,
         serverTimeMs: Date.now(),
         isAdmin: Boolean(callerAdmin),
         isSuperAdmin: Boolean(callerAdmin && callerAdmin.isSuperAdmin),
         adminUsername: callerAdmin ? callerAdmin.username : '',
-        data: readAllData_(false, callerAdmin)
+        data: readAllData_(false, callerAdmin, gCfg)
       });
     }
 
-    // 3. 作業員與管理員均可上傳：感應紀錄、共用晶片主檔、批次離線同步
-    if (action === 'pushScans') {
-      const res = handlePushScans_(payload.scans || []);
-      return jsonResponse_({ ok: true, serverTimeMs: Date.now(), result: res });
-    }
-
-    if (action === 'upsertChips') {
-      const res = handleUpsertChips_(payload.chips || []);
-      return jsonResponse_({ ok: true, serverTimeMs: Date.now(), result: res });
-    }
-
-    if (action === 'upsertRegistrations') {
-      const callerAdmin = payload.auth ? verifyAdminAccount_(payload.auth, gCfg) : null;
-      if (payload.auth && !callerAdmin) {
-        return jsonResponse_({ ok: false, multiAdmin: true, error: '管理員身分驗證失敗' });
+    // 以下為寫入操作，才申請 ScriptLock 並於寫入後清除公開資料短快取
+    const lock = LockService.getScriptLock();
+    lock.waitLock(15000);
+    try {
+      // 3. 作業員與管理員均可上傳：感應紀錄、共用晶片主檔、批次離線同步
+      if (action === 'pushScans') {
+        const res = handlePushScans_(payload.scans || []);
+        invalidatePublicCache_();
+        return jsonResponse_({ ok: true, serverTimeMs: Date.now(), result: res });
       }
-      const regs = payload.registrations || [];
-      if (callerAdmin && regs.length) {
-        assertEventsOwnedByAdmin_(regs.map(function (r) { return r.eventId; }), callerAdmin, gCfg);
+
+      if (action === 'upsertChips') {
+        const res = handleUpsertChips_(payload.chips || []);
+        invalidatePublicCache_();
+        return jsonResponse_({ ok: true, serverTimeMs: Date.now(), result: res });
       }
-      const res = handleUpsertRegistrations_(regs);
-      return jsonResponse_({ ok: true, serverTimeMs: Date.now(), result: res });
-    }
 
-    if (action === 'batchSync') {
-      let platformSynced = false;
-      let purgeRes = { eventIds: [], deletedRegistrations: 0, deletedScans: 0 };
-      const callerAdmin = payload.auth ? verifyAdminAccount_(payload.auth, gCfg) : null;
-      if (payload.platform && callerAdmin) {
-        const saveRes = handleSavePlatform_(payload.platform, callerAdmin, gCfg);
-        platformSynced = true;
-        if (saveRes && saveRes.purge) purgeRes = saveRes.purge;
+      if (action === 'upsertRegistrations') {
+        const callerAdmin = payload.auth ? verifyAdminAccount_(payload.auth, gCfg) : null;
+        if (payload.auth && !callerAdmin) {
+          return jsonResponse_({ ok: false, multiAdmin: true, error: '管理員身分驗證失敗' });
+        }
+        const regs = payload.registrations || [];
+        if (callerAdmin && regs.length) {
+          assertEventsOwnedByAdmin_(regs.map(function (r) { return r.eventId; }), callerAdmin, gCfg);
+        }
+        const res = handleUpsertRegistrations_(regs);
+        invalidatePublicCache_();
+        return jsonResponse_({ ok: true, serverTimeMs: Date.now(), result: res });
       }
-      const chipRes = handleUpsertChips_(payload.chips || []);
-      const regs = payload.registrations || [];
-      if (callerAdmin && regs.length) {
-        assertEventsOwnedByAdmin_(regs.map(function (r) { return r.eventId; }), callerAdmin, gCfg);
+
+      if (action === 'batchSync') {
+        let platformSynced = false;
+        let purgeRes = { eventIds: [], deletedRegistrations: 0, deletedScans: 0 };
+        const callerAdmin = payload.auth ? verifyAdminAccount_(payload.auth, gCfg) : null;
+        if (payload.platform && callerAdmin) {
+          const saveRes = handleSavePlatform_(payload.platform, callerAdmin, gCfg);
+          platformSynced = true;
+          if (saveRes && saveRes.purge) purgeRes = saveRes.purge;
+        }
+        const chipRes = handleUpsertChips_(payload.chips || []);
+        const regs = payload.registrations || [];
+        if (callerAdmin && regs.length) {
+          assertEventsOwnedByAdmin_(regs.map(function (r) { return r.eventId; }), callerAdmin, gCfg);
+        }
+        const regRes = handleUpsertRegistrations_(regs);
+        const scanRes = handlePushScans_(payload.scans || []);
+        const histRes = (callerAdmin && Array.isArray(payload.historyRecords) && payload.historyRecords.length)
+          ? handleUpsertHistory_(payload.historyRecords, callerAdmin)
+          : { inserted: 0, updated: 0 };
+        invalidatePublicCache_();
+        return jsonResponse_({
+          ok: true,
+          multiAdmin: true,
+          serverTimeMs: Date.now(),
+          result: { platformSynced: platformSynced, purge: purgeRes, chips: chipRes, registrations: regRes, scans: scanRes, history: histRes }
+        });
       }
-      const regRes = handleUpsertRegistrations_(regs);
-      const scanRes = handlePushScans_(payload.scans || []);
-      const histRes = (callerAdmin && Array.isArray(payload.historyRecords) && payload.historyRecords.length)
-        ? handleUpsertHistory_(payload.historyRecords, callerAdmin)
-        : { inserted: 0, updated: 0 };
-      return jsonResponse_({
-        ok: true,
-        multiAdmin: true,
-        serverTimeMs: Date.now(),
-        result: { platformSynced: platformSynced, purge: purgeRes, chips: chipRes, registrations: regRes, scans: scanRes, history: histRes }
-      });
-    }
 
-    // 以下需管理員帳號驗證
-    const callerAdmin = verifyAdminAccount_(payload.auth, gCfg);
-    if (!callerAdmin) {
-      return jsonResponse_({ ok: false, multiAdmin: true, error: '權限不足：需要管理員帳號密碼驗證' });
-    }
+      // 以下需管理員帳號驗證
+      const callerAdmin = verifyAdminAccount_(payload.auth, gCfg);
+      if (!callerAdmin) {
+        return jsonResponse_({ ok: false, multiAdmin: true, error: '權限不足：需要管理員帳號密碼驗證' });
+      }
 
-    if (action === 'upsertHistory') {
-      const res = handleUpsertHistory_(payload.historyRecords || [], callerAdmin);
-      return jsonResponse_({ ok: true, multiAdmin: true, serverTimeMs: Date.now(), result: res });
-    }
+      if (action === 'upsertHistory') {
+        const res = handleUpsertHistory_(payload.historyRecords || [], callerAdmin);
+        invalidatePublicCache_();
+        return jsonResponse_({ ok: true, multiAdmin: true, serverTimeMs: Date.now(), result: res });
+      }
 
-    if (action === 'deleteHistory') {
-      const res = handleDeleteHistory_(payload.ids || []);
-      return jsonResponse_({ ok: true, multiAdmin: true, serverTimeMs: Date.now(), result: res });
-    }
+      if (action === 'deleteHistory') {
+        const res = handleDeleteHistory_(payload.ids || []);
+        invalidatePublicCache_();
+        return jsonResponse_({ ok: true, multiAdmin: true, serverTimeMs: Date.now(), result: res });
+      }
 
-    if (action === 'savePlatform') {
-      const saveRes = handleSavePlatform_(payload, callerAdmin, gCfg);
-      return jsonResponse_({
-        ok: true,
-        multiAdmin: true,
-        serverTimeMs: Date.now(),
-        message: '您的活動設定與帳號已同步至雲端',
-        purge: saveRes && saveRes.purge ? saveRes.purge : { eventIds: [], deletedRegistrations: 0, deletedScans: 0 }
-      });
-    }
+      if (action === 'savePlatform') {
+        const saveRes = handleSavePlatform_(payload, callerAdmin, gCfg);
+        invalidatePublicCache_();
+        return jsonResponse_({
+          ok: true,
+          multiAdmin: true,
+          serverTimeMs: Date.now(),
+          message: '您的活動設定與帳號已同步至雲端',
+          purge: saveRes && saveRes.purge ? saveRes.purge : { eventIds: [], deletedRegistrations: 0, deletedScans: 0 }
+        });
+      }
 
-    if (action === 'editScan') {
-      const res = handleEditScan_(payload.scan, callerAdmin, gCfg);
-      return jsonResponse_({ ok: true, multiAdmin: true, serverTimeMs: Date.now(), result: res });
-    }
+      if (action === 'editScan') {
+        const res = handleEditScan_(payload.scan, callerAdmin, gCfg);
+        invalidatePublicCache_();
+        return jsonResponse_({ ok: true, multiAdmin: true, serverTimeMs: Date.now(), result: res });
+      }
 
-    return jsonResponse_({ ok: false, error: '不支援的 POST action: ' + action });
+      return jsonResponse_({ ok: false, error: '不支援的 POST action: ' + action });
+    } finally {
+      lock.releaseLock();
+    }
   } catch (err) {
     return jsonResponse_({ ok: false, multiAdmin: true, error: String(err.message || err) });
-  } finally {
-    lock.releaseLock();
   }
 }
 
@@ -520,11 +563,19 @@ function readEventsList_(defaultOwner) {
   }).filter(function (ev) { return ev.eventId; });
 }
 
-function readAllData_(maskSensitive, callerAdmin) {
+function readAllData_(maskSensitive, callerAdmin, gCfgOpt) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const gCfg = readGlobalConfigMap_();
+  const gCfg = gCfgOpt || readGlobalConfigMap_();
   const defaultOwner = String(gCfg.adminUsername || 'admin').trim() || 'admin';
   const allEvents = readEventsList_(defaultOwner);
+
+  // 僅在公開隱碼模式下才需於雲端計算 SHA-256，且以 hashCache 快取同一身份證避免重複運算
+  const hashCache = {};
+  const fastHash_ = function (rawId) {
+    if (!maskSensitive || !rawId) return '';
+    if (!hashCache[rawId]) hashCache[rawId] = sha256Hex_(rawId);
+    return hashCache[rawId];
+  };
 
   // 若為管理員登入，僅回傳該管理員本人建立的活動、報名、感應與作業員，落實多管理者資料隔離！
   const events = callerAdmin
@@ -557,7 +608,7 @@ function readAllData_(maskSensitive, callerAdmin) {
       city: String(r.city || '').trim(),
       country: String(r.country || '').trim(),
       idMasked: maskIdNumber_(rawId),
-      idHash: rawId ? sha256Hex_(rawId) : '',
+      idHash: fastHash_(rawId),
       categoryId: String(r.categoryId || '').trim(),
       penaltySec: Number(r.penaltySec || 0),
       updatedAt: r.updatedAt ? Number(r.updatedAt) : Date.now()
@@ -610,7 +661,7 @@ function readAllData_(maskSensitive, callerAdmin) {
       bib: String(h.bib || '').trim(),
       name: String(h.name || '').trim(),
       idMasked: maskIdNumber_(rawId),
-      idHash: rawId ? sha256Hex_(rawId) : '',
+      idHash: fastHash_(rawId),
       finishTime: formatTimeCell_(h.finishTime),
       distanceKm: Number(h.distanceKm || 0),
       laps: parseInt(h.laps || 0, 10) || 0,
@@ -949,6 +1000,7 @@ function handleSavePlatform_(payload, callerAdmin, gCfg) {
       const adminRows = nextAdmins.map(function (a) {
         return [a.username, a.password, a.displayName, a.isSuperAdmin ? 1 : 0, a.enabled === false ? 0 : 1, a.updatedAt];
       });
+      adminSheet.getRange(2, 1, adminRows.length, 2).setNumberFormat('@');
       adminSheet.getRange(2, 1, adminRows.length, 6).setValues(adminRows);
     }
     currentAdmins = nextAdmins;

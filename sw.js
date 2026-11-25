@@ -1,7 +1,7 @@
 /**
  * Service Worker — 支援賽道無網路環境離線快取 (PWA Offline-First)
  */
-const CACHE_NAME = 'nfc-race-timing-v3.12.19';
+const CACHE_NAME = 'nfc-race-timing-v3.13.1';
 
 const CORE_ASSETS = [
   './',
@@ -73,7 +73,24 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 本地核心檔案採 Network-First（強制向伺服器驗證最新版本），斷網自動回退快取
+  // HTML 頁面採 Network-First（確保版本號更新即時生效）；其餘帶版本參數之 JS/CSS/圖片採 Cache-First 加速秒開
+  const isHtml = event.request.mode === 'navigate' || url.pathname.endsWith('.html') || url.pathname.endsWith('/');
+  if (!isHtml) {
+    event.respondWith(
+      caches.match(event.request).then((cached) => {
+        if (cached) return cached;
+        return fetch(event.request).then((resp) => {
+          if (resp && resp.status === 200) {
+            const copy = resp.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+          }
+          return resp;
+        });
+      })
+    );
+    return;
+  }
+
   event.respondWith(
     fetch(event.request, { cache: 'no-cache' })
       .then((resp) => {

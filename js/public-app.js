@@ -475,9 +475,41 @@
     state.selectedEventId = openEvents[0].eventId;
   }
 
+  let _hasRenderedPublicOnce = false;
+
+  async function renderPublicSnapshot() {
+    renderModeUI();
+    renderEventSelector();
+    renderHistoryFilters();
+    recomputeAndRender();
+    if (state.mode === 'history') {
+      await runHistorySearch(state.historyQuery);
+    } else if (state.mode === 'warriors800') {
+      await renderWarriors800Tab();
+    } else if (state.mode === 'certificate') {
+      await renderPublicCertificateTab();
+    }
+  }
+
   async function loadData(silent = false) {
     const badge = $('pub-source-badge');
-    if (!silent) badge.textContent = '載入中...';
+
+    // 首次進入立即先用本機 IndexedDB 快取秒開渲染（<50ms），不讓使用者乾等雲端喚醒
+    if (!_hasRenderedPublicOnce && state.gasUrl) {
+      try {
+        await loadFromLocalIndexedDB();
+        if (state.events.length > 0 || state.historyRecords.length > 0) {
+          badge.textContent = '本機快取・更新中...';
+          await renderPublicSnapshot();
+          _hasRenderedPublicOnce = true;
+        } else if (!silent) {
+          badge.textContent = '載入中...';
+        }
+      } catch {}
+    } else if (!silent) {
+      badge.textContent = '更新中...';
+    }
+
     state.computedCache.clear();
 
     try {
@@ -506,10 +538,11 @@
       }
     } catch (err) {
       console.warn('雲端讀取失敗，切換本機快取:', err);
-      await loadFromLocalIndexedDB();
+      if (!_hasRenderedPublicOnce) await loadFromLocalIndexedDB();
       badge.textContent = '本機快取（離線）';
     }
 
+    _hasRenderedPublicOnce = true;
     renderModeUI();
     renderEventSelector();
     renderHistoryFilters();

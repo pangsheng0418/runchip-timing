@@ -312,6 +312,19 @@
       });
     }
 
+    _runBatchTx(storeName, { deletes = [], puts = [] } = {}) {
+      if (!deletes.length && !puts.length) return Promise.resolve();
+      return new Promise((resolve, reject) => {
+        const tx = this.db.transaction(storeName, 'readwrite');
+        const store = tx.objectStore(storeName);
+        for (const key of deletes) store.delete(key);
+        for (const item of puts) store.put(item);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+        tx.onabort = () => reject(tx.error || new Error('IndexedDB 批次寫入中止'));
+      });
+    }
+
     /* ---------------- 裝置設定與登入階段 ---------------- */
 
     getDeviceSettings() {
@@ -358,8 +371,14 @@
 
     getSession() {
       try {
-        const raw = sessionStorage.getItem(SESSION_KEY);
-        return raw ? JSON.parse(raw) : null;
+        const raw = localStorage.getItem(SESSION_KEY) || sessionStorage.getItem(SESSION_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        // 若先前僅存於 sessionStorage，自動升級遷移至 localStorage，確保下次開啟直接維持登入
+        if (parsed && !localStorage.getItem(SESSION_KEY)) {
+          try { localStorage.setItem(SESSION_KEY, raw); } catch {}
+        }
+        return parsed;
       } catch {
         return null;
       }
@@ -367,8 +386,14 @@
 
     saveSession(sessionObj) {
       try {
-        if (!sessionObj) sessionStorage.removeItem(SESSION_KEY);
-        else sessionStorage.setItem(SESSION_KEY, JSON.stringify(sessionObj));
+        if (!sessionObj) {
+          localStorage.removeItem(SESSION_KEY);
+          sessionStorage.removeItem(SESSION_KEY);
+        } else {
+          const json = JSON.stringify(sessionObj);
+          localStorage.setItem(SESSION_KEY, json);
+          sessionStorage.removeItem(SESSION_KEY);
+        }
       } catch {}
     }
 
@@ -551,12 +576,58 @@
     }
 
     async upsertRegistrationsBulk(list, markSynced = false) {
-      const results = [];
-      for (const item of list) {
-        if (!item || !item.eventId || !item.bib) continue;
-        results.push(await this.upsertRegistration(item, markSynced));
-      }
-      return results;
+      await this.init();
+      const valid = (list || []).filter((item) => item && String(item.eventId || '').trim() && String(item.bib || '').trim());
+      if (!valid.length) return [];
+
+      const existingAll = await this.getAllRegistrations();
+      const existingMap = new Map(existingAll.map((r) => [r.regId, r]));
+      const hashCache = new Map();
+      const now = Date.now();
+
+      const records = await Promise.all(valid.map(async (reg) => {
+        const eventId = String(reg.eventId || '').trim();
+        const bib = String(reg.bib || '').trim();
+        const idNumber = String(reg.idNumber || '').trim().toUpperCase();
+        const regId = String(reg.regId || makeRegId(eventId, idNumber, bib)).trim();
+        const existing = existingMap.get(regId);
+        const finalId = idNumber || existing?.idNumber || '';
+
+        let idHash = reg.idHash || (existing && existing.idNumber === finalId ? existing.idHash : '') || '';
+        if (!idHash && finalId) {
+          if (!hashCache.has(finalId)) {
+            hashCache.set(finalId, global.TimingEngine.sha256Hex(finalId));
+          }
+          idHash = await hashCache.get(finalId);
+        }
+
+        const rawGender = reg.gender !== undefined ? reg.gender : (existing?.gender ?? '');
+        const finalGender = normalizeGenderValue(rawGender, finalId);
+        const finalDob = reg.dob !== undefined ? normalizeDobValue(reg.dob) : (existing?.dob || '');
+
+        return {
+          regId,
+          eventId,
+          bib,
+          name: String(reg.name ?? existing?.name ?? '').trim(),
+          lastName: String(reg.lastName ?? existing?.lastName ?? '').trim(),
+          firstName: String(reg.firstName ?? existing?.firstName ?? '').trim(),
+          gender: finalGender,
+          dob: finalDob,
+          city: String(reg.city ?? existing?.city ?? '').trim(),
+          country: String(reg.country ?? existing?.country ?? '').trim(),
+          idNumber: finalId,
+          idMasked: reg.idMasked || global.TimingEngine.maskIdNumber(finalId),
+          idHash,
+          categoryId: String(reg.categoryId ?? existing?.categoryId ?? '').trim(),
+          penaltySec: Number(reg.penaltySec ?? existing?.penaltySec ?? 0),
+          updatedAt: Number(reg.updatedAt || now),
+          synced: markSynced ? 1 : 0
+        };
+      }));
+
+      await this._runBatchTx('registrations', { puts: records });
+      return records;
     }
 
     async deleteRegistration(regId) {
@@ -1016,78 +1087,154 @@
           ])
         : null;
 
-      if (Array.isArray(cloudData.chips)) {
-        const cloudChipSet = new Set(cloudData.chips.map((c) => String(c.idNumber || '').trim().toUpperCase()));
-        const localChips = await this.getAllChips();
-        for (const lc of localChips) {
-          if (lc.synced && !cloudChipSet.has(lc.idNumber)) {
-            await this.deleteChip(lc.idNumber);
-          }
+      // 平行一次讀出各表本機資料，並以「單一 IndexedDB 批次交易」取代逐筆讀寫（大幅加速同步）
+      const [localChips, localRegs, localScans, localHist] = await Promise.all([
+        Array.isArray(cloudData.chips) ? this.getAllChips() : Promise.resolve(null),
+        Array.isArray(cloudData.registrations) ? this.getAllRegistrations() : Promise.resolve(null),
+        Array.isArray(cloudData.scans) ? this.getAllScans() : Promise.resolve(null),
+        Array.isArray(cloudData.historyRecords) ? this.getAllHistoryRecords() : Promise.resolve(null)
+      ]);
+
+      const now = Date.now();
+      const batchPromises = [];
+      const sharedHashCache = new Map();
+      const getHashCached = async (idStr) => {
+        if (!idStr) return '';
+        if (!sharedHashCache.has(idStr)) {
+          sharedHashCache.set(idStr, global.TimingEngine.sha256Hex(idStr));
         }
+        return sharedHashCache.get(idStr);
+      };
+
+      if (Array.isArray(cloudData.chips) && localChips) {
+        const localMap = new Map(localChips.map((c) => [c.idNumber, c]));
+        const cloudChipSet = new Set();
+        const deletes = [];
+        const puts = [];
+
         for (const c of cloudData.chips) {
-          const local = await this.getChipById(c.idNumber);
+          const cleanId = String(c.idNumber || '').trim().toUpperCase();
+          if (!cleanId) continue;
+          cloudChipSet.add(cleanId);
+          const local = localMap.get(cleanId);
           if (local && !local.synced && local.updatedAt > (c.updatedAt || 0)) continue;
-          await this.upsertChip(c, true);
+          puts.push({
+            idNumber: cleanId,
+            name: String(c.name ?? local?.name ?? '').trim(),
+            nfcUid: String(c.nfcUid || local?.nfcUid || '').trim().toUpperCase(),
+            writtenAt: c.writtenAt || local?.writtenAt || now,
+            updatedAt: Number(c.updatedAt || now),
+            synced: 1
+          });
         }
+        for (const lc of localChips) {
+          if (lc.synced && !cloudChipSet.has(lc.idNumber)) deletes.push(lc.idNumber);
+        }
+        batchPromises.push(this._runBatchTx('chips', { deletes, puts }));
       }
 
-      if (Array.isArray(cloudData.registrations)) {
-        const localAll = await this.getAllRegistrations();
-        const localMap = new Map(localAll.map((r) => [r.regId, r]));
+      if (Array.isArray(cloudData.registrations) && localRegs) {
+        const localMap = new Map(localRegs.map((r) => [r.regId, r]));
         const cloudRegSet = new Set(cloudData.registrations.map((r) => r.regId));
-        for (const lr of localAll) {
+        const deletes = [];
+        for (const lr of localRegs) {
           if (scopedEventIds && !scopedEventIds.has(lr.eventId)) continue;
           if ((lr.synced || removedScopedEventIds.has(lr.eventId)) && !cloudRegSet.has(lr.regId)) {
-            await this.deleteRegistration(lr.regId);
+            deletes.push(lr.regId);
           }
         }
+        const puts = [];
         for (const r of cloudData.registrations) {
+          const eventId = String(r.eventId || '').trim();
+          const bib = String(r.bib || '').trim();
+          if (!eventId || !bib) continue;
           const local = localMap.get(r.regId);
           if (local && !local.synced && local.updatedAt > (r.updatedAt || 0)) continue;
-          await this.upsertRegistration({
-            ...r,
-            idNumber: r.idNumber || local?.idNumber || '',
-            dob: r.dob !== undefined ? r.dob : (local?.dob || '')
-          }, true);
+          const finalId = String(r.idNumber || local?.idNumber || '').trim().toUpperCase();
+          const regId = String(r.regId || makeRegId(eventId, finalId, bib)).trim();
+          const rawGender = r.gender !== undefined ? r.gender : (local?.gender ?? '');
+          const finalDob = r.dob !== undefined ? normalizeDobValue(r.dob) : (local?.dob || '');
+          const existingHash = r.idHash || (local && local.idNumber === finalId ? local.idHash : '') || '';
+          puts.push({
+            regId,
+            eventId,
+            bib,
+            name: String(r.name ?? local?.name ?? '').trim(),
+            lastName: String(r.lastName ?? local?.lastName ?? '').trim(),
+            firstName: String(r.firstName ?? local?.firstName ?? '').trim(),
+            gender: normalizeGenderValue(rawGender, finalId),
+            dob: finalDob,
+            city: String(r.city ?? local?.city ?? '').trim(),
+            country: String(r.country ?? local?.country ?? '').trim(),
+            idNumber: finalId,
+            idMasked: r.idMasked || global.TimingEngine.maskIdNumber(finalId),
+            idHash: existingHash,
+            categoryId: String(r.categoryId ?? local?.categoryId ?? '').trim(),
+            penaltySec: Number(r.penaltySec ?? local?.penaltySec ?? 0),
+            updatedAt: Number(r.updatedAt || now),
+            synced: 1
+          });
         }
+        batchPromises.push((async () => {
+          // 僅對缺少 idHash 的紀錄平行計算 SHA-256
+          await Promise.all(puts.map(async (rec) => {
+            if (!rec.idHash && rec.idNumber) rec.idHash = await getHashCached(rec.idNumber);
+          }));
+          await this._runBatchTx('registrations', { deletes, puts });
+        })());
       }
 
-      if (Array.isArray(cloudData.scans)) {
-        const localAll = await this.getAllScans();
-        const localMap = new Map(localAll.map((s) => [s.id, s]));
+      if (Array.isArray(cloudData.scans) && localScans) {
+        const localMap = new Map(localScans.map((s) => [s.id, s]));
         const cloudScanSet = new Set(cloudData.scans.map((s) => s.id));
-        for (const ls of localAll) {
+        const deletes = [];
+        for (const ls of localScans) {
           if (scopedEventIds && !scopedEventIds.has(ls.eventId)) continue;
           if ((ls.synced || removedScopedEventIds.has(ls.eventId)) && !cloudScanSet.has(ls.id)) {
-            await this._req(this._tx('scans', 'readwrite').delete(ls.id));
+            deletes.push(ls.id);
           }
         }
+        const puts = [];
         for (const s of cloudData.scans) {
           const local = localMap.get(s.id);
           if (local && !local.synced && local.updatedAt > (s.updatedAt || 0)) continue;
-          await this.putScan({ ...s, synced: 1 });
+          const ts = Number(s.timestampMs || 0);
+          puts.push({
+            ...s,
+            timeStr: s.timeStr || global.TimingEngine.formatClockMs(ts),
+            isoTime: s.isoTime || (ts ? new Date(ts).toISOString() : ''),
+            synced: 1,
+            updatedAt: Number(s.updatedAt || now)
+          });
         }
+        batchPromises.push(this._runBatchTx('scans', { deletes, puts }));
       }
 
-      if (Array.isArray(cloudData.historyRecords)) {
-        const localAll = await this.getAllHistoryRecords();
-        const localMap = new Map(localAll.map((h) => [h.id, h]));
+      if (Array.isArray(cloudData.historyRecords) && localHist) {
+        const localMap = new Map(localHist.map((h) => [h.id, h]));
         const cloudHistSet = new Set(cloudData.historyRecords.map((h) => h.id));
-        for (const lh of localAll) {
-          if (lh.synced && !cloudHistSet.has(lh.id)) {
-            await this.deleteHistoryRecord(lh.id);
-          }
+        const deletes = [];
+        for (const lh of localHist) {
+          if (lh.synced && !cloudHistSet.has(lh.id)) deletes.push(lh.id);
         }
         const toPut = [];
         for (const h of cloudData.historyRecords) {
+          if (!h || !String(h.eventName || '').trim() || !String(h.name || '').trim()) continue;
           const local = localMap.get(h.id);
           if (local && !local.synced && local.updatedAt > (h.updatedAt || 0)) continue;
-          toPut.push({ ...h, idNumber: h.idNumber || local?.idNumber || '' });
+          toPut.push({
+            ...h,
+            idNumber: h.idNumber || local?.idNumber || '',
+            idHash: h.idHash || (local && local.idNumber === (h.idNumber || local.idNumber) ? local.idHash : '') || ''
+          });
         }
-        if (toPut.length) {
-          await this.upsertHistoryRecordsBulk(toPut, true);
-        }
+        batchPromises.push((async () => {
+          const normalized = await Promise.all(toPut.map((item) => this.normalizeHistoryItem(item, true)));
+          await this._runBatchTx('history_records', { deletes, puts: normalized });
+        })());
       }
+
+      await Promise.all(batchPromises);
     }
 
     /* ---------------- 完整系統備份 / 還原合併 (JSON) ---------------- */
@@ -1101,32 +1248,30 @@
         this.getAllHistoryRecords()
       ]);
 
-      if (ownerAdmin) {
+      // 非最高管理權責時，僅匯出該承辦人名下資料；最高管理權責匯出全機完整資料
+      if (ownerAdmin && !isSuperAdmin) {
         const ownEvents = (platform.events || []).filter((e) => (e.ownerAdmin || platform.adminUsername) === ownerAdmin);
         const ownEventIds = new Set(ownEvents.map((e) => e.eventId));
-        const ownStaff = (platform.staffAccounts || []).filter((s) => {
-          const o = String(s.ownerAdmin || '').trim();
-          return isSuperAdmin ? (!o || o === ownerAdmin) : o === ownerAdmin;
-        });
+        const ownStaff = (platform.staffAccounts || []).filter((s) => String(s.ownerAdmin || '').trim() === ownerAdmin);
         return {
-          schemaVersion: '3.9',
+          schemaVersion: '3.13',
           exportedAt: new Date().toISOString(),
           scopedOwnerAdmin: ownerAdmin,
           platform: {
             ...platform,
-            adminAccounts: isSuperAdmin ? platform.adminAccounts : (platform.adminAccounts || []).filter((a) => a.username === ownerAdmin),
+            adminAccounts: (platform.adminAccounts || []).filter((a) => a.username === ownerAdmin),
             events: ownEvents,
             staffAccounts: ownStaff
           },
           chips,
           registrations: registrations.filter((r) => ownEventIds.has(r.eventId)),
           scans: scans.filter((s) => ownEventIds.has(s.eventId)),
-          historyRecords: isSuperAdmin ? historyRecords : historyRecords.filter((h) => h.ownerAdmin === ownerAdmin)
+          historyRecords: historyRecords.filter((h) => h.ownerAdmin === ownerAdmin)
         };
       }
 
       return {
-        schemaVersion: '3.9',
+        schemaVersion: '3.13',
         exportedAt: new Date().toISOString(),
         platform,
         chips,
@@ -1137,65 +1282,136 @@
     }
 
     async importFullBackup(backupObj, strategy = 'replace', { ownerAdmin = '', isSuperAdmin = true } = {}) {
-      if (!backupObj || (!backupObj.platform && !Array.isArray(backupObj.scans))) {
-        throw new Error('無效的系統備份檔格式');
+      if (!backupObj || typeof backupObj !== 'object' || (!backupObj.platform && !Array.isArray(backupObj.scans) && !Array.isArray(backupObj.registrations) && !Array.isArray(backupObj.chips) && !Array.isArray(backupObj.historyRecords))) {
+        throw new Error('無效的系統備份檔格式（請選擇本系統下載的 .json 備份檔）');
       }
+      await this.init();
+
+      let importedEventCount = 0;
       if (strategy === 'replace' && isSuperAdmin) {
         await this.clearAllData(false);
         if (backupObj.platform) {
-          await this.savePlatform({ ...createDefaultPlatform(), ...backupObj.platform });
+          const saved = await this.savePlatform({ ...createDefaultPlatform(), ...backupObj.platform });
+          importedEventCount = (saved.events || []).length;
         }
       } else if (backupObj.platform) {
         const cur = await this.getPlatform();
         const eventMap = new Map((cur.events || []).map((e) => [e.eventId, e]));
         (backupObj.platform.events || []).forEach((e) => {
+          if (!e?.eventId) return;
           const existing = eventMap.get(e.eventId);
           // 非最高管理員合併備份時，絕不覆蓋其他管理員的活動
-          if (ownerAdmin && existing && (existing.ownerAdmin || cur.adminUsername) !== ownerAdmin) return;
-          eventMap.set(e.eventId, ownerAdmin ? { ...e, ownerAdmin } : e);
+          if (!isSuperAdmin && ownerAdmin && existing && (existing.ownerAdmin || cur.adminUsername) !== ownerAdmin) return;
+          eventMap.set(e.eventId, !isSuperAdmin && ownerAdmin ? { ...e, ownerAdmin } : e);
+          importedEventCount++;
         });
         const staffMap = new Map((cur.staffAccounts || []).map((s) => [s.username, s]));
         (backupObj.platform.staffAccounts || []).forEach((s) => {
           if (!s?.username) return;
           const existing = staffMap.get(s.username);
-          if (ownerAdmin && existing && existing.ownerAdmin && existing.ownerAdmin !== ownerAdmin) return;
-          staffMap.set(s.username, ownerAdmin && !isSuperAdmin ? { ...s, ownerAdmin } : s);
+          if (!isSuperAdmin && ownerAdmin && existing && existing.ownerAdmin && existing.ownerAdmin !== ownerAdmin) return;
+          staffMap.set(s.username, !isSuperAdmin && ownerAdmin ? { ...s, ownerAdmin } : s);
         });
+        const adminMap = new Map((cur.adminAccounts || []).map((a) => [a.username, a]));
+        if (isSuperAdmin && Array.isArray(backupObj.platform.adminAccounts)) {
+          backupObj.platform.adminAccounts.forEach((a) => {
+            if (!a?.username) return;
+            // 合併還原保留目前既有帳密，僅補入備份中新增的管理員帳號
+            if (!adminMap.has(a.username)) adminMap.set(a.username, a);
+          });
+        }
         await this.savePlatform({
           ...cur,
+          adminAccounts: Array.from(adminMap.values()),
           events: Array.from(eventMap.values()),
           staffAccounts: Array.from(staffMap.values())
         });
       }
 
       const latestPlatform = await this.getPlatform();
-      const allowedEventIds = ownerAdmin
+      const allowedEventIds = (!isSuperAdmin && ownerAdmin)
         ? new Set((latestPlatform.events || []).filter((e) => (e.ownerAdmin || latestPlatform.adminUsername) === ownerAdmin).map((e) => e.eventId))
         : null;
 
+      const now = Date.now();
+      const tasks = [];
       let chipCount = 0, regCount = 0, scanCount = 0, historyCount = 0;
-      for (const c of backupObj.chips || []) {
-        if (!c?.idNumber) continue;
-        await this.upsertChip(c, false);
-        chipCount++;
+
+      // 1. 批次還原共用晶片
+      const validChips = (backupObj.chips || []).filter((c) => c && String(c.idNumber || '').trim());
+      if (validChips.length) {
+        tasks.push((async () => {
+          const existingChips = await this.getAllChips();
+          const existMap = new Map(existingChips.map((c) => [c.idNumber, c]));
+          const puts = validChips.map((c) => {
+            const cleanId = String(c.idNumber).trim().toUpperCase();
+            const existing = existMap.get(cleanId);
+            return {
+              idNumber: cleanId,
+              name: String(c.name ?? existing?.name ?? '').trim(),
+              nfcUid: String(c.nfcUid || existing?.nfcUid || '').trim().toUpperCase(),
+              writtenAt: c.writtenAt || existing?.writtenAt || now,
+              updatedAt: Number(c.updatedAt || now),
+              synced: 0
+            };
+          });
+          await this._runBatchTx('chips', { puts });
+          chipCount = puts.length;
+        })());
       }
-      for (const r of backupObj.registrations || []) {
-        if (!r?.eventId || !r?.bib) continue;
-        if (allowedEventIds && !allowedEventIds.has(r.eventId)) continue;
-        await this.upsertRegistration(r, false);
-        regCount++;
+
+      // 2. 批次還原報名名單
+      const validRegs = (backupObj.registrations || []).filter((r) => {
+        if (!r?.eventId || !r?.bib) return false;
+        if (allowedEventIds && !allowedEventIds.has(r.eventId)) return false;
+        return true;
+      });
+      if (validRegs.length) {
+        tasks.push((async () => {
+          const saved = await this.upsertRegistrationsBulk(validRegs, false);
+          regCount = saved.length;
+        })());
       }
-      for (const s of backupObj.scans || []) {
-        if (!s?.id || !s?.eventId || !s?.bib) continue;
-        if (allowedEventIds && !allowedEventIds.has(s.eventId)) continue;
-        await this.putScan({ ...s, synced: 0 });
-        scanCount++;
+
+      // 3. 批次還原感應紀錄
+      const validScans = (backupObj.scans || []).filter((s) => {
+        if (!s?.id || !s?.eventId || !s?.bib) return false;
+        if (allowedEventIds && !allowedEventIds.has(s.eventId)) return false;
+        return true;
+      });
+      if (validScans.length) {
+        tasks.push((async () => {
+          const puts = validScans.map((s) => {
+            const ts = Number(s.timestampMs || 0);
+            return {
+              ...s,
+              timeStr: s.timeStr || global.TimingEngine.formatClockMs(ts),
+              isoTime: s.isoTime || (ts ? new Date(ts).toISOString() : ''),
+              synced: 0,
+              updatedAt: Number(s.updatedAt || now)
+            };
+          });
+          await this._runBatchTx('scans', { puts });
+          scanCount = puts.length;
+        })());
       }
+
+      // 4. 批次還原歷年紀錄
       if (Array.isArray(backupObj.historyRecords) && backupObj.historyRecords.length) {
-        const savedHist = await this.upsertHistoryRecordsBulk(backupObj.historyRecords, false);
-        historyCount = savedHist.length;
+        tasks.push((async () => {
+          const savedHist = await this.upsertHistoryRecordsBulk(backupObj.historyRecords, false);
+          historyCount = savedHist.length;
+        })());
       }
-      return { chipCount, regCount, scanCount, historyCount };
+
+      await Promise.all(tasks);
+      return {
+        eventCount: importedEventCount || (latestPlatform.events || []).length,
+        chipCount,
+        regCount,
+        scanCount,
+        historyCount
+      };
     }
 
     /**
