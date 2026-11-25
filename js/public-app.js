@@ -42,6 +42,7 @@
     },
     cert: {
       style: 'official', // 'official' | 'custom'
+      year: 'ALL',
       eventKey: 'ALL',
       query: '',
       selectedEntryKey: '',
@@ -2161,34 +2162,92 @@
     const allPrintable = getPrintableEntries();
     state.cert.entriesCache = allPrintable;
 
-    const badge = $('pub-cert-total-badge');
-    if (badge) badge.textContent = `可印製 ${allPrintable.length} 筆完賽成績`;
-
-    // 賽事篩選下拉選單（僅列已結束與歷年賽事）
+    // 整理所有可印證書之活動明細（僅列已結束與歷年賽事）
     const evMap = new Map();
     for (const e of allPrintable) {
       if (!evMap.has(e.eventKey)) {
         evMap.set(e.eventKey, {
           eventKey: e.eventKey,
+          year: e.year || getEventYear(e.eventDate),
           eventDate: e.eventDate,
           eventName: e.eventName,
-          sourceType: e.sourceType
+          sourceType: e.sourceType,
+          count: 0
         });
       }
+      evMap.get(e.eventKey).count += 1;
     }
-    const evList = Array.from(evMap.values()).sort((a, b) => String(b.eventDate || '').localeCompare(String(a.eventDate || '')));
+    const allEvList = Array.from(evMap.values()).sort((a, b) =>
+      String(b.eventDate || '').localeCompare(String(a.eventDate || ''))
+    );
+
+    // 1. 年度下拉選單
+    const years = Array.from(new Set(allEvList.map((ev) => ev.year).filter(Boolean))).sort((a, b) => b.localeCompare(a));
+    if (state.cert.year !== 'ALL' && !years.includes(state.cert.year)) {
+      state.cert.year = 'ALL';
+    }
+    const yearSel = $('pub-cert-year-select');
+    if (yearSel) {
+      yearSel.innerHTML =
+        `<option value="ALL">全部年度 (${allEvList.length} 場)</option>` +
+        years.map((y) => {
+          const cnt = allEvList.filter((ev) => ev.year === y).length;
+          return `<option value="${esc(y)}">${esc(y)} 年度 (${cnt} 場)</option>`;
+        }).join('');
+      yearSel.value = state.cert.year;
+    }
+
+    // 2. 依所選年度過濾活動明細下拉選單與快速點選膠囊
+    const evList = allEvList.filter((ev) => state.cert.year === 'ALL' || ev.year === state.cert.year);
+    if (state.cert.eventKey !== 'ALL' && !evList.some((ev) => ev.eventKey === state.cert.eventKey)) {
+      state.cert.eventKey = 'ALL';
+    }
+
     const evSel = $('pub-cert-event-select');
     if (evSel) {
-      evSel.innerHTML = '<option value="ALL">全部已結束與歷年賽事</option>' +
+      const allLabel = state.cert.year === 'ALL'
+        ? `全部已結束與歷年活動（共 ${evList.length} 場）`
+        : `${state.cert.year} 年度全部活動（共 ${evList.length} 場）`;
+      evSel.innerHTML =
+        `<option value="ALL">${esc(allLabel)}</option>` +
         evList.map((ev) => {
-          const tag = ev.sourceType === 'imported' ? '[歷年]' : '[已結束]';
-          return `<option value="${esc(ev.eventKey)}">${tag} ${esc(ev.eventDate || '--')}｜${esc(ev.eventName)}</option>`;
+          const icon = is800EventName(ev.eventName) ? '⚔️' : (ev.sourceType === 'imported' ? '📜' : '🏁');
+          return `<option value="${esc(ev.eventKey)}">${icon} ${esc(ev.eventDate || '--')}｜${esc(ev.eventName)} (${ev.count}人)</option>`;
         }).join('');
-      if (state.cert.eventKey !== 'ALL' && !evMap.has(state.cert.eventKey)) {
-        state.cert.eventKey = 'ALL';
-      }
       evSel.value = state.cert.eventKey;
     }
+
+    const evPills = $('pub-cert-event-pills');
+    if (evPills) {
+      if (!evList.length) {
+        evPills.innerHTML = '';
+      } else {
+        const allActive = state.cert.eventKey === 'ALL';
+        evPills.innerHTML =
+          `<button type="button" data-pick-cert-event="ALL" class="px-2.5 py-1 rounded-xl text-xs font-black transition ${allActive ? 'bg-sky-500 text-slate-950 shadow' : 'bg-slate-950 border border-slate-700 text-slate-300 hover:border-sky-400'}">全部 (${evList.length} 場)</button>` +
+          evList.map((ev) => {
+            const active = state.cert.eventKey === ev.eventKey;
+            const icon = is800EventName(ev.eventName) ? '⚔️' : (ev.sourceType === 'imported' ? '📜' : '🏁');
+            return `
+              <button type="button" data-pick-cert-event="${esc(ev.eventKey)}"
+                class="px-2.5 py-1 rounded-xl text-xs transition flex items-center gap-1.5 ${active ? 'bg-emerald-500 text-slate-950 font-black shadow' : 'bg-slate-950 border border-slate-800 hover:border-emerald-400/70 text-slate-200 font-bold'}">
+                <span>${icon}</span>
+                <span class="font-mono-num opacity-80">${esc(ev.eventDate || '--')}</span>
+                <span class="truncate max-w-[200px]">${esc(ev.eventName)}</span>
+                <span class="font-mono-num text-[11px] opacity-80">(${ev.count})</span>
+              </button>
+            `;
+          }).join('');
+      }
+    }
+
+    const scopedCount = allPrintable.filter((e) => {
+      if (state.cert.year !== 'ALL' && (e.year || getEventYear(e.eventDate)) !== state.cert.year) return false;
+      if (state.cert.eventKey !== 'ALL' && e.eventKey !== state.cert.eventKey) return false;
+      return true;
+    }).length;
+    const badge = $('pub-cert-total-badge');
+    if (badge) badge.textContent = `可印製 ${scopedCount} 筆完賽成績（${evList.length} 場）`;
 
     if ($('pub-cert-search-input')) $('pub-cert-search-input').value = state.cert.query;
     await runPublicCertSearch();
@@ -2198,16 +2257,13 @@
     const all = state.cert.entriesCache || [];
     const q = (state.cert.query || '').trim();
     const qLower = q.toLowerCase();
-    const qHash = q ? await TE.sha256Hex(q.toUpperCase()) : '';
 
     const matched = all.filter((e) => {
+      if (state.cert.year !== 'ALL' && (e.year || getEventYear(e.eventDate)) !== state.cert.year) return false;
       if (state.cert.eventKey !== 'ALL' && e.eventKey !== state.cert.eventKey) return false;
       if (!q) return true;
-      return e.name.toLowerCase().includes(qLower)
-        || (e.bib || '').toLowerCase().includes(qLower)
-        || (e.idHash && e.idHash === qHash)
-        || (e.idMasked && e.idMasked.toLowerCase() === qLower)
-        || e.eventName.toLowerCase().includes(qLower);
+      return String(e.name || '').toLowerCase().includes(qLower)
+        || String(e.eventName || '').toLowerCase().includes(qLower);
     });
 
     if (!matched.some((e) => makeCertEntryKey(e) === state.cert.selectedEntryKey)) {
@@ -2383,6 +2439,8 @@
         const evKey = certBtn.dataset.openCertEventkey || 'ALL';
         const bib = certBtn.dataset.openCertBib || '';
         const name = certBtn.dataset.openCertName || '';
+        const matchedEv = getPrintableEntries().find((x) => x.eventKey === evKey);
+        state.cert.year = matchedEv ? (matchedEv.year || getEventYear(matchedEv.eventDate) || 'ALL') : 'ALL';
         state.cert.eventKey = evKey;
         state.cert.query = name;
         state.cert.selectedEntryKey = `${evKey}__${bib}__${name}`;
@@ -2590,10 +2648,21 @@
       if (!state.w800HeroQuery) renderWarriors800HeroList();
     });
 
-    // 證書列印與客製化事件
+    // 證書列印與客製化事件（年度選擇 ＋ 活動明細選擇 ＋ 快速點選膠囊）
+    $('pub-cert-year-select')?.addEventListener('change', (e) => {
+      state.cert.year = e.target.value;
+      state.cert.eventKey = 'ALL';
+      renderPublicCertificateTab();
+    });
     $('pub-cert-event-select').addEventListener('change', (e) => {
       state.cert.eventKey = e.target.value;
-      runPublicCertSearch();
+      renderPublicCertificateTab();
+    });
+    $('pub-cert-event-pills')?.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-pick-cert-event]');
+      if (!btn) return;
+      state.cert.eventKey = btn.dataset.pickCertEvent || 'ALL';
+      renderPublicCertificateTab();
     });
     $('form-pub-cert-search').addEventListener('submit', (e) => {
       e.preventDefault();

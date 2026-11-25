@@ -19,7 +19,7 @@
       }
     })();
   </script>
-  <link rel="stylesheet" href="./css/style.css?v=3.13.3" />
+  <link rel="stylesheet" href="./css/style.css?v=3.13.4" />
 </head>
 <body class="min-h-screen bg-slate-950 text-slate-100 pb-12">
 
@@ -348,16 +348,37 @@
           </span>
         </div>
 
-        <form id="form-pub-cert-search" class="grid grid-cols-1 sm:grid-cols-12 gap-2.5">
-          <select id="pub-cert-event-select"
-            style="background-color:#0f172a; color:#f8fafc;"
-            class="sm:col-span-5 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs sm:text-sm font-bold text-white focus:border-emerald-400 focus:outline-none">
-            <option value="ALL">全部已結束與歷年賽事</option>
-          </select>
-          <input id="pub-cert-search-input" type="search" placeholder="🔍 輸入姓名、參賽編號或完整身份證字號查詢"
-            class="sm:col-span-5 bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm font-bold text-white focus:border-emerald-400 focus:outline-none" />
+        <!-- 1. 選擇年度與活動明細（方便選手快速點選） -->
+        <div class="space-y-2.5">
+          <div class="grid grid-cols-1 sm:grid-cols-12 gap-2.5">
+            <div class="sm:col-span-3 flex items-center gap-2">
+              <label for="pub-cert-year-select" class="text-xs font-black text-emerald-300 shrink-0">📅 年度</label>
+              <select id="pub-cert-year-select"
+                style="background-color:#0f172a; color:#f8fafc;"
+                class="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs sm:text-sm font-bold text-white focus:border-emerald-400 focus:outline-none">
+                <option value="ALL">全部年度</option>
+              </select>
+            </div>
+            <div class="sm:col-span-9 flex items-center gap-2">
+              <label for="pub-cert-event-select" class="text-xs font-black text-sky-300 shrink-0">🏟️ 活動明細</label>
+              <select id="pub-cert-event-select"
+                style="background-color:#0f172a; color:#f8fafc;"
+                class="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs sm:text-sm font-bold text-white focus:border-emerald-400 focus:outline-none">
+                <option value="ALL">全部活動</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- 該年度活動明細快速點選按鈕列 -->
+          <div id="pub-cert-event-pills" class="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto"></div>
+        </div>
+
+        <!-- 2. 輸入選手姓名篩選並點選個人完賽成績 -->
+        <form id="form-pub-cert-search" class="flex flex-col sm:flex-row gap-2.5">
+          <input id="pub-cert-search-input" type="search" placeholder="🔍 輸入選手姓名快速篩選"
+            class="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm font-bold text-white focus:border-emerald-400 focus:outline-none" />
           <button type="submit"
-            class="sm:col-span-2 py-2.5 px-4 rounded-xl text-sm font-black bg-emerald-500 hover:bg-emerald-400 text-slate-950 transition">
+            class="py-2.5 px-6 rounded-xl text-sm font-black bg-emerald-500 hover:bg-emerald-400 text-slate-950 transition shrink-0">
             查詢成績
           </button>
         </form>
@@ -613,11 +634,11 @@
     </div>
   </div>
 
-  <script src="./js/config.js?v=3.13.3"></script>
-  <script src="./js/timing-engine.js?v=3.13.3"></script>
-  <script src="./js/db.js?v=3.13.3"></script>
-  <script src="./js/sync.js?v=3.13.3"></script>
-  <script src="./js/certificate.js?v=3.13.3"></script>
-  <script src="./js/public-app.js?v=3.13.3"></script>
+  <script src="./js/config.js?v=3.13.4"></script>
+  <script src="./js/timing-engine.js?v=3.13.4"></script>
+  <script src="./js/db.js?v=3.13.4"></script>
+  <script src="./js/sync.js?v=3.13.4"></script>
+  <script src="./js/certificate.js?v=3.13.4"></script>
+  <script src="./js/public-app.js?v=3.13.4"></script>
 </body>
 </html>
