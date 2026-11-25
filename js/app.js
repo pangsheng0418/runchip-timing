@@ -2529,6 +2529,7 @@
         $('admin-race-empty-desc').textContent = ownTotal > 0 ? '已結束活動已鎖定，請重新開啟或新增活動。' : '請先點擊上方「＋ 新增活動」。';
       }
       $('unified-gun-display').textContent = '尚未設定';
+      if ($('unified-gun-date')) $('unified-gun-date').value = getLocalDateStr();
       $('unified-gun-input').value = '';
       $('admin-lap-no-cp-banner').classList.add('hidden');
       $('admin-checkpoints-card').classList.remove('hidden');
@@ -2538,8 +2539,11 @@
     }
     const isLap = evt.eventType === 'lap_timed';
     const unifiedGunMs = evt.unifiedGunTimeMs || (evt.categories || []).find((c) => c.gunTimeMs)?.gunTimeMs || null;
-    $('unified-gun-display').textContent = unifiedGunMs ? TE.formatClockSec(unifiedGunMs) : '尚未設定';
-    $('unified-gun-display').className = `font-mono-num text-2xl font-black ${unifiedGunMs ? 'text-emerald-400' : 'text-slate-500'}`;
+    $('unified-gun-display').textContent = unifiedGunMs ? TE.formatDateTimeSec(unifiedGunMs) : '尚未設定';
+    $('unified-gun-display').className = `font-mono-num text-xl sm:text-2xl font-black ${unifiedGunMs ? 'text-emerald-400' : 'text-slate-500'}`;
+    if ($('unified-gun-date')) {
+      $('unified-gun-date').value = unifiedGunMs ? TE.formatDateStr(unifiedGunMs) : (evt.date || getLocalDateStr());
+    }
     $('unified-gun-input').value = unifiedGunMs ? TE.formatClockSec(unifiedGunMs) : '';
 
     $('admin-lap-no-cp-banner').classList.toggle('hidden', !isLap);
@@ -2549,7 +2553,8 @@
       .map((c, idx) => {
         const hrs = Number(c.durationHours || c.distanceKm || 6);
         const effGun = c.gunTimeMs || unifiedGunMs;
-        const cutoffStr = isLap && effGun ? ` ｜ 限時截止：${TE.formatClockSec(Number(effGun) + hrs * 3600000)}` : '';
+        const effGunDate = effGun ? TE.formatDateStr(effGun) : (evt.date || getLocalDateStr());
+        const cutoffStr = isLap && effGun ? ` ｜ 限時截止：${TE.formatDateTimeSec(Number(effGun) + hrs * 3600000)}` : '';
         return `
         <div class="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-3" data-cat-index="${idx}">
           <div class="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-end">
@@ -2574,7 +2579,7 @@
           <details class="pt-2 border-t border-slate-800/80 text-xs">
             <summary class="cursor-pointer flex flex-wrap items-center justify-between gap-2 select-none text-slate-400 hover:text-slate-200">
               <span class="font-bold">
-                起跑：<strong class="font-mono-num ${effGun ? 'text-emerald-400' : 'text-slate-500'}">${effGun ? TE.formatClockSec(effGun) : '未設定'}</strong>${cutoffStr ? `<span class="text-amber-300 font-mono-num">${cutoffStr}</span>` : ''}
+                起跑：<strong class="font-mono-num ${effGun ? 'text-emerald-400' : 'text-slate-500'}">${effGun ? TE.formatDateTimeSec(effGun) : '未設定'}</strong>${cutoffStr ? `<span class="text-amber-300 font-mono-num">${cutoffStr}</span>` : ''}
               </span>
               <span class="text-[11px] text-sky-400">個別微調 ▾</span>
             </summary>
@@ -2582,6 +2587,8 @@
               <button type="button" data-gun-now="${idx}" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-800 hover:bg-emerald-600/30 border border-slate-700 text-emerald-300">
                 🔫 鳴槍
               </button>
+              <input type="date" value="${esc(effGunDate)}" data-gun-manual-date="${idx}"
+                class="font-mono-num text-xs bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-white" />
               <input type="text" placeholder="HH:mm:ss" value="${effGun ? TE.formatClockSec(effGun) : ''}" data-gun-manual-input="${idx}"
                 class="w-28 font-mono-num text-xs bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-white" />
               <button type="button" data-gun-manual-set="${idx}" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 text-sky-300">套用</button>
@@ -4320,21 +4327,11 @@
       input.value = '';
     });
 
-    $('btn-load-demo-shortcut').addEventListener('click', async () => {
-      await DB.loadDemoData();
-      if (state.session?.mode === 'staff') {
-        state.session.lockedEventId = 'EVT-2026-800-EAST';
-        DB.saveSession(state.session);
-      }
-      await reloadState();
-      showToast('已載入 5 場全情境共用晶片測試資料！可直接模擬刷卡體驗比對機制', 'success');
-    });
-
     $('btn-mock-scan').addEventListener('click', async () => {
       const evt = getActiveEvent();
       const evtRegs = evt ? state.allRegistrations.filter((r) => r.eventId === evt.eventId) : [];
       if (!evtRegs.length) {
-        return showToast('本場活動尚無報名選手，請先於後台匯入名單或點右側「載入模擬資料」', 'warn');
+        return showToast('本場活動尚無報名選手，請先於後台匯入名單', 'warn');
       }
 
       const chosenKey = $('mock-chip-select').value;
@@ -5072,7 +5069,7 @@
       showToast('已刪除此站感應並重算名次', 'info');
     });
 
-    // 分頁 4：本活動統一律定起跑時間、分組與站點
+    // 分頁 4：本活動統一律定起跑時間（含完整日期＋時間）、分組與站點
     $('btn-unified-gun-now').addEventListener('click', async () => {
       const evt = getActiveEvent();
       if (!evt) return showToast('請先建立或選取活動', 'warn');
@@ -5083,20 +5080,25 @@
         unifiedGunTimeMs: nowSec,
         categories: (ev.categories || []).map((c) => ({ ...c, gunTimeMs: nowSec, gunTimeIso: iso }))
       }));
-      showToast(`🔫 「${evt.name}」全組已統一鳴槍起跑！(${TE.formatClockSec(nowSec)})`, 'success');
+      showToast(`🔫 「${evt.name}」全組已統一鳴槍起跑！(${TE.formatDateTimeSec(nowSec)})`, 'success');
     });
 
     $('btn-unified-gun-set').addEventListener('click', async () => {
       const evt = getActiveEvent();
       if (!evt) return showToast('請先建立或選取活動', 'warn');
-      const tsMs = TE.parseDateTimeToMs(evt.date, $('unified-gun-input').value.trim());
-      if (tsMs === null) return showToast('請輸入 HH:mm:ss 格式（如 06:30:00）', 'error');
+      const dateStr = ($('unified-gun-date')?.value || evt.date || '').trim();
+      const timeStr = $('unified-gun-input').value.trim();
+      if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+        return showToast('請先選擇起跑日期 (YYYY-MM-DD)', 'error');
+      }
+      const tsMs = TE.parseDateTimeToMs(dateStr, timeStr);
+      if (tsMs === null) return showToast('請輸入正確日期與時間（如 2026-11-25 與 06:30:00）', 'error');
       const iso = new Date(tsMs).toISOString();
       await updateCurrentEvent((ev) => ({
         unifiedGunTimeMs: tsMs,
         categories: (ev.categories || []).map((c) => ({ ...c, gunTimeMs: tsMs, gunTimeIso: iso }))
       }));
-      showToast(`✅ 已套用統一律定起跑時間 ${TE.formatClockSec(tsMs)} 至全活動所有分組！`, 'success');
+      showToast(`✅ 已套用統一律定起跑時間 ${TE.formatDateTimeSec(tsMs)} 至全活動所有分組！`, 'success');
     });
 
     $('btn-unified-gun-clear').addEventListener('click', async () => {
@@ -5161,19 +5163,26 @@
         cats[idx].gunTimeIso = new Date(nowSec).toISOString();
         NFC.sound.beepGun();
         await updateCurrentEvent(() => ({ categories: cats }));
-        showToast(`🔫 「${evt.name} - ${cats[idx].name}」已鳴槍！(${TE.formatClockSec(nowSec)})`, 'success');
+        showToast(`🔫 「${evt.name} - ${cats[idx].name}」已鳴槍！(${TE.formatDateTimeSec(nowSec)})`, 'success');
         return;
       }
 
       const gunMan = e.target.closest('[data-gun-manual-set]');
       if (gunMan) {
         const idx = Number(gunMan.dataset.gunManualSet);
-        const tsMs = TE.parseDateTimeToMs(evt.date, document.querySelector(`[data-gun-manual-input="${idx}"]`).value.trim());
-        if (tsMs === null) return showToast('請輸入 HH:mm:ss 格式（如 06:30:00）', 'error');
+        const dateEl = document.querySelector(`[data-gun-manual-date="${idx}"]`);
+        const timeEl = document.querySelector(`[data-gun-manual-input="${idx}"]`);
+        const dateStr = (dateEl?.value || evt.date || '').trim();
+        const timeStr = (timeEl?.value || '').trim();
+        if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+          return showToast('請先選擇起跑日期 (YYYY-MM-DD)', 'error');
+        }
+        const tsMs = TE.parseDateTimeToMs(dateStr, timeStr);
+        if (tsMs === null) return showToast('請輸入正確日期與時間（如 06:30:00）', 'error');
         cats[idx].gunTimeMs = tsMs;
         cats[idx].gunTimeIso = new Date(tsMs).toISOString();
         await updateCurrentEvent(() => ({ categories: cats }));
-        showToast(`已套用鳴槍時間 ${TE.formatClockSec(tsMs)}`, 'success');
+        showToast(`已套用鳴槍時間 ${TE.formatDateTimeSec(tsMs)}`, 'success');
         return;
       }
 

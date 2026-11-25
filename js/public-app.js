@@ -733,7 +733,7 @@
     if (state.mode === 'live') {
       const isLap = evt.eventType === 'lap_timed';
       const gunMs = evt.unifiedGunTimeMs || (evt.categories || []).find((c) => c.gunTimeMs)?.gunTimeMs || null;
-      const gunText = gunMs ? ` ｜ 起跑 ${TE.formatClockSec(gunMs)}` : '';
+      const gunText = gunMs ? ` ｜ 起跑 ${TE.formatDateTimeSec(gunMs)}` : '';
       $('pub-race-name').textContent = (isLap ? '🔁 ' : '') + evt.name;
       $('pub-race-meta').textContent = isLap
         ? `${evt.date || '--'}${evt.location ? ` ｜ ${evt.location}` : ''}${gunText} ｜ 單圈 ${evt.lapDistanceKm} km`
@@ -1143,8 +1143,8 @@
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div class="bg-slate-900 border border-slate-800 rounded-xl p-3">
             <div class="text-[11px] text-slate-400 font-bold">起跑時間</div>
-            <div class="text-lg font-black font-mono-num text-sky-300 mt-0.5">
-              ${row.gunTimeMs ? TE.formatClockSec(row.gunTimeMs) : '未設定'}
+            <div class="text-base sm:text-lg font-black font-mono-num text-sky-300 mt-0.5">
+              ${row.gunTimeMs ? TE.formatDateTimeSec(row.gunTimeMs) : '未設定'}
             </div>
             <div class="text-[11px] text-slate-400">
               狀態：${st.text}

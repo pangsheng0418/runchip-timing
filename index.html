@@ -21,7 +21,7 @@
       }
     })();
   </script>
-  <link rel="stylesheet" href="./css/style.css?v=3.13.2" />
+  <link rel="stylesheet" href="./css/style.css?v=3.13.3" />
 </head>
 <body class="min-h-screen tur-stage-bg text-slate-100 pb-8">
 
@@ -431,10 +431,6 @@
             <button id="btn-mock-scan" type="button"
               class="px-4 py-2.5 rounded-xl text-sm font-black bg-indigo-500 hover:bg-indigo-400 text-white shrink-0 transition">
               ⚡ 模擬刷卡
-            </button>
-            <button id="btn-load-demo-shortcut" type="button"
-              class="px-3 py-2.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-amber-300 shrink-0">
-              載入模擬資料
             </button>
           </div>
         </details>
@@ -942,24 +938,29 @@
         </div>
 
         <div id="admin-race-content" class="space-y-4">
-          <!-- 統一律定起跑時間 -->
+          <!-- 統一律定起跑時間（含完整日期＋時間，防止跨夜賽事計算錯誤） -->
           <div class="bg-slate-900 border border-emerald-500/40 rounded-2xl p-4 sm:p-5 space-y-3">
             <div class="flex flex-wrap items-center justify-between gap-2">
               <h2 class="text-base font-extrabold text-emerald-300">⏱️ 統一律定起跑時間</h2>
-              <div id="unified-gun-display" class="font-mono-num text-2xl font-black text-emerald-400">尚未設定</div>
+              <div id="unified-gun-display" class="font-mono-num text-xl sm:text-2xl font-black text-emerald-400">尚未設定</div>
             </div>
             <div class="flex flex-wrap items-center gap-2">
               <button id="btn-unified-gun-now" type="button" class="px-4 py-2.5 rounded-xl text-xs sm:text-sm font-black bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow">
                 🔫 立即鳴槍
               </button>
-              <input id="unified-gun-input" type="text" placeholder="HH:mm:ss"
-                class="w-36 font-mono-num text-sm font-bold bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white focus:border-emerald-400 focus:outline-none" />
+              <input id="unified-gun-date" type="date" aria-label="起跑日期"
+                class="font-mono-num text-sm font-bold bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white focus:border-emerald-400 focus:outline-none" />
+              <input id="unified-gun-input" type="text" placeholder="HH:mm:ss" aria-label="起跑時間"
+                class="w-32 font-mono-num text-sm font-bold bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white focus:border-emerald-400 focus:outline-none" />
               <button id="btn-unified-gun-set" type="button" class="px-4 py-2.5 rounded-xl text-xs font-black bg-sky-500 hover:bg-sky-400 text-slate-950">
                 套用全組
               </button>
               <button id="btn-unified-gun-clear" type="button" class="px-3 py-2.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-300">
                 清除
               </button>
+            </div>
+            <div class="text-xs text-slate-400">
+              💡 統一律定起跑時間包含「日期＋時間（YYYY-MM-DD HH:mm:ss）」，跨夜或長時限賽事請確認起跑日期正確，避免跨日計算誤差。
             </div>
           </div>
 
@@ -2163,13 +2164,13 @@
     </div>
   </div>
 
-  <script src="./js/config.js?v=3.13.2"></script>
-  <script src="./js/timing-engine.js?v=3.13.2"></script>
-  <script src="./js/db.js?v=3.13.2"></script>
-  <script src="./js/nfc.js?v=3.13.2"></script>
-  <script src="./js/sync.js?v=3.13.2"></script>
-  <script src="./js/excel.js?v=3.13.2"></script>
-  <script src="./js/certificate.js?v=3.13.2"></script>
-  <script src="./js/app.js?v=3.13.2"></script>
+  <script src="./js/config.js?v=3.13.3"></script>
+  <script src="./js/timing-engine.js?v=3.13.3"></script>
+  <script src="./js/db.js?v=3.13.3"></script>
+  <script src="./js/nfc.js?v=3.13.3"></script>
+  <script src="./js/sync.js?v=3.13.3"></script>
+  <script src="./js/excel.js?v=3.13.3"></script>
+  <script src="./js/certificate.js?v=3.13.3"></script>
+  <script src="./js/app.js?v=3.13.3"></script>
 </body>
 </html>

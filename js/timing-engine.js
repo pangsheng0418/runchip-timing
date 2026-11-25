@@ -40,6 +40,26 @@
   }
 
   /**
+   * 格式化本地日期為 YYYY-MM-DD
+   */
+  function formatDateStr(tsMs) {
+    if (tsMs === null || tsMs === undefined || Number.isNaN(Number(tsMs))) return '';
+    const d = new Date(Number(tsMs));
+    if (Number.isNaN(d.getTime())) return '';
+    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+  }
+
+  /**
+   * 格式化完整日期與時間為 YYYY-MM-DD HH:mm:ss（避免跨夜賽事混淆）
+   */
+  function formatDateTimeSec(tsMs) {
+    if (tsMs === null || tsMs === undefined || Number.isNaN(Number(tsMs))) return '--';
+    const d = new Date(Number(tsMs));
+    if (Number.isNaN(d.getTime())) return '--';
+    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+  }
+
+  /**
    * 格式化時間長度 (毫秒) 為 HH:mm:ss（全系統統一秒數不含小數點）
    */
   function formatDuration(durationMs) {
@@ -69,16 +89,25 @@
   }
 
   /**
-   * 解析日期 (YYYY-MM-DD) 與時間字串 (HH:mm:ss 或 HH:mm:ss.SSS) 為毫秒時間戳
+   * 解析日期 (YYYY-MM-DD) 與時間字串 (HH:mm:ss 或 YYYY-MM-DD HH:mm:ss) 為毫秒時間戳
    */
   function parseDateTimeToMs(dateStr, timeStr) {
     if (!timeStr) return null;
-    const cleanTime = String(timeStr).trim();
+    let cleanDate = String(dateStr || '').trim().replace(/\//g, '-');
+    let cleanTime = String(timeStr).trim();
+
+    // 若時間字串本身已含日期（如 2026-11-25 06:30:00 或 2026-11-25T06:30:00），優先採用內嵌日期
+    const embedded = cleanTime.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})[T\s]+(\d{1,2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?)$/);
+    if (embedded) {
+      cleanDate = `${embedded[1]}-${embedded[2].padStart(2, '0')}-${embedded[3].padStart(2, '0')}`;
+      cleanTime = embedded[4];
+    }
+
     const match = cleanTime.match(/^(\d{1,2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?$/);
     if (!match) return null;
 
-    const baseDate = dateStr && /^\d{4}-\d{2}-\d{2}$/.test(dateStr)
-      ? dateStr.split('-').map(Number)
+    const baseDate = /^\d{4}-\d{2}-\d{2}$/.test(cleanDate)
+      ? cleanDate.split('-').map(Number)
       : (() => {
           const now = new Date();
           return [now.getFullYear(), now.getMonth() + 1, now.getDate()];
@@ -91,6 +120,13 @@
     if (h > 23 || m > 59 || s > 59) return null;
 
     const d = new Date(baseDate[0], baseDate[1] - 1, baseDate[2], h, m, s, ms);
+    if (
+      d.getFullYear() !== baseDate[0] ||
+      d.getMonth() !== baseDate[1] - 1 ||
+      d.getDate() !== baseDate[2]
+    ) {
+      return null;
+    }
     return d.getTime();
   }
 
@@ -743,6 +779,8 @@
     normalizeTimeStr,
     formatClockMs,
     formatClockSec,
+    formatDateStr,
+    formatDateTimeSec,
     formatDuration,
     formatPace,
     parseDateTimeToMs,
