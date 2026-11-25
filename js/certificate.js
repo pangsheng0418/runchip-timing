@@ -62,6 +62,127 @@
     };
   }
 
+  function calcSpeedKmh(distKm, durationMs) {
+    const d = Number(distKm || 0);
+    const ms = Number(durationMs);
+    if (!Number.isFinite(d) || d <= 0 || !Number.isFinite(ms) || ms <= 0) return null;
+    return Number((d / (ms / 3600000)).toFixed(2));
+  }
+
+  function formatSpeedKmh(speedKmh) {
+    return speedKmh !== null && speedKmh !== undefined && Number.isFinite(Number(speedKmh))
+      ? `${Number(speedKmh).toFixed(2)} km/h`
+      : '--';
+  }
+
+  function formatClockTime(tsMs, TE) {
+    if (tsMs === null || tsMs === undefined || !Number.isFinite(Number(tsMs))) return '--';
+    if (TE && typeof TE.formatClockSec === 'function') return TE.formatClockSec(Number(tsMs));
+    const d = new Date(Number(tsMs));
+    const p = (n) => String(n).padStart(2, '0');
+    return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+  }
+
+  function buildOverallAnalysis({ sensorPoints, totalDistKm, totalTimeMs, avgPace, isLap, TE }) {
+    const validTimed = sensorPoints.filter((p) => p.segDurationMs !== null && p.segDurationMs > 0);
+    const validSpeed = sensorPoints.filter((p) => p.speedKmh !== null && p.speedKmh > 0);
+
+    // 整體平均速度優先以全程總距離／總耗時計算，若無則以各有效區段加總距離／耗時計算
+    let overallSpeedKmh = calcSpeedKmh(totalDistKm, totalTimeMs);
+    if (overallSpeedKmh === null && validSpeed.length > 0) {
+      const sumDist = validSpeed.reduce((s, p) => s + Number(p.segDistKm || 0), 0);
+      const sumMs = validSpeed.reduce((s, p) => s + Number(p.segDurationMs || 0), 0);
+      overallSpeedKmh = calcSpeedKmh(sumDist, sumMs);
+    }
+
+    let fastest = null;
+    let slowest = null;
+    if (validSpeed.length > 0) {
+      fastest = validSpeed.reduce((best, p) => (!best || p.speedKmh > best.speedKmh ? p : best), null);
+      if (validSpeed.length >= 2) {
+        slowest = validSpeed.reduce((worst, p) => (!worst || p.speedKmh < worst.speedKmh ? p : worst), null);
+      }
+    } else if (validTimed.length > 0) {
+      fastest = validTimed.reduce((best, p) => (!best || p.segDurationMs < best.segDurationMs ? p : best), null);
+      if (validTimed.length >= 2) {
+        slowest = validTimed.reduce((worst, p) => (!worst || p.segDurationMs > worst.segDurationMs ? p : worst), null);
+      }
+    }
+
+    // 前後半段配速穩定度分析（依距離／時間加權計算真實區段均速）
+    let firstHalfSpeedKmh = null;
+    let secondHalfSpeedKmh = null;
+    let deltaPct = null;
+    let strategyLabel = '';
+
+    if (validSpeed.length >= 2) {
+      const mid = Math.floor(validSpeed.length / 2);
+      const firstList = validSpeed.slice(0, mid);
+      const secondList = validSpeed.slice(mid);
+      const calcGroupSpeed = (arr) => {
+        const d = arr.reduce((s, p) => s + Number(p.segDistKm || 0), 0);
+        const ms = arr.reduce((s, p) => s + Number(p.segDurationMs || 0), 0);
+        return calcSpeedKmh(d, ms);
+      };
+      firstHalfSpeedKmh = calcGroupSpeed(firstList);
+      secondHalfSpeedKmh = calcGroupSpeed(secondList);
+      if (firstHalfSpeedKmh && secondHalfSpeedKmh) {
+        deltaPct = ((secondHalfSpeedKmh - firstHalfSpeedKmh) / firstHalfSpeedKmh) * 100;
+        if (deltaPct >= 2) {
+          strategyLabel = '後段加速（負分割佳績）';
+        } else if (deltaPct >= -2) {
+          strategyLabel = '全程配速極為穩定';
+        } else if (deltaPct >= -10) {
+          strategyLabel = '配速穩健平順';
+        } else {
+          strategyLabel = '前快後緩（後半體力略降）';
+        }
+      }
+    }
+
+    const totalTimeText = totalTimeMs !== null && totalTimeMs !== undefined && TE
+      ? TE.formatDuration(totalTimeMs, false)
+      : '--:--:--';
+    const totalDistText = totalDistKm > 0 ? `${Number(totalDistKm).toFixed(2)} km` : '--';
+
+    const line1Parts = [
+      `整體均速 ${formatSpeedKmh(overallSpeedKmh)}${avgPace && avgPace !== '--' ? `（配速 ${avgPace}）` : ''}`
+    ];
+    if (fastest) {
+      line1Parts.push(`最快區段：${fastest.label} ${fastest.speedText !== '--' ? fastest.speedText : fastest.segDurationText}（${fastest.segDurationText}）`);
+    }
+    if (slowest) {
+      line1Parts.push(`最慢區段：${slowest.label} ${slowest.speedText !== '--' ? slowest.speedText : slowest.segDurationText}（${slowest.segDurationText}）`);
+    }
+
+    let line2 = '';
+    if (firstHalfSpeedKmh !== null && secondHalfSpeedKmh !== null && deltaPct !== null) {
+      const sign = deltaPct > 0.05 ? '+' : (deltaPct < -0.05 ? '-' : '±');
+      line2 = `配速穩定度：前半 ${firstHalfSpeedKmh.toFixed(2)} km/h → 後半 ${secondHalfSpeedKmh.toFixed(2)} km/h（${sign}${Math.abs(deltaPct).toFixed(1)}%，${strategyLabel}）  ｜  全程 ${sensorPoints.length} 點・${totalDistText}・${totalTimeText}`;
+    } else {
+      const unitDesc = isLap ? `${sensorPoints.length} 圈` : `${sensorPoints.length} 個感應點`;
+      line2 = `全程總合：共 ${unitDesc}  ｜  總距離 ${totalDistText}  ｜  總耗時 ${totalTimeText}  ｜  整體均速 ${formatSpeedKmh(overallSpeedKmh)}`;
+    }
+
+    return {
+      totalPoints: sensorPoints.length,
+      validPoints: validTimed.length,
+      overallSpeedKmh,
+      overallSpeedText: formatSpeedKmh(overallSpeedKmh),
+      avgPace: avgPace || '--',
+      fastestKey: fastest ? fastest.key : '',
+      slowestKey: slowest ? slowest.key : '',
+      fastest,
+      slowest,
+      firstHalfSpeedKmh,
+      secondHalfSpeedKmh,
+      deltaPct,
+      strategyLabel,
+      line1: line1Parts.join('   ｜   '),
+      line2
+    };
+  }
+
   function extractRunnerMetrics(event, row) {
     const TE = global.TimingEngine;
     const isLap = event?.eventType === 'lap_timed' || row?.lapCount !== undefined;
@@ -72,6 +193,8 @@
     const overallRank = row?.overallRank ? `#${row.overallRank}` : '--';
     const categoryRank = row?.categoryRank ? `#${row.categoryRank}` : '--';
     const avgPace = row?.avgPace && row.avgPace !== '--' ? row.avgPace : '--';
+    const gunTimeMs = row?.gunTimeMs || event?.unifiedGunTimeMs || null;
+    const gunTimeText = gunTimeMs ? formatClockTime(gunTimeMs, TE) : '';
 
     if (isLap) {
       const totalKm = Number(row?.totalDistanceKm || 0);
@@ -82,42 +205,46 @@
         : '--:--:--';
 
       const validLaps = Array.isArray(row?.laps) ? row.laps.filter((l) => !l.overtime) : [];
-      const splitItems = [];
-      if (validLaps.length > 0 && validLaps.length <= 6) {
-        validLaps.forEach((l) => {
-          splitItems.push({
-            title: `第 ${l.lapNumber} 圈`,
-            time: l.lapDurationMs !== null ? TE.formatDuration(l.lapDurationMs, false) : '--:--:--',
-            sub: l.lapPace && l.lapPace !== '--' ? l.lapPace : `${l.cumulativeKm ?? ''} km`
-          });
-        });
-      } else if (validLaps.length > 6) {
-        const firstLap = validLaps[0];
-        const lastLap = validLaps[validLaps.length - 1];
-        const bestLap = validLaps.reduce((b, l) => (l.lapDurationMs !== null && (!b || l.lapDurationMs < b.lapDurationMs) ? l : b), null);
-        splitItems.push(
-          {
-            title: '首圈 FIRST LAP',
-            time: firstLap.lapDurationMs !== null ? TE.formatDuration(firstLap.lapDurationMs, false) : '--:--:--',
-            sub: firstLap.lapPace && firstLap.lapPace !== '--' ? firstLap.lapPace : ''
-          },
-          {
-            title: '最速單圈 BEST LAP',
-            time: row?.bestLapMs !== null && row?.bestLapMs !== undefined ? TE.formatDuration(row.bestLapMs, false) : '--:--:--',
-            sub: bestLap?.lapPace && bestLap.lapPace !== '--' ? bestLap.lapPace : ''
-          },
-          {
-            title: '平均單圈 AVG LAP',
-            time: row?.avgLapMs !== null && row?.avgLapMs !== undefined ? TE.formatDuration(row.avgLapMs, false) : '--:--:--',
-            sub: avgPace !== '--' ? avgPace : ''
-          },
-          {
-            title: `末圈 LAP ${lastLap.lapNumber}`,
-            time: lastLap.lapDurationMs !== null ? TE.formatDuration(lastLap.lapDurationMs, false) : '--:--:--',
-            sub: lastLap.lapPace && lastLap.lapPace !== '--' ? lastLap.lapPace : ''
-          }
-        );
-      }
+      const sensorPoints = validLaps.map((l, idx) => {
+        const num = l.lapNumber || (idx + 1);
+        const durMs = l.lapDurationMs !== null && l.lapDurationMs !== undefined ? Number(l.lapDurationMs) : null;
+        const speedKmh = l.speedKmh !== null && l.speedKmh !== undefined
+          ? Number(l.speedKmh)
+          : calcSpeedKmh(lapDist, durMs);
+        const cumKm = l.cumulativeKm !== null && l.cumulativeKm !== undefined
+          ? Number(l.cumulativeKm)
+          : Number((num * lapDist).toFixed(2));
+        return {
+          key: `LAP_${num}_${idx}`,
+          label: `第 ${num} 圈`,
+          shortLabel: `L${num}`,
+          cumKm,
+          cumKmText: `${cumKm.toFixed(2)} km`,
+          timestampMs: l.timestampMs ?? null,
+          clockTime: formatClockTime(l.timestampMs, TE),
+          segDurationMs: durMs,
+          segDurationText: durMs !== null ? TE.formatDuration(durMs, false) : '--:--:--',
+          segDistKm: lapDist,
+          speedKmh,
+          speedText: formatSpeedKmh(speedKmh),
+          paceText: l.lapPace && l.lapPace !== '--' ? l.lapPace : '--'
+        };
+      });
+
+      const analysis = buildOverallAnalysis({
+        sensorPoints,
+        totalDistKm: totalKm,
+        totalTimeMs: row?.totalElapsedMs ?? null,
+        avgPace,
+        isLap: true,
+        TE
+      });
+
+      const splitItems = sensorPoints.map((p) => ({
+        title: p.label,
+        time: p.segDurationText,
+        sub: p.speedText !== '--' ? p.speedText : p.paceText
+      }));
 
       return {
         isLap: true,
@@ -128,6 +255,8 @@
         overallRank,
         categoryRank,
         avgPace,
+        gunTimeMs,
+        gunTimeText,
         primaryLabelZh: '累積總里程',
         primaryLabelEn: 'TOTAL DISTANCE',
         primaryValue: `${totalKm.toFixed(2)} km`,
@@ -140,9 +269,11 @@
         fourthLabelZh: '總排 / 組排',
         fourthLabelEn: 'OVERALL / CAT RANK',
         fourthValue: `${overallRank} / ${categoryRank}`,
-        subNote: `單圈距離 LAP ${lapDist} km   •   平均配速 AVG PACE ${avgPace}`,
-        splitTitleZh: '繞圈分段摘要',
-        splitTitleEn: 'LAP SPLITS',
+        subNote: `單圈 ${lapDist} km   •   整體均速 ${analysis.overallSpeedText}   •   平均配速 ${avgPace}`,
+        splitTitleZh: '全程感應點（繞圈）時間與區段均速分析',
+        splitTitleEn: 'ALL-LAP TIMING & SPEED ANALYSIS',
+        sensorPoints,
+        analysis,
         splitItems,
         customFields: {
           name,
@@ -164,13 +295,58 @@
     const distKm = Number(row?.distanceKm || 0);
     const distStr = distKm > 0 ? `${distKm} km` : catName;
 
-    const splitItems = (Array.isArray(row?.splits) ? row.splits : [])
-      .filter((sp) => sp && sp.durationMs !== null && sp.durationMs !== undefined)
-      .map((sp) => ({
-        title: String(sp.toName || sp.toId || '').trim(),
-        time: TE.formatDuration(sp.durationMs, false),
-        sub: sp.pace && sp.pace !== '--' ? sp.pace : (sp.distanceKm > 0 ? `${Number(sp.distanceKm).toFixed(1)} km` : '')
-      }));
+    const rawSplits = Array.isArray(row?.splits) ? row.splits : [];
+    const hasAnySplitRecord = rawSplits.some((sp) => {
+      const scanTs = sp?.timestampMs ?? row?.cpScanMap?.[sp?.toId]?.timestampMs ?? null;
+      return (sp && sp.durationMs !== null && sp.durationMs !== undefined) || scanTs !== null;
+    });
+
+    let runningKm = 0;
+    const sensorPoints = hasAnySplitRecord
+      ? rawSplits.map((sp, idx) => {
+          const segDistKm = Number(sp.distanceKm || 0);
+          runningKm += segDistKm;
+          const cumKm = sp.cumulativeKm !== null && sp.cumulativeKm !== undefined
+            ? Number(sp.cumulativeKm)
+            : Number(runningKm.toFixed(2));
+          const scanTs = sp.timestampMs ?? row?.cpScanMap?.[sp.toId]?.timestampMs ?? null;
+          const durMs = sp.durationMs !== null && sp.durationMs !== undefined ? Number(sp.durationMs) : null;
+          const speedKmh = sp.speedKmh !== null && sp.speedKmh !== undefined
+            ? Number(sp.speedKmh)
+            : calcSpeedKmh(segDistKm, durMs);
+          const cpLabel = String(sp.toName || sp.toId || `站點 ${idx + 1}`).trim();
+          return {
+            key: `CP_${sp.toId || idx}_${idx}`,
+            label: cpLabel,
+            shortLabel: cpLabel,
+            cumKm,
+            cumKmText: cumKm > 0 ? `${cumKm.toFixed(1)} km` : '--',
+            timestampMs: scanTs,
+            clockTime: formatClockTime(scanTs, TE),
+            segDurationMs: durMs,
+            segDurationText: durMs !== null ? TE.formatDuration(durMs, false) : '未感應',
+            segDistKm,
+            speedKmh,
+            speedText: formatSpeedKmh(speedKmh),
+            paceText: sp.pace && sp.pace !== '--' ? sp.pace : '--'
+          };
+        })
+      : [];
+
+    const analysis = buildOverallAnalysis({
+      sensorPoints,
+      totalDistKm: distKm,
+      totalTimeMs: row?.gunDurationMs ?? null,
+      avgPace,
+      isLap: false,
+      TE
+    });
+
+    const splitItems = sensorPoints.map((p) => ({
+      title: p.label,
+      time: p.segDurationText,
+      sub: p.speedText !== '--' ? p.speedText : p.paceText
+    }));
 
     return {
       isLap: false,
@@ -181,6 +357,8 @@
       overallRank,
       categoryRank,
       avgPace,
+      gunTimeMs,
+      gunTimeText,
       primaryLabelZh: '完賽時間',
       primaryLabelEn: 'OFFICIAL TIME',
       primaryValue: timeStr,
@@ -193,9 +371,11 @@
       fourthLabelZh: '分組名次',
       fourthLabelEn: 'CATEGORY RANK',
       fourthValue: categoryRank,
-      subNote: `平均配速 AVG PACE ${avgPace}`,
-      splitTitleZh: '分段成績',
-      splitTitleEn: 'SPLIT TIMES',
+      subNote: `整體平均速度 ${analysis.overallSpeedText}   •   平均配速 ${avgPace}`,
+      splitTitleZh: '全程感應點時間與區段均速分析',
+      splitTitleEn: 'CHECKPOINT TIMING & SPEED ANALYSIS',
+      sensorPoints,
+      analysis,
       splitItems,
       customFields: {
         name,
@@ -699,6 +879,272 @@
     ctx.restore();
   }
 
+  /**
+   * 繪製「全程所有感應點時間紀錄、區段平均速度與整體綜合分析」面板
+   * 同時支援繞圈計時賽（列出全部有效圈次）與距離賽（列出全部賽道感應站點），依點數自動調整 1~4 欄並列
+   */
+  function drawSensorAnalysisPanel(ctx, {
+    x,
+    y,
+    w,
+    h,
+    metrics,
+    palette,
+    formatKey = 'classic_gold',
+    isPort = false,
+    compact = false
+  }) {
+    const points = Array.isArray(metrics?.sensorPoints) ? metrics.sensorPoints : [];
+    const analysis = metrics?.analysis;
+    if (!points.length || h < 120) return;
+
+    const isDark = Boolean(palette.isDark);
+    const borderCol = palette.cardBorder || palette.panelBorder || palette.divider;
+    const headerH = compact ? 34 : 42;
+    const analysisH = compact ? 64 : (isPort ? 98 : 84);
+    const padX = compact ? 18 : 26;
+
+    ctx.save();
+
+    // 外框與底色
+    if (formatKey === 'sport_kinetic') {
+      drawChamferedRect(ctx, x, y, w, h, 16);
+    } else {
+      drawRoundedRect(ctx, x, y, w, h, compact ? 16 : 20);
+    }
+    ctx.fillStyle = formatKey === 'editorial_minimal' ? 'transparent' : palette.cardBg;
+    ctx.fill();
+    ctx.lineWidth = formatKey === 'editorial_minimal' ? 1.5 : 2;
+    ctx.strokeStyle = borderCol;
+    ctx.stroke();
+
+    // 卡片標題列（左：中文＋英文標題｜右：起跑時間與感應點總數）
+    const titleY = y + headerH / 2 + 1;
+    const metaParts = [];
+    if (metrics.gunTimeText) metaParts.push(`起跑 ${metrics.gunTimeText}`);
+    metaParts.push(metrics.isLap ? `共 ${points.length} 圈感應` : `共 ${points.length} 個感應點`);
+    const metaText = metaParts.join('  ｜  ');
+
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'right';
+    ctx.fillStyle = palette.textSecondary;
+    ctx.font = `700 ${compact ? 17 : 20}px ui-monospace, "Noto Sans TC", sans-serif`;
+    const metaW = ctx.measureText(metaText).width;
+    ctx.fillText(metaText, x + w - padX, titleY);
+
+    ctx.textAlign = 'left';
+    ctx.fillStyle = palette.goldMain;
+    const fullTitle = compact
+      ? `${metrics.splitTitleZh}`
+      : `${metrics.splitTitleZh}   •   ${metrics.splitTitleEn}`;
+    const maxTitleW = Math.max(200, w - padX * 2 - metaW - 24);
+    fitTextFont(ctx, fullTitle, maxTitleW, compact ? 20 : (isPort ? 23 : 22), 14, '800 {size}px "Noto Sans TC", "Segoe UI", sans-serif');
+    ctx.fillText(fullTitle, x + padX, titleY);
+
+    ctx.strokeStyle = palette.divider;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(x + padX, y + headerH);
+    ctx.lineTo(x + w - padX, y + headerH);
+    ctx.stroke();
+
+    // 計算表格可用區域（上方標題列與下方整體綜合分析區之間）
+    const tableTop = y + headerH + 6;
+    const analysisTop = y + h - analysisH;
+    const tableBottom = analysisTop - 6;
+    const tableH = Math.max(48, tableBottom - tableTop);
+    const innerW = w - padX * 2;
+
+    // 依總感應點數與寬度自動選擇 1~4 組並列分欄，確保全部感應點皆完整列出
+    const maxCols = innerW >= 1800 ? 4 : (innerW >= 1220 ? 3 : (innerW >= 780 ? 2 : 1));
+    const minComfortRowH = compact ? 22 : 28;
+    const colHeadH = compact ? 22 : 26;
+    let colGroups = 1;
+    while (colGroups < maxCols) {
+      const testRows = Math.ceil(points.length / colGroups);
+      if ((tableH - colHeadH) / testRows >= minComfortRowH) break;
+      colGroups += 1;
+    }
+
+    const rowsPerCol = Math.ceil(points.length / colGroups);
+    const groupGap = colGroups > 1 ? (compact ? 14 : 20) : 0;
+    const blockW = (innerW - groupGap * (colGroups - 1)) / colGroups;
+    const maxRowH = compact ? 32 : 42;
+    const rowH = Math.min(maxRowH, Math.max(12, (tableH - colHeadH) / Math.max(1, rowsPerCol)));
+    const bodyFontPx = Math.max(10, Math.min(compact ? 18 : 22, Math.floor(rowH * 0.62)));
+    const headFontPx = Math.max(10, Math.min(compact ? 16 : 19, bodyFontPx));
+    const showFiveCols = colGroups === 1 && blockW >= 1020;
+    const compactSpeed = blockW < 470;
+    const fastestKey = analysis?.fastestKey || '';
+
+    const zebraFill = isDark ? 'rgba(255, 255, 255, 0.045)' : 'rgba(15, 23, 42, 0.04)';
+    const subHeadFill = isDark ? 'rgba(229, 193, 88, 0.12)' : 'rgba(184, 134, 11, 0.10)';
+
+    for (let g = 0; g < colGroups; g++) {
+      const startIdx = g * rowsPerCol;
+      const slice = points.slice(startIdx, startIdx + rowsPerCol);
+      if (!slice.length) continue;
+
+      const bx = x + padX + g * (blockW + groupGap);
+
+      // 並列分欄間垂直分隔線
+      if (g > 0) {
+        ctx.strokeStyle = palette.divider;
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.moveTo(bx - groupGap / 2, tableTop + 2);
+        ctx.lineTo(bx - groupGap / 2, tableTop + colHeadH + slice.length * rowH);
+        ctx.stroke();
+      }
+
+      // 欄位表頭底色與標題
+      ctx.fillStyle = subHeadFill;
+      ctx.fillRect(bx, tableTop, blockW, colHeadH);
+
+      const hY = tableTop + colHeadH / 2;
+      ctx.fillStyle = palette.textSecondary;
+      ctx.font = `800 ${headFontPx}px "Noto Sans TC", "Segoe UI", sans-serif`;
+      ctx.textBaseline = 'middle';
+
+      if (showFiveCols) {
+        ctx.textAlign = 'left';
+        ctx.fillText(metrics.isLap ? '感應圈次' : '感應點', bx + 10, hY);
+        ctx.textAlign = 'center';
+        ctx.fillText('累積距離', bx + blockW * 0.34, hY);
+        ctx.fillText('感應時間', bx + blockW * 0.51, hY);
+        ctx.fillText('區段耗時', bx + blockW * 0.69, hY);
+        ctx.textAlign = 'right';
+        ctx.fillText('區段平均速度 (配速)', bx + blockW - 10, hY);
+      } else {
+        ctx.textAlign = 'left';
+        ctx.fillText(metrics.isLap ? '圈次' : '感應點', bx + 6, hY);
+        ctx.textAlign = 'center';
+        ctx.fillText('感應時間', bx + blockW * 0.39, hY);
+        ctx.fillText('區段耗時', bx + blockW * 0.64, hY);
+        ctx.textAlign = 'right';
+        ctx.fillText(compactSpeed ? '均速(km/h)' : '區段均速', bx + blockW - 6, hY);
+      }
+
+      // 資料列
+      slice.forEach((pt, rIdx) => {
+        const ry = tableTop + colHeadH + rIdx * rowH;
+        const rCy = ry + rowH / 2;
+        const isFast = Boolean(fastestKey && pt.key === fastestKey);
+
+        if (rIdx % 2 === 1) {
+          ctx.fillStyle = zebraFill;
+          ctx.fillRect(bx, ry, blockW, rowH);
+        }
+
+        if (showFiveCols) {
+          const nameMaxW = blockW * 0.25;
+          ctx.textAlign = 'left';
+          ctx.fillStyle = palette.textPrimary;
+          fitTextFont(ctx, pt.label, nameMaxW, bodyFontPx, 10, '700 {size}px "Noto Sans TC", "Microsoft JhengHei", sans-serif');
+          ctx.fillText(pt.label, bx + 10, rCy);
+
+          ctx.textAlign = 'center';
+          ctx.fillStyle = palette.textMuted;
+          ctx.font = `600 ${bodyFontPx}px ui-monospace, "Segoe UI", monospace`;
+          ctx.fillText(pt.cumKmText, bx + blockW * 0.34, rCy);
+
+          ctx.fillStyle = palette.textSecondary;
+          ctx.font = `700 ${bodyFontPx}px ui-monospace, "Segoe UI", monospace`;
+          ctx.fillText(pt.clockTime, bx + blockW * 0.51, rCy);
+
+          ctx.fillStyle = palette.textPrimary;
+          ctx.font = `800 ${bodyFontPx}px ui-monospace, "Segoe UI", monospace`;
+          ctx.fillText(pt.segDurationText, bx + blockW * 0.69, rCy);
+
+          const speedDisplay = pt.speedText !== '--'
+            ? (pt.paceText && pt.paceText !== '--' ? `${pt.speedText} (${pt.paceText})` : pt.speedText)
+            : (pt.paceText || '--');
+          ctx.textAlign = 'right';
+          ctx.fillStyle = isFast ? palette.turGreen : palette.goldMain;
+          fitTextFont(ctx, speedDisplay, blockW * 0.23, bodyFontPx, 10, '800 {size}px ui-monospace, "Segoe UI", monospace');
+          ctx.fillText(speedDisplay, bx + blockW - 10, rCy);
+        } else {
+          const dispLabel = (compactSpeed && metrics.isLap) ? pt.shortLabel : pt.label;
+          const nameMaxW = blockW * 0.25;
+          ctx.textAlign = 'left';
+          ctx.fillStyle = palette.textPrimary;
+          fitTextFont(ctx, dispLabel, nameMaxW, bodyFontPx, 9, '700 {size}px "Noto Sans TC", "Microsoft JhengHei", sans-serif');
+          ctx.fillText(dispLabel, bx + 6, rCy);
+
+          ctx.textAlign = 'center';
+          ctx.fillStyle = palette.textSecondary;
+          fitTextFont(ctx, pt.clockTime, blockW * 0.22, bodyFontPx, 9, '700 {size}px ui-monospace, "Segoe UI", monospace');
+          ctx.fillText(pt.clockTime, bx + blockW * 0.39, rCy);
+
+          ctx.fillStyle = palette.textPrimary;
+          fitTextFont(ctx, pt.segDurationText, blockW * 0.22, bodyFontPx, 9, '800 {size}px ui-monospace, "Segoe UI", monospace');
+          ctx.fillText(pt.segDurationText, bx + blockW * 0.64, rCy);
+
+          const spdVal = pt.speedKmh !== null && pt.speedKmh !== undefined
+            ? (compactSpeed ? `${pt.speedKmh.toFixed(1)}` : `${pt.speedKmh.toFixed(2)} km/h`)
+            : '--';
+          ctx.textAlign = 'right';
+          ctx.fillStyle = isFast ? palette.turGreen : palette.goldMain;
+          fitTextFont(ctx, spdVal, blockW * 0.23, bodyFontPx, 9, '800 {size}px ui-monospace, "Segoe UI", monospace');
+          ctx.fillText(spdVal, bx + blockW - 6, rCy);
+        }
+      });
+    }
+
+    // 底部：整體綜合分析區（OVERALL SUMMARY ANALYSIS）
+    if (analysis) {
+      const aX = x + padX;
+      const aY = analysisTop;
+      const aW = innerW;
+      const aH = analysisH - (compact ? 8 : 10);
+
+      drawRoundedRect(ctx, aX, aY, aW, aH, 12);
+      ctx.fillStyle = isDark ? 'rgba(229, 193, 88, 0.11)' : 'rgba(184, 134, 11, 0.09)';
+      ctx.fill();
+      ctx.lineWidth = 1.2;
+      ctx.strokeStyle = palette.divider;
+      ctx.stroke();
+
+      // 左側強調色條
+      ctx.fillStyle = palette.turGreen;
+      drawRoundedRect(ctx, aX, aY, 7, aH, 3);
+      ctx.fill();
+
+      const badgeW = compact ? 132 : 168;
+      const textX = aX + badgeW + 14;
+      const textMaxW = aW - badgeW - 28;
+
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = palette.goldMain;
+      ctx.font = `900 ${compact ? 17 : 21}px "Noto Sans TC", "Microsoft JhengHei", sans-serif`;
+      ctx.fillText('整體綜合分析', aX + 10 + badgeW / 2, aY + aH * 0.36);
+      ctx.fillStyle = palette.textMuted;
+      ctx.font = `700 ${compact ? 11 : 13}px "Segoe UI", Arial, sans-serif`;
+      ctx.fillText('OVERALL ANALYSIS', aX + 10 + badgeW / 2, aY + aH * 0.70);
+
+      // 垂直分隔線
+      ctx.strokeStyle = palette.divider;
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.moveTo(aX + badgeW + 4, aY + 10);
+      ctx.lineTo(aX + badgeW + 4, aY + aH - 10);
+      ctx.stroke();
+
+      // 兩行綜合分析內容
+      ctx.textAlign = 'left';
+      ctx.fillStyle = palette.textPrimary;
+      fitTextFont(ctx, analysis.line1, textMaxW, compact ? 17 : (isPort ? 21 : 21), 11, '800 {size}px "Noto Sans TC", ui-monospace, sans-serif');
+      ctx.fillText(analysis.line1, textX, aY + aH * 0.33);
+
+      ctx.fillStyle = palette.textSecondary;
+      fitTextFont(ctx, analysis.line2, textMaxW, compact ? 15 : (isPort ? 19 : 19), 11, '700 {size}px "Noto Sans TC", ui-monospace, sans-serif');
+      ctx.fillText(analysis.line2, textX, aY + aH * 0.71);
+    }
+
+    ctx.restore();
+  }
+
   /* ========================================================================
    * 模式 1：官方公版證書（6 種風格格式 × 6 種官方配色主題 × 橫/直式）
    * ======================================================================== */
@@ -741,7 +1187,7 @@
     const ornSize = Math.round(Math.min(W, H) * 0.068);
     const contentW = W - (pad3 + 90) * 2;
     const centerX = W * 0.5;
-    const activeSplits = showSplits ? (metrics.splitItems || []) : [];
+    const activeSplits = showSplits ? (metrics.sensorPoints || []) : [];
     const hasSplits = activeSplits.length > 0;
 
     if (formatKey === 'classic_gold') {
@@ -1159,11 +1605,11 @@
     ctx.fillText('茲 證 明 選 手 順 利 完 成 本 屆 賽 事   •   THIS IS TO CERTIFY THAT', centerX, nextY);
 
     // 6. 選手姓名主焦點（mountain_trail 附榮耀緞帶底條）
-    const nameY = nextY + (isPort ? 124 : (hasSplits ? 96 : 112));
+    const nameY = nextY + (isPort ? (hasSplits ? 104 : 124) : (hasSplits ? 80 : 112));
     if (formatKey === 'mountain_trail') {
       ctx.save();
       const ribW = Math.min(contentW * 0.78, 1280);
-      const ribH = isPort ? 148 : 132;
+      const ribH = isPort ? (hasSplits ? 132 : 148) : (hasSplits ? 118 : 132);
       drawRoundedRect(ctx, centerX - ribW / 2, nameY - ribH / 2, ribW, ribH, 24);
       ctx.fillStyle = palette.ribbonBg;
       ctx.fill();
@@ -1174,11 +1620,11 @@
     }
 
     ctx.fillStyle = palette.textPrimary;
-    fitTextFont(ctx, metrics.name, contentW * 0.84, isPort ? 148 : 140, 70, '900 {size}px "Noto Serif TC", "Microsoft JhengHei", Georgia, serif');
+    fitTextFont(ctx, metrics.name, contentW * 0.84, isPort ? (hasSplits ? 132 : 148) : (hasSplits ? 124 : 140), 66, '900 {size}px "Noto Serif TC", "Microsoft JhengHei", Georgia, serif');
     ctx.fillText(metrics.name, centerX, nameY);
 
     // 姓名下方飾線
-    const nameLineY = nameY + (isPort ? 88 : 74);
+    const nameLineY = nameY + (isPort ? (hasSplits ? 76 : 88) : (hasSplits ? 64 : 74));
     if (formatKey !== 'mountain_trail') {
       ctx.strokeStyle = palette.divider;
       ctx.lineWidth = 2.5;
@@ -1189,7 +1635,7 @@
     }
 
     // 參賽編號 & 組別（sport_kinetic 改採膠囊徽章）
-    const bibLineY = nameLineY + (isPort ? 56 : 46);
+    const bibLineY = nameLineY + (isPort ? (hasSplits ? 48 : 56) : (hasSplits ? 40 : 46));
     const bibText = `參賽編號 BIB NO.  ${metrics.bib}      |      參賽組別 CATEGORY  ${metrics.categoryName}`;
     if (formatKey === 'sport_kinetic') {
       ctx.save();
@@ -1212,9 +1658,9 @@
     }
 
     // 7. 官方中英文對照主成績區（依 6 種格式切換卡片建築！）
-    const cardTopY = bibLineY + (isPort ? 62 : (hasSplits ? 44 : 60));
+    const cardTopY = bibLineY + (isPort ? (hasSplits ? 46 : 62) : (hasSplits ? 34 : 60));
     const cardW = isPort ? contentW : Math.min(contentW, 2060);
-    const cardH = isPort ? 460 : 270;
+    const cardH = isPort ? (hasSplits ? 392 : 460) : (hasSplits ? 228 : 270);
     const cardX = centerX - cardW / 2;
 
     const items = [
@@ -1227,8 +1673,8 @@
     ctx.save();
     if (formatKey === 'modern_banner' || formatKey === 'sport_kinetic') {
       // 4 張獨立卡片排版（modern_banner 圓角浮雕 / sport_kinetic 科技切角）
-      const gap = isPort ? 22 : 24;
-      const bodyH = cardH - 58;
+      const gap = isPort ? 20 : 22;
+      const bodyH = cardH - 52;
       if (isPort) {
         const subW = (cardW - gap) / 2;
         const subH = (bodyH - gap) / 2;
@@ -1252,13 +1698,13 @@
 
           const cx = bx + subW / 2;
           ctx.fillStyle = palette.textMuted;
-          ctx.font = '700 28px "Noto Sans TC", "Microsoft JhengHei", sans-serif';
-          ctx.fillText(it.zh, cx, by + 42);
-          ctx.font = '600 20px "Segoe UI", Arial, sans-serif';
-          ctx.fillText(it.en, cx, by + 72);
+          ctx.font = '700 26px "Noto Sans TC", "Microsoft JhengHei", sans-serif';
+          ctx.fillText(it.zh, cx, by + subH * 0.24);
+          ctx.font = '600 19px "Segoe UI", Arial, sans-serif';
+          ctx.fillText(it.en, cx, by + subH * 0.42);
           ctx.fillStyle = it.highlight ? palette.turGreen : palette.textPrimary;
-          fitTextFont(ctx, it.val, subW - 40, 68, 32, '900 {size}px ui-monospace, "Segoe UI", monospace');
-          ctx.fillText(it.val, cx, by + 132);
+          fitTextFont(ctx, it.val, subW - 40, hasSplits ? 58 : 68, 30, '900 {size}px ui-monospace, "Segoe UI", monospace');
+          ctx.fillText(it.val, cx, by + subH * 0.74);
         });
       } else {
         const subW = (cardW - gap * 3) / 4;
@@ -1280,40 +1726,41 @@
 
           const cx = bx + subW / 2;
           ctx.fillStyle = palette.textMuted;
-          ctx.font = '700 28px "Noto Sans TC", "Microsoft JhengHei", sans-serif';
-          ctx.fillText(it.zh, cx, by + 44);
-          ctx.font = '600 20px "Segoe UI", Arial, sans-serif';
-          ctx.fillText(it.en, cx, by + 74);
+          ctx.font = '700 26px "Noto Sans TC", "Microsoft JhengHei", sans-serif';
+          ctx.fillText(it.zh, cx, by + bodyH * 0.22);
+          ctx.font = '600 19px "Segoe UI", Arial, sans-serif';
+          ctx.fillText(it.en, cx, by + bodyH * 0.39);
           ctx.fillStyle = it.highlight ? palette.turGreen : palette.textPrimary;
-          fitTextFont(ctx, it.val, subW - 36, 68, 32, '900 {size}px ui-monospace, "Segoe UI", monospace');
-          ctx.fillText(it.val, cx, by + 144);
+          fitTextFont(ctx, it.val, subW - 36, hasSplits ? 58 : 68, 30, '900 {size}px ui-monospace, "Segoe UI", monospace');
+          ctx.fillText(it.val, cx, by + bodyH * 0.73);
         });
       }
 
       // 底部配速附註條
       ctx.fillStyle = palette.textSecondary;
-      ctx.font = '700 27px "Noto Sans TC", "Segoe UI", sans-serif';
-      ctx.fillText(metrics.subNote, centerX, cardTopY + cardH - 22);
+      fitTextFont(ctx, metrics.subNote, cardW - 40, 25, 18, '700 {size}px "Noto Sans TC", "Segoe UI", sans-serif');
+      ctx.fillText(metrics.subNote, centerX, cardTopY + cardH - 20);
 
     } else if (formatKey === 'editorial_minimal') {
       // 極簡無框開放式排陣（上下細金橫線＋細垂直分隔線）
+      const bodyH = cardH - 52;
       ctx.strokeStyle = palette.goldMain;
       ctx.lineWidth = 3;
       ctx.beginPath();
       ctx.moveTo(cardX, cardTopY);
       ctx.lineTo(cardX + cardW, cardTopY);
-      ctx.moveTo(cardX, cardTopY + cardH - 58);
-      ctx.lineTo(cardX + cardW, cardTopY + cardH - 58);
+      ctx.moveTo(cardX, cardTopY + bodyH);
+      ctx.lineTo(cardX + cardW, cardTopY + bodyH);
       ctx.stroke();
 
       if (isPort) {
         const cellW = cardW / 2;
-        const cellH = (cardH - 58) / 2;
+        const cellH = bodyH / 2;
         ctx.strokeStyle = palette.divider;
         ctx.lineWidth = 1.5;
         ctx.beginPath();
         ctx.moveTo(cardX + cellW, cardTopY + 18);
-        ctx.lineTo(cardX + cellW, cardTopY + cardH - 76);
+        ctx.lineTo(cardX + cellW, cardTopY + bodyH - 18);
         ctx.moveTo(cardX + 24, cardTopY + cellH);
         ctx.lineTo(cardX + cardW - 24, cardTopY + cellH);
         ctx.stroke();
@@ -1324,11 +1771,11 @@
           const cx = cardX + col * cellW + cellW / 2;
           const cy = cardTopY + r * cellH;
           ctx.fillStyle = palette.textMuted;
-          ctx.font = '700 28px "Noto Sans TC", "Microsoft JhengHei", sans-serif';
-          ctx.fillText(`${it.zh}  ${it.en}`, cx, cy + 48);
+          ctx.font = '700 26px "Noto Sans TC", "Microsoft JhengHei", sans-serif';
+          ctx.fillText(`${it.zh}  ${it.en}`, cx, cy + cellH * 0.28);
           ctx.fillStyle = it.highlight ? palette.goldMain : palette.textPrimary;
-          fitTextFont(ctx, it.val, cellW - 44, 74, 34, '900 {size}px Georgia, ui-monospace, serif');
-          ctx.fillText(it.val, cx, cy + 124);
+          fitTextFont(ctx, it.val, cellW - 44, hasSplits ? 62 : 74, 32, '900 {size}px Georgia, ui-monospace, serif');
+          ctx.fillText(it.val, cx, cy + cellH * 0.68);
         });
       } else {
         const cellW = cardW / 4;
@@ -1336,29 +1783,30 @@
         ctx.lineWidth = 1.5;
         for (let i = 1; i < 4; i++) {
           ctx.beginPath();
-          ctx.moveTo(cardX + cellW * i, cardTopY + 24);
-          ctx.lineTo(cardX + cellW * i, cardTopY + cardH - 82);
+          ctx.moveTo(cardX + cellW * i, cardTopY + 20);
+          ctx.lineTo(cardX + cellW * i, cardTopY + bodyH - 20);
           ctx.stroke();
         }
         items.forEach((it, idx) => {
           const cx = cardX + idx * cellW + cellW / 2;
           ctx.fillStyle = palette.textMuted;
-          ctx.font = '700 28px "Noto Sans TC", "Microsoft JhengHei", sans-serif';
-          ctx.fillText(it.zh, cx, cardTopY + 46);
-          ctx.font = '600 20px "Segoe UI", Arial, sans-serif';
-          ctx.fillText(it.en, cx, cardTopY + 76);
+          ctx.font = '700 26px "Noto Sans TC", "Microsoft JhengHei", sans-serif';
+          ctx.fillText(it.zh, cx, cardTopY + bodyH * 0.22);
+          ctx.font = '600 19px "Segoe UI", Arial, sans-serif';
+          ctx.fillText(it.en, cx, cardTopY + bodyH * 0.39);
           ctx.fillStyle = it.highlight ? palette.goldMain : palette.textPrimary;
-          fitTextFont(ctx, it.val, cellW - 38, 76, 34, '900 {size}px Georgia, ui-monospace, serif');
-          ctx.fillText(it.val, cx, cardTopY + 148);
+          fitTextFont(ctx, it.val, cellW - 38, hasSplits ? 62 : 76, 32, '900 {size}px Georgia, ui-monospace, serif');
+          ctx.fillText(it.val, cx, cardTopY + bodyH * 0.73);
         });
       }
 
       ctx.fillStyle = palette.textSecondary;
-      ctx.font = '700 27px "Noto Sans TC", "Segoe UI", sans-serif';
-      ctx.fillText(metrics.subNote, centerX, cardTopY + cardH - 22);
+      fitTextFont(ctx, metrics.subNote, cardW - 40, 25, 18, '700 {size}px "Noto Sans TC", "Segoe UI", sans-serif');
+      ctx.fillText(metrics.subNote, centerX, cardTopY + cardH - 20);
 
     } else {
       // classic_gold / mountain_trail / diploma_crest：整體典藏圓角主成績卡
+      const bodyH = cardH - 56;
       drawRoundedRect(ctx, cardX, cardTopY, cardW, cardH, 24);
       ctx.fillStyle = palette.cardBg;
       ctx.fill();
@@ -1378,12 +1826,12 @@
 
       if (isPort) {
         const cellW = cardW / 2;
-        const cellH = (cardH - 76) / 2;
+        const cellH = bodyH / 2;
         ctx.strokeStyle = palette.divider;
         ctx.lineWidth = 1.5;
         ctx.beginPath();
-        ctx.moveTo(cardX + cellW, cardTopY + 24);
-        ctx.lineTo(cardX + cellW, cardTopY + cardH - 80);
+        ctx.moveTo(cardX + cellW, cardTopY + 20);
+        ctx.lineTo(cardX + cellW, cardTopY + bodyH - 10);
         ctx.moveTo(cardX + 36, cardTopY + cellH);
         ctx.lineTo(cardX + cardW - 36, cardTopY + cellH);
         ctx.stroke();
@@ -1394,152 +1842,72 @@
           const cx = cardX + col * cellW + cellW / 2;
           const cy = cardTopY + r * cellH;
           ctx.fillStyle = palette.textMuted;
-          ctx.font = '700 30px "Noto Sans TC", "Microsoft JhengHei", sans-serif';
-          ctx.fillText(it.zh, cx, cy + 44);
-          ctx.font = '600 21px "Segoe UI", Arial, sans-serif';
-          ctx.fillText(it.en, cx, cy + 74);
+          ctx.font = '700 28px "Noto Sans TC", "Microsoft JhengHei", sans-serif';
+          ctx.fillText(it.zh, cx, cy + cellH * 0.24);
+          ctx.font = '600 20px "Segoe UI", Arial, sans-serif';
+          ctx.fillText(it.en, cx, cy + cellH * 0.42);
           ctx.fillStyle = it.highlight ? palette.turGreen : palette.textPrimary;
-          fitTextFont(ctx, it.val, cellW - 48, 70, 34, '900 {size}px ui-monospace, "Segoe UI", monospace');
-          ctx.fillText(it.val, cx, cy + 138);
+          fitTextFont(ctx, it.val, cellW - 48, hasSplits ? 60 : 70, 32, '900 {size}px ui-monospace, "Segoe UI", monospace');
+          ctx.fillText(it.val, cx, cy + cellH * 0.74);
         });
       } else {
         const cellW = cardW / 4;
-        const bodyH = cardH - 64;
         ctx.strokeStyle = palette.divider;
         ctx.lineWidth = 1.5;
         for (let i = 1; i < 4; i++) {
           ctx.beginPath();
-          ctx.moveTo(cardX + cellW * i, cardTopY + 26);
+          ctx.moveTo(cardX + cellW * i, cardTopY + 22);
           ctx.lineTo(cardX + cellW * i, cardTopY + bodyH - 10);
           ctx.stroke();
         }
         items.forEach((it, idx) => {
           const cx = cardX + idx * cellW + cellW / 2;
           ctx.fillStyle = palette.textMuted;
-          ctx.font = '700 30px "Noto Sans TC", "Microsoft JhengHei", sans-serif';
-          ctx.fillText(it.zh, cx, cardTopY + 46);
-          ctx.font = '600 21px "Segoe UI", Arial, sans-serif';
-          ctx.fillText(it.en, cx, cardTopY + 76);
+          ctx.font = '700 28px "Noto Sans TC", "Microsoft JhengHei", sans-serif';
+          ctx.fillText(it.zh, cx, cardTopY + bodyH * 0.23);
+          ctx.font = '600 20px "Segoe UI", Arial, sans-serif';
+          ctx.fillText(it.en, cx, cardTopY + bodyH * 0.40);
           ctx.fillStyle = it.highlight ? palette.turGreen : palette.textPrimary;
-          fitTextFont(ctx, it.val, cellW - 40, 72, 34, '900 {size}px ui-monospace, "Segoe UI", monospace');
-          ctx.fillText(it.val, cx, cardTopY + 146);
+          fitTextFont(ctx, it.val, cellW - 40, hasSplits ? 60 : 72, 32, '900 {size}px ui-monospace, "Segoe UI", monospace');
+          ctx.fillText(it.val, cx, cardTopY + bodyH * 0.74);
         });
       }
 
-      const stripY = cardTopY + cardH - 56;
+      const stripY = cardTopY + bodyH;
       ctx.strokeStyle = palette.divider;
       ctx.lineWidth = 1.5;
       ctx.beginPath();
-      ctx.moveTo(cardX + 36, stripY - 12);
-      ctx.lineTo(cardX + cardW - 36, stripY - 12);
+      ctx.moveTo(cardX + 36, stripY);
+      ctx.lineTo(cardX + cardW - 36, stripY);
       ctx.stroke();
 
       ctx.fillStyle = palette.textSecondary;
-      ctx.font = '700 28px "Noto Sans TC", "Segoe UI", sans-serif';
-      ctx.fillText(metrics.subNote, centerX, stripY + 20);
+      fitTextFont(ctx, metrics.subNote, cardW - 60, 26, 18, '700 {size}px "Noto Sans TC", "Segoe UI", sans-serif');
+      ctx.fillText(metrics.subNote, centerX, stripY + (cardH - bodyH) / 2);
     }
     ctx.restore();
 
-    // 8. 分段成績卡（分段成績 SPLIT TIMES / 繞圈分段摘要 LAP SPLITS）
+    // 9. 底部三欄並列官方落款區座標先定，讓中間感應點與綜合分析卡自動貼齊可用高度
+    const footerY = H - pad3 - (isPort ? 245 : 176);
+
+    // 8. 全程感應點時間資料、區段平均速度與整體綜合分析卡（繞圈賽與距離賽皆完整列出）
     if (hasSplits) {
-      const shownSplits = activeSplits.slice(0, 6);
-      const splitTopY = cardTopY + cardH + (isPort ? 32 : 24);
-      const splitH = isPort ? (shownSplits.length > 4 ? 366 : 280) : 192;
-
-      ctx.save();
-      if (formatKey === 'sport_kinetic') {
-        drawChamferedRect(ctx, cardX, splitTopY, cardW, splitH, 18);
-      } else {
-        drawRoundedRect(ctx, cardX, splitTopY, cardW, splitH, 20);
-      }
-      ctx.fillStyle = formatKey === 'editorial_minimal' ? 'transparent' : palette.cardBg;
-      ctx.fill();
-      ctx.lineWidth = formatKey === 'editorial_minimal' ? 1.5 : 2;
-      ctx.strokeStyle = palette.cardBorder;
-      ctx.stroke();
-
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillStyle = palette.goldMain;
-      ctx.font = `800 ${isPort ? 26 : 24}px "Noto Sans TC", "Segoe UI", sans-serif`;
-      ctx.fillText(`${metrics.splitTitleZh}   •   ${metrics.splitTitleEn}`, centerX, splitTopY + 30);
-
-      ctx.strokeStyle = palette.divider;
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.moveTo(cardX + 32, splitTopY + 54);
-      ctx.lineTo(cardX + cardW - 32, splitTopY + 54);
-      ctx.stroke();
-
-      if (isPort) {
-        const cols = Math.min(2, shownSplits.length);
-        const rowsCount = Math.ceil(shownSplits.length / cols);
-        const cellW = cardW / cols;
-        const cellH = (splitH - 64) / rowsCount;
-
-        if (cols === 2) {
-          ctx.beginPath();
-          ctx.moveTo(cardX + cellW, splitTopY + 66);
-          ctx.lineTo(cardX + cellW, splitTopY + splitH - 16);
-          ctx.stroke();
-        }
-        for (let r = 1; r < rowsCount; r++) {
-          ctx.beginPath();
-          ctx.moveTo(cardX + 32, splitTopY + 58 + cellH * r);
-          ctx.lineTo(cardX + cardW - 32, splitTopY + 58 + cellH * r);
-          ctx.stroke();
-        }
-
-        shownSplits.forEach((sp, idx) => {
-          const col = idx % cols;
-          const r = Math.floor(idx / cols);
-          const cx = cardX + col * cellW + cellW / 2;
-          const cy = splitTopY + 58 + r * cellH;
-          ctx.fillStyle = palette.textSecondary;
-          fitTextFont(ctx, sp.title, cellW - 36, 25, 18, '700 {size}px "Noto Sans TC", "Microsoft JhengHei", sans-serif');
-          ctx.fillText(sp.title, cx, cy + cellH * 0.25);
-
-          ctx.fillStyle = palette.textPrimary;
-          fitTextFont(ctx, sp.time, cellW - 36, 38, 24, '900 {size}px ui-monospace, "Segoe UI", monospace');
-          ctx.fillText(sp.time, cx, cy + cellH * 0.58);
-
-          if (sp.sub) {
-            ctx.fillStyle = palette.textMuted;
-            ctx.font = '600 21px "Segoe UI", ui-monospace, sans-serif';
-            ctx.fillText(sp.sub, cx, cy + cellH * 0.85);
-          }
-        });
-      } else {
-        const cols = shownSplits.length;
-        const cellW = cardW / cols;
-        for (let i = 1; i < cols; i++) {
-          ctx.beginPath();
-          ctx.moveTo(cardX + cellW * i, splitTopY + 68);
-          ctx.lineTo(cardX + cellW * i, splitTopY + splitH - 18);
-          ctx.stroke();
-        }
-        shownSplits.forEach((sp, idx) => {
-          const cx = cardX + idx * cellW + cellW / 2;
-          ctx.fillStyle = palette.textSecondary;
-          fitTextFont(ctx, sp.title, cellW - 30, 26, 17, '700 {size}px "Noto Sans TC", "Microsoft JhengHei", sans-serif');
-          ctx.fillText(sp.title, cx, splitTopY + 86);
-
-          ctx.fillStyle = palette.textPrimary;
-          fitTextFont(ctx, sp.time, cellW - 28, 40, 24, '900 {size}px ui-monospace, "Segoe UI", monospace');
-          ctx.fillText(sp.time, cx, splitTopY + 130);
-
-          if (sp.sub) {
-            ctx.fillStyle = palette.textMuted;
-            ctx.font = '600 22px "Segoe UI", ui-monospace, sans-serif';
-            ctx.fillText(sp.sub, cx, splitTopY + 165);
-          }
-        });
-      }
-      ctx.restore();
+      const splitTopY = cardTopY + cardH + (isPort ? 22 : 16);
+      const splitMaxBottom = footerY - (isPort ? 136 : 124);
+      const splitH = Math.max(isPort ? 320 : 220, splitMaxBottom - splitTopY);
+      drawSensorAnalysisPanel(ctx, {
+        x: cardX,
+        y: splitTopY,
+        w: cardW,
+        h: splitH,
+        metrics,
+        palette,
+        formatKey,
+        isPort,
+        compact: false
+      });
     }
 
-    // 9. 底部三欄並列官方落款區（左：活動日期與地點｜中：官方鋼印｜右：TUR 官方 LOGO ＋ 主辦單位）
-    const footerY = H - pad3 - (isPort ? 245 : 176);
     const leftX = pad3 + (isPort ? 285 : 400);
     const rightX = W - pad3 - (isPort ? 285 : 400);
 
@@ -2090,9 +2458,10 @@
     curY += isPort ? 46 : 50;
 
     // 2x2 成績資訊格
+    const hasCustomSplits = showSplits && (metrics.sensorPoints || []).length > 0;
     const gX = infoBox.x + innerPad;
     const gW = textMaxW;
-    const gH = isPort ? 300 : 320;
+    const gH = isPort ? (hasCustomSplits ? 248 : 300) : (hasCustomSplits ? 264 : 320);
     ctx.save();
     drawRoundedRect(ctx, gX, curY, gW, gH, 20);
     ctx.fillStyle = palette.cardBg;
@@ -2102,16 +2471,16 @@
     ctx.stroke();
 
     const cellW = gW / 2;
-    const cellH = (gH - 54) / 2;
+    const cellH = (gH - 48) / 2;
     ctx.strokeStyle = palette.divider;
     ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.moveTo(gX + cellW, curY + 18);
-    ctx.lineTo(gX + cellW, curY + gH - 60);
+    ctx.moveTo(gX + cellW, curY + 16);
+    ctx.lineTo(gX + cellW, curY + gH - 54);
     ctx.moveTo(gX + 24, curY + cellH);
     ctx.lineTo(gX + gW - 24, curY + cellH);
-    ctx.moveTo(gX + 24, curY + gH - 54);
-    ctx.lineTo(gX + gW - 24, curY + gH - 54);
+    ctx.moveTo(gX + 24, curY + gH - 48);
+    ctx.lineTo(gX + gW - 24, curY + gH - 48);
     ctx.stroke();
 
     const gridItems = [
@@ -2126,66 +2495,49 @@
       const cellCx = gX + col * cellW + cellW / 2;
       const cellTop = curY + r * cellH;
       ctx.fillStyle = palette.textMuted;
-      ctx.font = '700 24px "Noto Sans TC", sans-serif';
-      ctx.fillText(`${it.zh} ${it.en}`, cellCx, cellTop + 34);
+      ctx.font = '700 22px "Noto Sans TC", sans-serif';
+      ctx.fillText(`${it.zh} ${it.en}`, cellCx, cellTop + cellH * 0.28);
       ctx.fillStyle = it.hi ? palette.turGreen : palette.textPrimary;
-      fitTextFont(ctx, it.val, cellW - 36, 54, 28, '900 {size}px ui-monospace, "Segoe UI", monospace');
-      ctx.fillText(it.val, cellCx, cellTop + 86);
+      fitTextFont(ctx, it.val, cellW - 36, hasCustomSplits ? 46 : 54, 26, '900 {size}px ui-monospace, "Segoe UI", monospace');
+      ctx.fillText(it.val, cellCx, cellTop + cellH * 0.70);
     });
 
     ctx.fillStyle = palette.textSecondary;
-    ctx.font = '700 24px "Noto Sans TC", "Segoe UI", sans-serif';
-    ctx.fillText(metrics.subNote, cx, curY + gH - 26);
+    fitTextFont(ctx, metrics.subNote, gW - 36, 22, 15, '700 {size}px "Noto Sans TC", "Segoe UI", sans-serif');
+    ctx.fillText(metrics.subNote, cx, curY + gH - 24);
     ctx.restore();
-    curY += gH + 22;
+    curY += gH + 16;
 
-    // 精簡分段成績條（若有且開啟）
-    const splits = showSplits ? (metrics.splitItems || []).slice(0, 4) : [];
-    if (splits.length > 0) {
-      const spH = 112;
-      ctx.save();
-      drawRoundedRect(ctx, gX, curY, gW, spH, 16);
-      ctx.fillStyle = palette.cardBg;
-      ctx.fill();
-      ctx.lineWidth = 1.5;
-      ctx.strokeStyle = palette.panelBorder;
-      ctx.stroke();
+    // 面板底部官方落款列座標
+    const footY = infoBox.y + infoBox.h - (isPort ? 105 : 114);
+    const quoteReserve = customQuote ? 42 : 0;
+    const panelBottomLimit = footY - (isPort ? 98 : 104) - quoteReserve;
 
-      const sw = gW / splits.length;
-      ctx.strokeStyle = palette.divider;
-      for (let i = 1; i < splits.length; i++) {
-        ctx.beginPath();
-        ctx.moveTo(gX + sw * i, curY + 14);
-        ctx.lineTo(gX + sw * i, curY + spH - 14);
-        ctx.stroke();
-      }
-      splits.forEach((sp, idx) => {
-        const scx = gX + idx * sw + sw / 2;
-        ctx.fillStyle = palette.textMuted;
-        fitTextFont(ctx, sp.title, sw - 20, 21, 14, '700 {size}px "Noto Sans TC", sans-serif');
-        ctx.fillText(sp.title, scx, curY + 30);
-        ctx.fillStyle = palette.textPrimary;
-        fitTextFont(ctx, sp.time, sw - 20, 32, 20, '900 {size}px ui-monospace, monospace');
-        ctx.fillText(sp.time, scx, curY + 66);
-        if (sp.sub) {
-          ctx.fillStyle = palette.textMuted;
-          ctx.font = '600 18px ui-monospace, sans-serif';
-          ctx.fillText(sp.sub, scx, curY + 94);
-        }
+    // 全程感應點時間資料、區段平均速度與整體綜合分析卡（若有且開啟）
+    if (hasCustomSplits && panelBottomLimit - curY >= 135) {
+      const spH = panelBottomLimit - curY;
+      drawSensorAnalysisPanel(ctx, {
+        x: gX,
+        y: curY,
+        w: gW,
+        h: spH,
+        metrics,
+        palette: { ...palette, isDark: isDarkTextStyle, cardBorder: palette.panelBorder },
+        formatKey: 'classic_gold',
+        isPort,
+        compact: true
       });
-      ctx.restore();
-      curY += spH + 18;
+      curY += spH + 12;
     }
 
     // 選手個人感言／座右銘（選填）
     if (customQuote) {
       ctx.fillStyle = palette.goldMain;
-      fitTextFont(ctx, `「${customQuote}」`, textMaxW, 30, 18, 'italic 700 {size}px "Noto Serif TC", Georgia, serif');
-      ctx.fillText(`「${customQuote}」`, cx, curY + 20);
+      fitTextFont(ctx, `「${customQuote}」`, textMaxW, 28, 16, 'italic 700 {size}px "Noto Serif TC", Georgia, serif');
+      ctx.fillText(`「${customQuote}」`, cx, curY + 14);
     }
 
     // 6. 面板底部官方落款列（左：活動日期｜中：金色鋼印｜右：TUR LOGO ＋ 主辦單位）
-    const footY = infoBox.y + infoBox.h - (isPort ? 105 : 114);
     const fLeftX = infoBox.x + infoBox.w * 0.22;
     const fRightX = infoBox.x + infoBox.w * 0.78;
 
@@ -2429,6 +2781,133 @@
     return fileName;
   }
 
+  /* ========================================================================
+   * 純 JS 離線 ZIP (STORE + UTF-8 檔名) 打包引擎 — 用於批次下載 PNG 圖檔
+   * ======================================================================== */
+  const CRC32_TABLE = (() => {
+    const tbl = new Uint32Array(256);
+    for (let i = 0; i < 256; i++) {
+      let c = i;
+      for (let k = 0; k < 8; k++) {
+        c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+      }
+      tbl[i] = c >>> 0;
+    }
+    return tbl;
+  })();
+
+  function crc32Bytes(bytes) {
+    let crc = 0xffffffff;
+    for (let i = 0; i < bytes.length; i++) {
+      crc = CRC32_TABLE[(crc ^ bytes[i]) & 0xff] ^ (crc >>> 8);
+    }
+    return (crc ^ 0xffffffff) >>> 0;
+  }
+
+  async function canvasToPngBytes(canvas) {
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+    if (!blob) throw new Error('無法產生 PNG 圖檔');
+    const buf = await blob.arrayBuffer();
+    return new Uint8Array(buf);
+  }
+
+  function buildZipFromFiles(files) {
+    const encoder = new TextEncoder();
+    const now = new Date();
+    const dosTime = ((now.getHours() & 0x1f) << 11) | ((now.getMinutes() & 0x3f) << 5) | ((now.getSeconds() >> 1) & 0x1f);
+    const dosDate = (((Math.max(1980, now.getFullYear()) - 1980) & 0x7f) << 9) | (((now.getMonth() + 1) & 0x0f) << 5) | (now.getDate() & 0x1f);
+
+    const localChunks = [];
+    const centralChunks = [];
+    let offset = 0;
+
+    for (const file of files) {
+      const nameBytes = encoder.encode(String(file.name || 'certificate.png'));
+      const dataBytes = file.data instanceof Uint8Array ? file.data : new Uint8Array(file.data);
+      const crc = crc32Bytes(dataBytes);
+      const size = dataBytes.length;
+
+      // Local File Header (30 bytes + filename)
+      const lh = new Uint8Array(30 + nameBytes.length);
+      const lv = new DataView(lh.buffer);
+      lv.setUint32(0, 0x04034b50, true);
+      lv.setUint16(4, 20, true);          // version needed
+      lv.setUint16(6, 0x0800, true);      // UTF-8 filename flag
+      lv.setUint16(8, 0, true);           // method 0 = STORE
+      lv.setUint16(10, dosTime, true);
+      lv.setUint16(12, dosDate, true);
+      lv.setUint32(14, crc, true);
+      lv.setUint32(18, size, true);
+      lv.setUint32(22, size, true);
+      lv.setUint16(26, nameBytes.length, true);
+      lv.setUint16(28, 0, true);
+      lh.set(nameBytes, 30);
+
+      localChunks.push(lh, dataBytes);
+
+      // Central Directory Header (46 bytes + filename)
+      const ch = new Uint8Array(46 + nameBytes.length);
+      const cv = new DataView(ch.buffer);
+      cv.setUint32(0, 0x02014b50, true);
+      cv.setUint16(4, 20, true);          // version made by
+      cv.setUint16(6, 20, true);          // version needed
+      cv.setUint16(8, 0x0800, true);      // UTF-8 filename flag
+      cv.setUint16(10, 0, true);          // method 0 = STORE
+      cv.setUint16(12, dosTime, true);
+      cv.setUint16(14, dosDate, true);
+      cv.setUint32(16, crc, true);
+      cv.setUint32(20, size, true);
+      cv.setUint32(24, size, true);
+      cv.setUint16(28, nameBytes.length, true);
+      cv.setUint16(30, 0, true);
+      cv.setUint16(32, 0, true);
+      cv.setUint16(34, 0, true);
+      cv.setUint16(36, 0, true);
+      cv.setUint32(38, 0, true);
+      cv.setUint32(42, offset, true);
+      ch.set(nameBytes, 46);
+
+      centralChunks.push(ch);
+      offset += lh.length + dataBytes.length;
+    }
+
+    const centralOffset = offset;
+    let centralSize = 0;
+    for (const c of centralChunks) centralSize += c.length;
+
+    // End of Central Directory Record (22 bytes)
+    const eocd = new Uint8Array(22);
+    const ev = new DataView(eocd.buffer);
+    ev.setUint32(0, 0x06054b50, true);
+    ev.setUint16(4, 0, true);
+    ev.setUint16(6, 0, true);
+    ev.setUint16(8, files.length, true);
+    ev.setUint16(10, files.length, true);
+    ev.setUint32(12, centralSize, true);
+    ev.setUint32(16, centralOffset, true);
+    ev.setUint16(20, 0, true);
+
+    const out = new Uint8Array(centralOffset + centralSize + eocd.length);
+    let pos = 0;
+    for (const chunk of localChunks) {
+      out.set(chunk, pos);
+      pos += chunk.length;
+    }
+    for (const chunk of centralChunks) {
+      out.set(chunk, pos);
+      pos += chunk.length;
+    }
+    out.set(eocd, pos);
+    return out;
+  }
+
+  function downloadZipFromFiles(files, zipFileName) {
+    const zipBytes = buildZipFromFiles(files);
+    const blob = new global.Blob([zipBytes], { type: 'application/zip' });
+    triggerBlobDownload(blob, zipFileName);
+    return zipFileName;
+  }
+
   global.CertificateGenerator = {
     OFFICIAL_THEMES,
     OFFICIAL_FORMATS,
@@ -2443,9 +2922,12 @@
     renderPersonalizedCertificate,
     printCanvasCertificate,
     canvasToJpegPage,
+    canvasToPngBytes,
     buildPdfFromJpegs,
+    buildZipFromFiles,
     downloadPng,
     downloadPdfFromCanvas,
-    downloadPdfFromPages
+    downloadPdfFromPages,
+    downloadZipFromFiles
   };
 })(window);

@@ -814,15 +814,30 @@
       }
     }
 
-    // 共用晶片寫入區活動篩選下拉：不顯示已結束活動
+    // 晶片作業選手清單活動欄位：登入選定作業活動後一律強制鎖定為該活動，不可切換
     const wf = $('writer-event-filter');
     if (wf) {
-      const prev = state.writerEventFilter;
-      wf.innerHTML = '<option value="ALL">全部活動</option>' + openOptionsHtml;
-      wf.classList.toggle('hidden', !hasOpen);
-      const nextVal = (prev === 'ALL' || openEvents.some((e) => e.eventId === prev)) ? prev : 'ALL';
-      state.writerEventFilter = nextVal;
-      wf.value = nextVal;
+      const lockedId = state.session?.mode === 'staff' ? (state.session.lockedEventId || '') : '';
+      const lockedEvt = lockedId ? (state.platform?.events || []).find((e) => e.eventId === lockedId) : null;
+      if (lockedId && lockedEvt) {
+        state.writerEventFilter = lockedId;
+        wf.innerHTML = `<option value="${esc(lockedEvt.eventId)}">🔒 ${esc(lockedEvt.name)} (${esc(lockedEvt.date || '')})</option>`;
+        wf.value = lockedId;
+        wf.disabled = true;
+        wf.title = '已鎖定為登入選取之作業活動，不可切換';
+        wf.className = 'bg-slate-900 border border-emerald-500/50 rounded-xl px-2.5 py-1.5 text-xs font-black text-emerald-300 opacity-95 cursor-not-allowed';
+        wf.classList.remove('hidden');
+      } else {
+        wf.disabled = false;
+        wf.title = '';
+        wf.className = 'bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-1.5 text-xs font-bold text-sky-300';
+        const prev = state.writerEventFilter;
+        wf.innerHTML = '<option value="ALL">全部活動</option>' + openOptionsHtml;
+        wf.classList.toggle('hidden', !hasOpen);
+        const nextVal = (prev === 'ALL' || openEvents.some((e) => e.eventId === prev)) ? prev : 'ALL';
+        state.writerEventFilter = nextVal;
+        wf.value = nextVal;
+      }
     }
 
     renderStaffLoginGroups();
@@ -1402,9 +1417,9 @@
     const evt = getActiveEvent();
     const lockedCp = getLockedCheckpoint();
 
-    $('staff-locked-event-pill').textContent = role === 'writer'
-      ? '🌐 共用製卡'
-      : `🏟️ ${evt ? evt.name : '未選定'}`;
+    $('staff-locked-event-pill').textContent = evt
+      ? `🔒 ${evt.name}`
+      : (role === 'writer' ? '🌐 共用製卡' : '🏟️ 未選定');
 
     let zoneTitle = '';
     if (role === 'writer') zoneTitle = '晶片寫入 / UID 綁定';
@@ -1745,11 +1760,16 @@
     const chipMap = new Map(state.chips.map((c) => [c.idNumber, c]));
     const peopleMap = new Map();
 
-    // 彙整所有進行中／籌備中活動名單的選手（排除「已結束」活動名單以避免誤操作）
+    // 若作業員已鎖定作業活動，選手清單強制僅載入該鎖定活動之名單，禁止切換其他活動
+    const lockedId = state.session?.mode === 'staff' ? (state.session.lockedEventId || '') : '';
+    const effectiveFilter = lockedId || state.writerEventFilter;
+    if (lockedId) state.writerEventFilter = lockedId;
+
+    // 彙整對應活動名單的選手（排除「已結束」活動名單以避免誤操作）
     const openEventIdSet = new Set(getOpenEvents().map((e) => e.eventId));
     for (const r of state.allRegistrations) {
       if (!openEventIdSet.has(r.eventId)) continue;
-      if (state.writerEventFilter !== 'ALL' && r.eventId !== state.writerEventFilter) continue;
+      if (effectiveFilter !== 'ALL' && r.eventId !== effectiveFilter) continue;
       const id = String(r.idNumber || '').trim().toUpperCase();
       if (!id) continue;
       if (!peopleMap.has(id)) {
@@ -1758,8 +1778,8 @@
       peopleMap.get(id).eventIds.add(r.eventId);
     }
 
-    // 若篩選為 ALL，也補上已寫卡但尚未報名的晶片主檔
-    if (state.writerEventFilter === 'ALL') {
+    // 僅於未鎖定活動且篩選為 ALL 時，才補上已寫卡但尚未報名的晶片主檔
+    if (!lockedId && effectiveFilter === 'ALL') {
       for (const c of state.chips) {
         if (!peopleMap.has(c.idNumber)) {
           peopleMap.set(c.idNumber, { idNumber: c.idNumber, name: c.name, eventIds: new Set() });
@@ -3513,17 +3533,75 @@
     const rows = getCertFilteredRows();
     let row = rows.find((r) => r.bib === state.cert.selectedBib) || rows[0] || ctx.rows?.[0] || null;
     if (!row) {
-      row = {
-        bib: 'A001',
-        name: '示範選手',
-        categoryName: evt.categories?.[0]?.name || '42K',
-        distanceKm: evt.categories?.[0]?.distanceKm || 42.195,
-        gunDurationMs: 13525000,
-        overallRank: 1,
-        categoryRank: 1,
-        avgPace: "5'20\"/km",
-        status: 'finished'
-      };
+      const sampleGunMs = new Date(`${evt.date || '2026-11-25'}T06:00:00`).getTime();
+      if (evt.eventType === 'lap_timed') {
+        const lapKm = Number(evt.lapDistanceKm || 2.54);
+        const durList = [812000, 825000, 804000, 842000, 858000, 835000, 868000, 821000];
+        let curTs = sampleGunMs;
+        const sampleLaps = durList.map((dMs, i) => {
+          curTs += dMs;
+          return {
+            lapNumber: i + 1,
+            timestampMs: curTs,
+            lapDurationMs: dMs,
+            lapPace: TE.formatPace(dMs, lapKm),
+            cumulativeKm: Number(((i + 1) * lapKm).toFixed(2)),
+            overtime: false
+          };
+        });
+        const totMs = durList.reduce((a, b) => a + b, 0);
+        const totKm = Number((durList.length * lapKm).toFixed(2));
+        row = {
+          bib: 'A001',
+          name: '示範選手',
+          categoryName: evt.categories?.[0]?.name || '6H組',
+          lapCount: durList.length,
+          lapDistanceKm: lapKm,
+          totalDistanceKm: totKm,
+          totalElapsedMs: totMs,
+          gunTimeMs: sampleGunMs,
+          overallRank: 1,
+          categoryRank: 1,
+          avgPace: TE.formatPace(totMs, totKm),
+          laps: sampleLaps
+        };
+      } else {
+        const totalDist = Number(evt.categories?.[0]?.distanceKm || 42.195);
+        const cps = [
+          { id: 'CP1', name: '10K 感應點', dist: Math.min(10, totalDist * 0.25), dur: 3120000 },
+          { id: 'CP2', name: '21K 折返點', dist: Math.min(11.1, totalDist * 0.25), dur: 3560000 },
+          { id: 'CP3', name: '32K 水站', dist: Math.min(10.9, totalDist * 0.25), dur: 3640000 },
+          { id: 'FIN', name: '終點站', dist: Math.max(1, totalDist - Math.min(10, totalDist * 0.25) - Math.min(11.1, totalDist * 0.25) - Math.min(10.9, totalDist * 0.25)), dur: 3205000 }
+        ];
+        let curTs = sampleGunMs;
+        let runKm = 0;
+        const sampleSplits = cps.map((c) => {
+          curTs += c.dur;
+          runKm += c.dist;
+          return {
+            toId: c.id,
+            toName: c.name,
+            timestampMs: curTs,
+            cumulativeKm: Number(runKm.toFixed(2)),
+            durationMs: c.dur,
+            distanceKm: Number(c.dist.toFixed(2)),
+            pace: TE.formatPace(c.dur, c.dist)
+          };
+        });
+        row = {
+          bib: 'A001',
+          name: '示範選手',
+          categoryName: evt.categories?.[0]?.name || '42K',
+          distanceKm: totalDist,
+          gunTimeMs: sampleGunMs,
+          gunDurationMs: 13525000,
+          overallRank: 1,
+          categoryRank: 1,
+          avgPace: "5'20\"/km",
+          status: 'finished',
+          splits: sampleSplits
+        };
+      }
     }
 
     const res = await renderCertToCanvas(canvas, row, state.cert.mode === 'custom');
@@ -3632,6 +3710,7 @@
     }
     if ($('cert-runner-count')) $('cert-runner-count').textContent = `${rows.length} 人`;
     if ($('cert-batch-count')) $('cert-batch-count').textContent = String(rows.length);
+    if ($('cert-batch-png-count')) $('cert-batch-png-count').textContent = String(rows.length);
 
     const listEl = $('cert-runner-list');
     if (listEl) {
@@ -4381,7 +4460,16 @@
       showToast(`已登錄 ${p.name} (${p.idNumber}) 至共用晶片主檔`, 'success');
     });
 
-    $('writer-event-filter').addEventListener('change', (e) => { state.writerEventFilter = e.target.value; renderWriterPanel(); });
+    $('writer-event-filter').addEventListener('change', (e) => {
+      const lockedId = state.session?.mode === 'staff' ? (state.session.lockedEventId || '') : '';
+      if (lockedId) {
+        e.target.value = lockedId;
+        state.writerEventFilter = lockedId;
+        return;
+      }
+      state.writerEventFilter = e.target.value;
+      renderWriterPanel();
+    });
     $('roster-search').addEventListener('input', (e) => { state.rosterSearch = e.target.value; renderWriterPanel(); });
     $('roster-tbody').addEventListener('click', (e) => {
       const btn = e.target.closest('[data-fill-chip-id]');
@@ -5959,6 +6047,57 @@
       }
     });
 
+    $('btn-cert-batch-png')?.addEventListener('click', async () => {
+      const evt = getAdminCertContext()?.event;
+      const rows = getCertFilteredRows();
+      if (!evt || !rows.length) return showToast('目前篩選清單內無選手可批次產製證書圖檔', 'warn');
+      if (state.cert.mode === 'custom' && !state.cert.bgImage) {
+        return showToast('自訂底圖模式請先上傳底圖後再批次下載', 'warn');
+      }
+      if (rows.length > 20 && !confirm(`確定要一次批次產製 ${rows.length} 張證書圖檔並打包下載 (.zip) 嗎？`)) return;
+      const btn = $('btn-cert-batch-png');
+      const origHtml = btn.innerHTML;
+      btn.disabled = true;
+      try {
+        const offscreen = document.createElement('canvas');
+        const files = [];
+        const usedNames = new Map();
+        const safeEvt = (evt.name || 'TUR').replace(/[\\/:*?"<>|]/g, '_');
+        for (let i = 0; i < rows.length; i++) {
+          btn.textContent = `⏳ 產製圖檔 (${i + 1}/${rows.length})...`;
+          await renderCertToCanvas(offscreen, rows[i], false);
+          const pngBytes = await Cert.canvasToPngBytes(offscreen);
+          const baseName = `完賽證書_${safeEvt}_${rows[i].bib || (i + 1)}_${rows[i].name || '選手'}`.replace(/[\\/:*?"<>|]/g, '_');
+          const dup = (usedNames.get(baseName) || 0) + 1;
+          usedNames.set(baseName, dup);
+          const fileName = dup > 1 ? `${baseName}_${dup}.png` : `${baseName}.png`;
+          files.push({ name: fileName, data: pngBytes });
+        }
+        const catTag = state.cert.catFilter === 'ALL' ? '全部' : state.cert.catFilter;
+        if (files.length === 1) {
+          const blob = new Blob([files[0].data], { type: 'image/png' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = files[0].name;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          setTimeout(() => URL.revokeObjectURL(url), 4000);
+          showToast(`🖼️ 已下載證書圖檔：${files[0].name}`, 'success');
+        } else {
+          Cert.downloadZipFromFiles(files, `${safeEvt}_完賽證書圖檔_${catTag}_${rows.length}張.zip`);
+          showToast(`🖼️ 已批次打包下載 ${rows.length} 張完賽證書圖檔 (.zip)！`, 'success');
+        }
+      } catch (err) {
+        showToast(`批次圖檔產生失敗：${err.message}`, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = origHtml;
+        if ($('cert-batch-png-count')) $('cert-batch-png-count').textContent = String(rows.length);
+      }
+    });
+
     $('btn-cert-batch-pdf').addEventListener('click', async () => {
       const evt = getAdminCertContext()?.event;
       const rows = getCertFilteredRows();
@@ -5988,6 +6127,7 @@
         btn.disabled = false;
         btn.innerHTML = origHtml;
         if ($('cert-batch-count')) $('cert-batch-count').textContent = String(rows.length);
+    if ($('cert-batch-png-count')) $('cert-batch-png-count').textContent = String(rows.length);
       }
     });
 

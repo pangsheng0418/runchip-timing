@@ -337,16 +337,24 @@
         const segDistKm = Math.max(0, targetDist - prevDistKm);
 
         if (scan && prevTimeMs !== null) {
-          const durationMs = Number(scan.timestampMs) - prevTimeMs;
+          const scanTs = Number(scan.timestampMs);
+          const durationMs = scanTs - prevTimeMs;
+          const speedKmh = durationMs > 0 && segDistKm > 0
+            ? Number((segDistKm / (durationMs / 3600000)).toFixed(2))
+            : null;
           splits.push({
             fromName: prevName,
             toId: cp.id,
             toName: cp.name,
+            timestampMs: scanTs,
+            cumulativeMs: gunTimeMs !== null ? scanTs - gunTimeMs : null,
+            cumulativeKm: targetDist,
             durationMs,
             distanceKm: segDistKm,
+            speedKmh,
             pace: formatPace(durationMs, segDistKm)
           });
-          prevTimeMs = Number(scan.timestampMs);
+          prevTimeMs = scanTs;
           prevDistKm = targetDist;
           prevName = cp.name;
         } else {
@@ -354,8 +362,12 @@
             fromName: prevName,
             toId: cp.id,
             toName: cp.name,
+            timestampMs: scan ? Number(scan.timestampMs) : null,
+            cumulativeMs: scan && gunTimeMs !== null ? Number(scan.timestampMs) - gunTimeMs : null,
+            cumulativeKm: targetDist,
             durationMs: null,
             distanceKm: segDistKm,
+            speedKmh: null,
             pace: '--'
           });
         }
@@ -589,11 +601,16 @@
         const overtime = cutoffTimeMs !== null && ts > cutoffTimeMs;
         if (!overtime) validLapNum++;
         const lapDurationMs = prevTs !== null && ts >= prevTs ? ts - prevTs : null;
+        const speedKmh = lapDurationMs !== null && lapDurationMs > 0 && lapKm > 0
+          ? Number((lapKm / (lapDurationMs / 3600000)).toFixed(2))
+          : null;
         laps.push({
           lapNumber: overtime ? null : validLapNum,
           scanId: s.id,
           timestampMs: ts,
+          cumulativeMs: gunTimeMs !== null && ts >= gunTimeMs ? ts - gunTimeMs : null,
           lapDurationMs,
+          speedKmh,
           lapPace: formatPace(lapDurationMs, lapKm),
           cumulativeKm: overtime ? null : Number((validLapNum * lapKm).toFixed(3)),
           overtime,

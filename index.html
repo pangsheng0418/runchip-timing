@@ -21,7 +21,7 @@
       }
     })();
   </script>
-  <link rel="stylesheet" href="./css/style.css?v=3.13.4" />
+  <link rel="stylesheet" href="./css/style.css?v=3.13.7" />
 </head>
 <body class="min-h-screen tur-stage-bg text-slate-100 pb-8">
 
@@ -1236,7 +1236,7 @@
                 </div>
                 <label class="inline-flex items-center gap-2 text-xs text-slate-300 cursor-pointer select-none pt-1">
                   <input id="cert-show-splits" type="checkbox" checked class="accent-amber-500 w-4 h-4" />
-                  <span>列出各站分段成績（繞圈賽顯示圈次摘要）</span>
+                  <span>列出所有感應點時間、區段均速與整體綜合分析</span>
                 </label>
               </div>
 
@@ -1338,6 +1338,10 @@
                   <button id="btn-cert-download-pdf" type="button"
                     class="px-3.5 py-2 rounded-xl text-xs font-black bg-amber-500 hover:bg-amber-400 text-slate-950 transition shadow">
                     📄 下載 PDF (.pdf)
+                  </button>
+                  <button id="btn-cert-batch-png" type="button"
+                    class="px-3.5 py-2 rounded-xl text-xs font-black bg-teal-500 hover:bg-teal-400 text-slate-950 transition shadow">
+                    🖼️ 批次下載圖檔 (<span id="cert-batch-png-count">0</span>)
                   </button>
                   <button id="btn-cert-batch-pdf" type="button"
                     class="px-3.5 py-2 rounded-xl text-xs font-black bg-emerald-500 hover:bg-emerald-400 text-slate-950 transition shadow">
@@ -2164,13 +2168,13 @@
     </div>
   </div>
 
-  <script src="./js/config.js?v=3.13.4"></script>
-  <script src="./js/timing-engine.js?v=3.13.4"></script>
-  <script src="./js/db.js?v=3.13.4"></script>
-  <script src="./js/nfc.js?v=3.13.4"></script>
-  <script src="./js/sync.js?v=3.13.4"></script>
-  <script src="./js/excel.js?v=3.13.4"></script>
-  <script src="./js/certificate.js?v=3.13.4"></script>
-  <script src="./js/app.js?v=3.13.4"></script>
+  <script src="./js/config.js?v=3.13.7"></script>
+  <script src="./js/timing-engine.js?v=3.13.7"></script>
+  <script src="./js/db.js?v=3.13.7"></script>
+  <script src="./js/nfc.js?v=3.13.7"></script>
+  <script src="./js/sync.js?v=3.13.7"></script>
+  <script src="./js/excel.js?v=3.13.7"></script>
+  <script src="./js/certificate.js?v=3.13.7"></script>
+  <script src="./js/app.js?v=3.13.7"></script>
 </body>
 </html>

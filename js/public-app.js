@@ -20,6 +20,7 @@
     historyRecords: [],
     mode: 'live', // 'live' | 'history' | 'warriors800' | 'certificate'
     selectedEventId: '',
+    desiredEventId: '',
     initialParamEvent: '',
     computed: null,
     computedCache: new Map(),
@@ -368,6 +369,53 @@
   const FONT_SCALE_KEY = 'tur_font_scale_v1';
   const FONT_SCALE_OPTIONS = ['sm', 'md', 'lg', 'xl'];
   const FONT_SCALE_LABELS = { sm: '小', md: '標準', lg: '大', xl: '特大' };
+  const PUB_SELECTED_EVENT_KEY = 'tur_pub_selected_event_v1';
+
+  function getSavedPublicEventId() {
+    try {
+      return (localStorage.getItem(PUB_SELECTED_EVENT_KEY) || '').trim();
+    } catch {
+      return '';
+    }
+  }
+
+  function syncUrlEventParam(eventId) {
+    try {
+      if (!window.history || typeof window.history.replaceState !== 'function') return;
+      const url = new URL(location.href);
+      const id = String(eventId || '').trim();
+      if (id) {
+        url.searchParams.set('event', id);
+      } else {
+        url.searchParams.delete('event');
+      }
+      window.history.replaceState(null, '', url.pathname + url.search + url.hash);
+    } catch {}
+  }
+
+  function persistSelectedEvent(eventId, { syncUrl = true } = {}) {
+    const id = String(eventId || '').trim();
+    state.desiredEventId = id;
+    state.selectedEventId = id;
+    try {
+      if (id) {
+        localStorage.setItem(PUB_SELECTED_EVENT_KEY, id);
+      } else {
+        localStorage.removeItem(PUB_SELECTED_EVENT_KEY);
+      }
+    } catch {}
+    try {
+      if (id) DB.saveDeviceSettings({ selectedEventId: id });
+    } catch {}
+    if (syncUrl) syncUrlEventParam(id);
+  }
+
+  function selectPublicEvent(eventId) {
+    persistSelectedEvent(eventId, { syncUrl: true });
+    state.catFilter = 'ALL';
+    renderEventSelector();
+    recomputeAndRender();
+  }
 
   function getSavedFontScale() {
     try {
@@ -396,10 +444,13 @@
     const paramMode = (params.get('mode') || '').trim();
     const cfgApi = (window.APP_CONFIG && window.APP_CONFIG.DEFAULT_GAS_URL ? String(window.APP_CONFIG.DEFAULT_GAS_URL).trim() : '');
     const saved = DB.getDeviceSettings();
+    const savedPubEvent = getSavedPublicEventId();
+    const initialEvent = paramEvent || savedPubEvent || (saved.selectedEventId || '');
 
     state.gasUrl = paramApi || cfgApi || (saved.gasUrl || '').trim();
     state.initialParamEvent = paramEvent;
-    state.selectedEventId = paramEvent || (saved.selectedEventId || '');
+    state.desiredEventId = initialEvent;
+    state.selectedEventId = initialEvent;
     if (paramMode === 'history' || paramMode === 'warriors800' || paramMode === 'certificate') state.mode = paramMode;
 
     bindEvents();
@@ -450,37 +501,56 @@
     };
   }
 
-  function ensureValidSelectedEvent(preferredDefaultId = '') {
+  function ensureValidSelectedEvent(preferredDefaultId = '', { isPreliminaryLocal = false } = {}) {
     const openEvents = getOpenEvents();
 
     if (state.initialParamEvent) {
       const paramEvt = state.events.find((e) => e.eventId === state.initialParamEvent);
-      state.initialParamEvent = '';
-      if (paramEvt && isEventFinished(paramEvt)) {
-        state.mode = 'history';
-        state.historyEventKey = `SYS__${paramEvt.eventId}`;
+      if (paramEvt) {
+        state.initialParamEvent = '';
+        if (isEventFinished(paramEvt)) {
+          state.mode = 'history';
+          state.historyEventKey = `SYS__${paramEvt.eventId}`;
+        }
+      } else if (!isPreliminaryLocal) {
+        state.initialParamEvent = '';
       }
     }
 
     if (!openEvents.length) {
-      state.selectedEventId = '';
+      state.selectedEventId = isPreliminaryLocal ? state.desiredEventId : '';
       return;
     }
-    if (state.selectedEventId && openEvents.some((e) => e.eventId === state.selectedEventId)) {
+
+    const targetId = state.desiredEventId || state.selectedEventId;
+    if (targetId && openEvents.some((e) => e.eventId === targetId)) {
+      state.selectedEventId = targetId;
+      state.desiredEventId = targetId;
       return;
     }
-    if (preferredDefaultId && openEvents.some((e) => e.eventId === preferredDefaultId)) {
-      state.selectedEventId = preferredDefaultId;
+
+    // 首次開啟先顯示本機快取時，若尚未含指定活動，僅暫時顯示預設活動、不覆蓋 desiredEventId，等雲端回傳立即切回指定活動
+    if (isPreliminaryLocal && state.desiredEventId) {
+      if (preferredDefaultId && openEvents.some((e) => e.eventId === preferredDefaultId)) {
+        state.selectedEventId = preferredDefaultId;
+      } else {
+        state.selectedEventId = openEvents[0].eventId;
+      }
       return;
     }
-    state.selectedEventId = openEvents[0].eventId;
+
+    const fallbackId = (preferredDefaultId && openEvents.some((e) => e.eventId === preferredDefaultId))
+      ? preferredDefaultId
+      : openEvents[0].eventId;
+    state.selectedEventId = fallbackId;
+    state.desiredEventId = fallbackId;
   }
 
   let _hasRenderedPublicOnce = false;
 
-  async function renderPublicSnapshot() {
+  async function renderPublicSnapshot({ isPreliminaryLocal = false } = {}) {
     renderModeUI();
-    renderEventSelector();
+    renderEventSelector({ isPreliminaryLocal });
     renderHistoryFilters();
     recomputeAndRender();
     if (state.mode === 'history') {
@@ -498,10 +568,10 @@
     // 首次進入立即先用本機 IndexedDB 快取秒開渲染（<50ms），不讓使用者乾等雲端喚醒
     if (!_hasRenderedPublicOnce && state.gasUrl) {
       try {
-        await loadFromLocalIndexedDB();
+        await loadFromLocalIndexedDB({ isPreliminaryLocal: true });
         if (state.events.length > 0 || state.historyRecords.length > 0) {
           badge.textContent = '本機快取・更新中...';
-          await renderPublicSnapshot();
+          await renderPublicSnapshot({ isPreliminaryLocal: true });
           _hasRenderedPublicOnce = true;
         } else if (!silent) {
           badge.textContent = '載入中...';
@@ -523,29 +593,29 @@
           state.allRegistrations = norm.registrations;
           state.allScans = norm.scans;
           state.historyRecords = norm.historyRecords;
-          ensureValidSelectedEvent(norm.activeEventId);
+          ensureValidSelectedEvent(norm.activeEventId, { isPreliminaryLocal: false });
           badge.textContent = norm.isLegacy ? '雲端（相容）' : '雲端同步';
 
           if (!norm.isLegacy && res.data) {
             DB.mergeCloudData(res.data).catch(() => {});
           }
         } else {
-          await loadFromLocalIndexedDB();
+          await loadFromLocalIndexedDB({ isPreliminaryLocal: false });
           badge.textContent = state.events.length || state.historyRecords.length ? '本機快取' : '尚無資料';
         }
       } else {
-        await loadFromLocalIndexedDB();
+        await loadFromLocalIndexedDB({ isPreliminaryLocal: false });
         badge.textContent = '本機預覽';
       }
     } catch (err) {
       console.warn('雲端讀取失敗，切換本機快取:', err);
-      if (!_hasRenderedPublicOnce) await loadFromLocalIndexedDB();
+      if (!_hasRenderedPublicOnce) await loadFromLocalIndexedDB({ isPreliminaryLocal: false });
       badge.textContent = '本機快取（離線）';
     }
 
     _hasRenderedPublicOnce = true;
     renderModeUI();
-    renderEventSelector();
+    renderEventSelector({ isPreliminaryLocal: false });
     renderHistoryFilters();
     recomputeAndRender();
     if (state.mode === 'history') {
@@ -558,7 +628,7 @@
     $('pub-last-updated').textContent = TE.formatClockSec(Date.now());
   }
 
-  async function loadFromLocalIndexedDB() {
+  async function loadFromLocalIndexedDB({ isPreliminaryLocal = false } = {}) {
     await DB.init();
     const [platform, regs, scans, hist] = await Promise.all([
       DB.getPlatform(),
@@ -568,7 +638,7 @@
     ]);
 
     state.events = platform.events || [];
-    ensureValidSelectedEvent(platform.activeEventId || '');
+    ensureValidSelectedEvent(platform.activeEventId || '', { isPreliminaryLocal });
 
     state.allRegistrations = await Promise.all(
       regs.map(async (r) => ({
@@ -661,7 +731,7 @@
     }
   }
 
-  function renderEventSelector() {
+  function renderEventSelector({ isPreliminaryLocal = false } = {}) {
     const openEvents = getOpenEvents();
     const sel = $('pub-event-select');
     const wrap = $('pub-event-select-wrap');
@@ -679,7 +749,7 @@
       return;
     }
 
-    ensureValidSelectedEvent();
+    ensureValidSelectedEvent('', { isPreliminaryLocal });
     if (bar) bar.classList.toggle('hidden', state.mode !== 'live');
     if (wrap) wrap.classList.remove('hidden');
 
@@ -2395,19 +2465,13 @@
     $('btn-goto-800-from-empty').addEventListener('click', () => switchMode('warriors800'));
 
     $('pub-event-select').addEventListener('change', (e) => {
-      state.selectedEventId = e.target.value;
-      state.catFilter = 'ALL';
-      renderEventSelector();
-      recomputeAndRender();
+      selectPublicEvent(e.target.value);
     });
 
     $('pub-event-pills').addEventListener('click', (e) => {
       const btn = e.target.closest('[data-pill-event]');
       if (!btn) return;
-      state.selectedEventId = btn.dataset.pillEvent;
-      state.catFilter = 'ALL';
-      renderEventSelector();
-      recomputeAndRender();
+      selectPublicEvent(btn.dataset.pillEvent);
     });
 
     $('form-pub-search').addEventListener('submit', (e) => {
@@ -2517,10 +2581,7 @@
 
       const btn = e.target.closest('[data-switch-pub-event]');
       if (!btn) return;
-      state.selectedEventId = btn.dataset.switchPubEvent;
-      state.catFilter = 'ALL';
-      renderEventSelector();
-      recomputeAndRender();
+      selectPublicEvent(btn.dataset.switchPubEvent);
     };
 
     $('pub-search-results').addEventListener('click', handleCrossJump);
