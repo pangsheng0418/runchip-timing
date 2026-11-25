@@ -371,28 +371,35 @@
 
     getSession() {
       try {
-        const raw = localStorage.getItem(SESSION_KEY) || sessionStorage.getItem(SESSION_KEY);
+        // 安全防護：若先前曾殘留任何管理員登入紀錄於 localStorage / sessionStorage，一律立即清除，絕不自動登入
+        const lsRaw = localStorage.getItem(SESSION_KEY);
+        if (lsRaw) localStorage.removeItem(SESSION_KEY);
+
+        const raw = sessionStorage.getItem(SESSION_KEY);
         if (!raw) return null;
         const parsed = JSON.parse(raw);
-        // 若先前僅存於 sessionStorage，自動升級遷移至 localStorage，確保下次開啟直接維持登入
-        if (parsed && !localStorage.getItem(SESSION_KEY)) {
-          try { localStorage.setItem(SESSION_KEY, raw); } catch {}
+        if (!parsed || parsed.mode === 'admin') {
+          sessionStorage.removeItem(SESSION_KEY);
+          return null;
         }
         return parsed;
       } catch {
+        try {
+          localStorage.removeItem(SESSION_KEY);
+          sessionStorage.removeItem(SESSION_KEY);
+        } catch {}
         return null;
       }
     }
 
     saveSession(sessionObj) {
       try {
-        if (!sessionObj) {
-          localStorage.removeItem(SESSION_KEY);
+        localStorage.removeItem(SESSION_KEY);
+        // 管理員 (最高管理員／活動承辦人) 登入狀態僅存於當頁記憶體，絕不寫入 localStorage 或 sessionStorage，防止外人藉登入紀錄進入
+        if (!sessionObj || sessionObj.mode === 'admin') {
           sessionStorage.removeItem(SESSION_KEY);
         } else {
-          const json = JSON.stringify(sessionObj);
-          localStorage.setItem(SESSION_KEY, json);
-          sessionStorage.removeItem(SESSION_KEY);
+          sessionStorage.setItem(SESSION_KEY, JSON.stringify(sessionObj));
         }
       } catch {}
     }
@@ -1056,14 +1063,14 @@
       // 3. 合併作業員帳號清單
       let mergedStaff = cur.staffAccounts || [];
       if (Array.isArray(cloudData.staffAccounts)) {
-        if (scopedOwnerAdmin) {
+        if (scopedOwnerAdmin && scopedAdminOnly) {
           const keepOtherStaff = (cur.staffAccounts || []).filter((s) => {
             const o = String(s.ownerAdmin || '').trim();
-            if (scopedAdminOnly) return o !== scopedOwnerAdmin;
-            return o && o !== scopedOwnerAdmin;
+            return o !== scopedOwnerAdmin;
           });
           mergedStaff = [...keepOtherStaff, ...cloudData.staffAccounts];
-        } else if (cloudData.staffAccounts.length > 0) {
+        } else if (scopedOwnerAdmin || cloudData.staffAccounts.length > 0) {
+          // 最高管理員接收雲端完整作業員清單，以支援全平台帳號管理
           mergedStaff = cloudData.staffAccounts;
         }
       }

@@ -43,6 +43,7 @@
     staffLoginSelectedGroup: '',
     adminLoginRole: 'super',
     adminLoginSelectedUser: '',
+    acctRole: 'super',
     historyPreview: {
       items: [],
       skippedCount: 0,
@@ -352,9 +353,12 @@
       showToast('已進入無網路狀態！晶片計時作業仍可離線執行，有網後再統一上傳', 'warn');
     });
 
-    // 防止瀏覽器上下頁快取 (bfcache) 還原先前輸入的密碼
+    // 防止瀏覽器上下頁快取 (bfcache) 還原先前輸入的密碼，離開頁面時同步清空輸入欄
     window.addEventListener('pageshow', () => {
       if (!state.session) clearLoginInputs();
+    });
+    window.addEventListener('pagehide', () => {
+      clearLoginInputs();
     });
   }
 
@@ -510,6 +514,11 @@
         idle: 'admin-zone-nav-btn text-left rounded-xl px-3 py-2.5 border border-emerald-500/30 bg-slate-950/80 hover:bg-emerald-950/35 hover:border-emerald-400/70 transition flex flex-col justify-between gap-1.5 min-w-0',
         labelCls: 'text-emerald-300'
       },
+      accounts: {
+        active: 'admin-zone-nav-btn text-left rounded-xl px-3 py-2.5 border-2 border-indigo-400 bg-indigo-500/20 shadow-lg shadow-indigo-950/40 transition flex flex-col justify-between gap-1.5 min-w-0',
+        idle: 'admin-zone-nav-btn text-left rounded-xl px-3 py-2.5 border border-indigo-500/30 bg-slate-950/80 hover:bg-indigo-950/35 hover:border-indigo-400/70 transition flex flex-col justify-between gap-1.5 min-w-0',
+        labelCls: 'text-indigo-300'
+      },
       history: {
         active: 'admin-zone-nav-btn text-left rounded-xl px-3 py-2.5 border-2 border-purple-400 bg-purple-500/20 shadow-lg shadow-purple-950/40 transition flex flex-col justify-between gap-1.5 min-w-0',
         idle: 'admin-zone-nav-btn text-left rounded-xl px-3 py-2.5 border border-purple-500/30 bg-slate-950/80 hover:bg-purple-950/35 hover:border-purple-400/70 transition flex flex-col justify-between gap-1.5 min-w-0',
@@ -526,18 +535,18 @@
     const navGrid = $('admin-zone-nav-grid');
     if (navGrid) {
       navGrid.className = isSuper
-        ? 'grid grid-cols-2 sm:grid-cols-4 gap-2'
+        ? 'grid grid-cols-2 sm:grid-cols-5 gap-2'
         : 'grid grid-cols-1 sm:grid-cols-3 gap-2';
     }
     const dbNumEl = $('admin-zone-db-num');
-    if (dbNumEl) dbNumEl.textContent = isSuper ? '專區 4' : '專區 3';
+    if (dbNumEl) dbNumEl.textContent = isSuper ? '專區 5' : '專區 3';
 
     document.querySelectorAll('.admin-zone-nav-btn').forEach((btn) => {
       const z = btn.dataset.adminZone;
       const cfg = styleMap[z];
       if (!cfg) return;
       const isAct = z === activeZone;
-      const hideForNonSuper = z === 'history' && !isSuper;
+      const hideForNonSuper = (z === 'history' || z === 'accounts') && !isSuper;
       btn.className = (isAct ? cfg.active : cfg.idle) + (hideForNonSuper ? ' hidden' : '');
       btn.setAttribute('aria-expanded', isAct ? 'true' : 'false');
       const chev = btn.querySelector('.admin-zone-chevron');
@@ -554,8 +563,8 @@
   }
 
   function switchAdminZone(zoneKey, { toggle = false } = {}) {
-    if (zoneKey === 'history' && !isCurrentSuperAdmin()) {
-      showToast('僅最高管理權責可進入歷年活動成績匯入', 'error');
+    if ((zoneKey === 'history' || zoneKey === 'accounts') && !isCurrentSuperAdmin()) {
+      showToast('僅最高管理權責可進入此專區', 'error');
       switchAdminZone(null);
       return;
     }
@@ -575,6 +584,7 @@
     const defaultTabMap = {
       ops: state.adminLastOpsTab || 'events',
       closed: state.adminLastClosedTab || 'export',
+      accounts: 'accounts',
       history: 'history',
       db: 'sync'
     };
@@ -582,8 +592,8 @@
   }
 
   function switchAdminTab(tabName) {
-    if (tabName === 'history' && !isCurrentSuperAdmin()) {
-      showToast('僅最高管理權責可進入歷年活動成績匯入', 'error');
+    if ((tabName === 'history' || tabName === 'accounts') && !isCurrentSuperAdmin()) {
+      showToast('僅最高管理權責可進入此專區', 'error');
       switchAdminZone(null);
       return;
     }
@@ -594,9 +604,11 @@
       ? 'ops'
       : (tabName === 'export' || tabName === 'certificate')
         ? 'closed'
-        : tabName === 'history'
-          ? 'history'
-          : 'db';
+        : tabName === 'accounts'
+          ? 'accounts'
+          : tabName === 'history'
+            ? 'history'
+            : 'db';
 
     state.adminZone = activeZone;
     if (activeZone === 'ops') state.adminLastOpsTab = tabName;
@@ -607,6 +619,7 @@
     const zoneCards = [
       ['ops', 'admin-zone-ops', 'admin-zone-ops-body'],
       ['closed', 'admin-zone-closed', 'admin-zone-closed-body'],
+      ['accounts', 'admin-zone-accounts', 'admin-zone-accounts-body'],
       ['history', 'admin-zone-history', 'admin-zone-history-body'],
       ['db', 'admin-zone-db', 'admin-zone-db-body']
     ];
@@ -642,6 +655,8 @@
       renderAdminExportTab();
     } else if (tabName === 'certificate') {
       renderAdminCertificateTab();
+    } else if (tabName === 'accounts') {
+      renderAdminAccountsTab();
     } else if (tabName === 'history') {
       renderAdminHistoryTab();
     } else if (tabName === 'sync') {
@@ -716,13 +731,7 @@
           ? `🛡️ ${acc.displayName || acc.username} (最高管理)`
           : `👤 ${acc.displayName || acc.username} (活動承辦)`)
         : `👷 ${acc.displayName || acc.username}`;
-      if (portalAdminTag) {
-        const isAdm = state.session.mode === 'admin';
-        portalAdminTag.classList.toggle('hidden', !isAdm);
-        if (isAdm) {
-          portalAdminTag.textContent = `✓ ${acc.username}・直接進入`;
-        }
-      }
+      if (portalAdminTag) portalAdminTag.classList.add('hidden');
       if (portalStaffTag) {
         const isStf = state.session.mode === 'staff';
         portalStaffTag.classList.toggle('hidden', !isStf);
@@ -821,13 +830,11 @@
   }
 
   /**
-   * 渲染後台管理登入畫面：極簡雙身分切換（最高管理權責 ／ 活動承辦人）
+   * 渲染後台管理登入畫面：極簡雙身分切換（最高管理權責 ／ 活動承辦人，不顯示歷史帳號清單與密碼）
    */
   function renderAdminLoginView() {
     const role = state.adminLoginRole === 'coordinator' ? 'coordinator' : 'super';
     const isSuperRole = role === 'super';
-    const allAdmins = (state.platform?.adminAccounts || []).filter((a) => a && a.enabled !== false);
-    const list = allAdmins.filter((a) => (isSuperRole ? Boolean(a.isSuperAdmin) : !a.isSuperAdmin));
 
     // 1. 雙身分頁籤樣式切換
     document.querySelectorAll('.admin-login-role-btn').forEach((btn) => {
@@ -866,9 +873,6 @@
         ? '管理全平台帳號、歷年成績匯入與資料庫備份還原'
         : '管理本人承辦之活動、名單、成績與結案證書';
     }
-    if ($('admin-login-accounts-count')) {
-      $('admin-login-accounts-count').textContent = list.length ? `快選 (${list.length})` : '';
-    }
     const submitBtn = $('btn-admin-login-submit');
     if (submitBtn && !submitBtn.disabled) {
       submitBtn.textContent = isSuperRole ? '🛡️ 登入最高管理權責後台' : '👤 登入活動承辦人後台';
@@ -876,39 +880,6 @@
         ? 'w-full py-3.5 rounded-xl text-base font-black bg-amber-500 hover:bg-amber-400 text-slate-950 transition shadow-lg'
         : 'w-full py-3.5 rounded-xl text-base font-black bg-sky-500 hover:bg-sky-400 text-slate-950 transition shadow-lg';
     }
-
-    // 3. 若目前選定帳號不屬於該身分則清除
-    if (state.adminLoginSelectedUser && !list.some((a) => a.username === state.adminLoginSelectedUser)) {
-      state.adminLoginSelectedUser = '';
-    }
-
-    // 4. 精簡快速選取帳號膠囊（點一下即填入帳號並聚焦密碼欄，無帳號時隱藏不佔空間）
-    const grid = $('admin-login-account-grid');
-    if (!grid) return;
-    if (list.length === 0) {
-      grid.innerHTML = '';
-      grid.classList.add('hidden');
-      return;
-    }
-    grid.classList.remove('hidden');
-    grid.innerHTML = list
-      .map((a) => {
-        const selected = state.adminLoginSelectedUser === a.username;
-        const activeCls = isSuperRole
-          ? 'bg-amber-500/20 border-amber-400 text-amber-200'
-          : 'bg-sky-500/20 border-sky-400 text-sky-200';
-        const idleCls = 'bg-slate-950 border-slate-700 text-slate-300 hover:border-slate-500';
-        const label = a.displayName && a.displayName !== a.username
-          ? `${a.username} (${a.displayName})`
-          : a.username;
-        return `
-          <button type="button" data-pick-admin-user="${esc(a.username)}"
-            class="px-2.5 py-1 rounded-lg border text-[11px] font-mono-num font-bold transition ${selected ? activeCls : idleCls}">
-            ${selected ? '✓ ' : ''}${esc(label)}
-          </button>
-        `;
-      })
-      .join('');
   }
 
   /**
@@ -2016,10 +1987,15 @@
     const finishedCnt = getAdminFinishedEvents().length;
     const totalEvents = (state.platform?.events || []).length;
     const totalScans = (state.allScans || []).length;
+    const allAdmins = state.platform?.adminAccounts || [];
+    const superCnt = allAdmins.filter((a) => a.isSuperAdmin).length;
+    const coordCnt = allAdmins.filter((a) => !a.isSuperAdmin).length;
+    const staffCnt = (state.platform?.staffAccounts || []).length;
     if ($('zone-ops-badge')) $('zone-ops-badge').textContent = `${openCnt} 場開放`;
     if ($('zone-closed-badge')) $('zone-closed-badge').textContent = `${finishedCnt} 場已結案`;
+    if ($('zone-accounts-badge')) $('zone-accounts-badge').textContent = `${superCnt} 高管・${coordCnt} 承辦・${staffCnt} 作業`;
     if ($('zone-db-badge')) $('zone-db-badge').textContent = `${totalEvents} 活動・${totalScans} 感應`;
-    if (!isSuper && (state.adminZone === 'history' || state.adminTab === 'history')) {
+    if (!isSuper && (state.adminZone === 'history' || state.adminTab === 'history' || state.adminZone === 'accounts' || state.adminTab === 'accounts')) {
       state.adminZone = null;
       state.adminTab = 'events';
     }
@@ -2034,6 +2010,7 @@
     renderAdminResultsTab();
     renderAdminRaceTab();
     renderAdminStaffTab();
+    if (isCurrentSuperAdmin()) renderAdminAccountsTab();
     renderAdminHistoryTab();
     renderAdminExportTab();
     renderAdminCertificateTab();
@@ -2653,19 +2630,21 @@
       ? '<div class="p-5 rounded-xl bg-slate-950 border border-dashed border-slate-800 text-center text-xs text-slate-500">尚無作業員，請點上方「＋ 新增作業員」</div>'
       : list
           .map(
-            (s, idx) => `
-            <div class="grid grid-cols-1 sm:grid-cols-12 gap-2 items-end p-3.5 rounded-xl bg-slate-950 border border-slate-800" data-staff-row="${idx}" data-staff-owner="${esc(s.ownerAdmin || '')}">
+            (s, idx) => {
+              const hasPass = Boolean(String(s.password || ''));
+              return `
+            <div class="grid grid-cols-1 sm:grid-cols-12 gap-2 items-end p-3.5 rounded-xl bg-slate-950 border border-slate-800" data-staff-row="${idx}" data-staff-orig-user="${esc(s.username)}" data-staff-owner="${esc(s.ownerAdmin || '')}">
               <div class="sm:col-span-2">
                 <label class="block text-[11px] text-slate-400 mb-1">登入帳號</label>
-                <input type="text" value="${esc(s.username)}" data-staff-field="username" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs font-mono-num font-bold text-white" />
+                <input type="text" value="${esc(s.username)}" autocomplete="off" data-staff-field="username" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs font-mono-num font-bold text-white" />
               </div>
               <div class="sm:col-span-1">
-                <label class="block text-[11px] text-slate-400 mb-1">密碼</label>
-                <input type="text" value="${esc(s.password)}" data-staff-field="password" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs font-mono-num text-white" />
+                <label class="block text-[11px] text-slate-400 mb-1">${hasPass ? '重設密碼' : '密碼*'}</label>
+                <input type="text" value="" readonly autocomplete="new-password" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-staff-field="password" placeholder="${hasPass ? '留空不改' : '必填'}" class="tur-secret-input w-full bg-slate-900 border ${hasPass ? 'border-slate-700' : 'border-amber-500/70'} rounded-lg px-2 py-2 text-xs font-mono-num text-white" />
               </div>
               <div class="sm:col-span-2">
                 <label class="block text-[11px] text-slate-400 mb-1">人員名稱</label>
-                <input type="text" value="${esc(s.displayName)}" data-staff-field="displayName" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs font-bold text-white" />
+                <input type="text" value="${esc(s.displayName)}" autocomplete="off" data-staff-field="displayName" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs font-bold text-white" />
               </div>
               <div class="sm:col-span-2">
                 <label class="block text-[11px] text-slate-400 mb-1">作業權限</label>
@@ -2692,13 +2671,187 @@
                 <button type="button" data-del-staff="${esc(s.username)}" class="px-2 py-1 rounded text-xs font-bold bg-rose-600/20 text-rose-300">刪</button>
               </div>
             </div>
-          `
+          `;
+            }
           )
           .join('');
 
     $('staff-accounts-list').innerHTML =
       listHtml +
       `<datalist id="cp-datalist"><option value="CHECKIN">選手報到感應區 (CHECKIN)</option>${cps.filter((cp) => cp.type !== 'start' && String(cp.id || '').toUpperCase() !== 'START').map((cp) => `<option value="${esc(cp.id)}">${esc(cp.name)}</option>`).join('')}</datalist>`;
+    initNoCachePasswordInputs($('staff-accounts-list'));
+  }
+
+  /**
+   * 最高管理員專用：👥 帳號管理專區（統一建立與修改 最高管理員／活動承辦人／作業人員 帳密）
+   */
+  function renderAdminAccountsTab() {
+    if (!isCurrentSuperAdmin()) return;
+    const role = ['super', 'coordinator', 'staff'].includes(state.acctRole) ? state.acctRole : 'super';
+    state.acctRole = role;
+
+    const adminUser = getCurrentAdminUsername();
+    const allAdmins = state.platform?.adminAccounts || [];
+    const superAdmins = allAdmins.filter((a) => a.isSuperAdmin);
+    const coordinators = allAdmins.filter((a) => !a.isSuperAdmin);
+    const allStaff = state.platform?.staffAccounts || [];
+    const allEvents = state.platform?.events || [];
+    const openEvents = allEvents.filter((e) => !isEventFinished(e));
+
+    // 1. 更新 3 大角色數量與頁籤樣式
+    if ($('acct-count-super')) $('acct-count-super').textContent = String(superAdmins.length);
+    if ($('acct-count-coordinator')) $('acct-count-coordinator').textContent = String(coordinators.length);
+    if ($('acct-count-staff')) $('acct-count-staff').textContent = String(allStaff.length);
+
+    const roleStyles = {
+      super: 'bg-amber-500 text-slate-950 shadow font-black',
+      coordinator: 'bg-sky-500 text-slate-950 shadow font-black',
+      staff: 'bg-emerald-500 text-slate-950 shadow font-black'
+    };
+    document.querySelectorAll('.acct-role-tab-btn').forEach((btn) => {
+      const r = btn.dataset.acctRole;
+      const act = r === role;
+      btn.className = `acct-role-tab-btn py-2.5 px-3 rounded-xl text-xs sm:text-sm transition flex items-center justify-center gap-1.5 ${act ? roleStyles[r] : 'font-bold text-slate-300 hover:bg-slate-800'}`;
+    });
+
+    // 2. 更新「建立新帳號」表單提示與作業人員專用欄位
+    const createTitleMap = {
+      super: '＋ 建立最高管理員帳號',
+      coordinator: '＋ 建立活動承辦人帳號',
+      staff: '＋ 建立作業人員帳號'
+    };
+    const listTitleMap = {
+      super: `🛡️ 最高管理員清冊（${superAdmins.length} 筆）`,
+      coordinator: `👤 活動承辦人清冊（${coordinators.length} 筆）`,
+      staff: `👷 全平台作業人員清冊（${allStaff.length} 筆）`
+    };
+    if ($('acct-create-title')) $('acct-create-title').textContent = createTitleMap[role];
+    if ($('acct-list-title')) $('acct-list-title').textContent = listTitleMap[role];
+    if ($('acct-new-staff-fields')) $('acct-new-staff-fields').classList.toggle('hidden', role !== 'staff');
+
+    // 同步作業人員建立下拉（限定活動與歸屬管理者）
+    const newEvtSel = $('acct-new-staff-event');
+    if (newEvtSel) {
+      const prev = newEvtSel.value || 'ALL';
+      newEvtSel.innerHTML =
+        '<option value="ALL">所有開放活動</option>' +
+        openEvents.map((e) => `<option value="${esc(e.eventId)}">僅限：${esc(e.name)}</option>`).join('');
+      newEvtSel.value = (prev === 'ALL' || openEvents.some((e) => e.eventId === prev)) ? prev : 'ALL';
+    }
+    const newOwnerSel = $('acct-new-staff-owner');
+    if (newOwnerSel) {
+      const prev = newOwnerSel.value || '';
+      newOwnerSel.innerHTML =
+        '<option value="">全平台共用（不限管理者）</option>' +
+        allAdmins.map((a) => `<option value="${esc(a.username)}">${a.isSuperAdmin ? '🛡️' : '👤'} ${esc(a.displayName || a.username)} (${esc(a.username)})</option>`).join('');
+      newOwnerSel.value = (!prev || allAdmins.some((a) => a.username === prev)) ? prev : '';
+    }
+
+    // 確保建立表單的帳號密碼欄永遠防自動填入
+    initNoCachePasswordInputs($('form-acct-create'));
+
+    // 3. 渲染對應角色之帳號清冊
+    const container = $('acct-manage-list');
+    if (!container) return;
+
+    if (role === 'super' || role === 'coordinator') {
+      const list = role === 'super' ? superAdmins : coordinators;
+      if (!list.length) {
+        container.innerHTML = `<div class="p-6 rounded-xl bg-slate-950 border border-dashed border-slate-800 text-center text-xs text-slate-400">目前尚無${role === 'super' ? '最高管理員' : '活動承辦人'}帳號，請由上方表單建立。</div>`;
+        return;
+      }
+      container.innerHTML = list.map((a) => {
+        const isSelf = a.username === adminUser;
+        const hasPass = Boolean(String(a.password || ''));
+        const ownEvtCount = allEvents.filter((e) => getEventOwner(e) === a.username).length;
+        return `
+          <div class="grid grid-cols-1 sm:grid-cols-12 gap-2 items-end p-3.5 rounded-xl bg-slate-950 border ${isSelf ? 'border-amber-500/50' : 'border-slate-800'}" data-acct-row="admin" data-acct-orig-user="${esc(a.username)}">
+            <div class="sm:col-span-2">
+              <label class="block text-[11px] text-slate-400 mb-1">登入帳號</label>
+              <input type="text" value="${esc(a.username)}" autocomplete="off" data-acct-field="username" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs font-mono-num font-bold text-white" />
+            </div>
+            <div class="sm:col-span-3">
+              <label class="block text-[11px] text-slate-400 mb-1">顯示名稱（名下 ${ownEvtCount} 場活動）</label>
+              <input type="text" value="${esc(a.displayName || a.username)}" autocomplete="off" data-acct-field="displayName" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs font-bold text-white" />
+            </div>
+            <div class="sm:col-span-2">
+              <label class="block text-[11px] text-slate-400 mb-1">${hasPass ? '修改密碼（預設空白）' : '設定密碼（必填）'}</label>
+              <input type="text" value="" readonly autocomplete="new-password" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-acct-field="password" placeholder="${hasPass ? '留空維持原密碼' : '請手動輸入密碼'}" class="tur-secret-input w-full bg-slate-900 border ${hasPass ? 'border-slate-700' : 'border-amber-500/70'} rounded-lg px-2.5 py-2 text-xs font-mono-num text-white" />
+            </div>
+            <div class="sm:col-span-3">
+              <label class="block text-[11px] text-slate-400 mb-1">角色權限</label>
+              <select data-acct-field="isSuperAdmin" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs font-bold ${a.isSuperAdmin ? 'text-amber-300' : 'text-sky-300'}" ${isSelf ? 'disabled' : ''}>
+                <option value="1" ${a.isSuperAdmin ? 'selected' : ''}>🛡️ 最高管理員（全權限）</option>
+                <option value="0" ${!a.isSuperAdmin ? 'selected' : ''}>👤 活動承辦人（僅管本人活動）</option>
+              </select>
+            </div>
+            <div class="sm:col-span-2 flex items-center justify-between gap-2 pb-1">
+              <label class="inline-flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer">
+                <input type="checkbox" data-acct-field="enabled" ${a.enabled !== false ? 'checked' : ''} ${isSelf ? 'disabled' : ''} class="accent-emerald-500 w-4 h-4" />
+                <span>啟用</span>
+              </label>
+              ${isSelf
+                ? '<span class="px-2 py-1 rounded text-[11px] font-bold bg-amber-500/20 text-amber-300">目前登入</span>'
+                : `<button type="button" data-acct-del-admin="${esc(a.username)}" class="px-2.5 py-1 rounded text-xs font-bold bg-rose-600/20 hover:bg-rose-600/40 text-rose-300">刪除</button>`}
+            </div>
+          </div>
+        `;
+      }).join('');
+    } else {
+      if (!allStaff.length) {
+        container.innerHTML = '<div class="p-6 rounded-xl bg-slate-950 border border-dashed border-slate-800 text-center text-xs text-slate-400">目前尚無作業人員帳號，請由上方表單建立。</div>';
+        return;
+      }
+      container.innerHTML = allStaff.map((s) => {
+        const hasPass = Boolean(String(s.password || ''));
+        return `
+          <div class="grid grid-cols-1 sm:grid-cols-12 gap-2 items-end p-3.5 rounded-xl bg-slate-950 border border-slate-800" data-acct-row="staff" data-acct-orig-user="${esc(s.username)}">
+            <div class="sm:col-span-2">
+              <label class="block text-[11px] text-slate-400 mb-1">登入帳號</label>
+              <input type="text" value="${esc(s.username)}" autocomplete="off" data-acct-field="username" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs font-mono-num font-bold text-white" />
+            </div>
+            <div class="sm:col-span-2">
+              <label class="block text-[11px] text-slate-400 mb-1">顯示名稱</label>
+              <input type="text" value="${esc(s.displayName || s.username)}" autocomplete="off" data-acct-field="displayName" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs font-bold text-white" />
+            </div>
+            <div class="sm:col-span-2">
+              <label class="block text-[11px] text-slate-400 mb-1">${hasPass ? '修改密碼（預設空白）' : '設定密碼（必填）'}</label>
+              <input type="text" value="" readonly autocomplete="new-password" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-acct-field="password" placeholder="${hasPass ? '留空維持原密碼' : '請手動輸入密碼'}" class="tur-secret-input w-full bg-slate-900 border ${hasPass ? 'border-slate-700' : 'border-amber-500/70'} rounded-lg px-2.5 py-2 text-xs font-mono-num text-white" />
+            </div>
+            <div class="sm:col-span-2">
+              <label class="block text-[11px] text-slate-400 mb-1">作業權限</label>
+              <select data-acct-field="role" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs font-bold text-white">
+                <option value="scanner" ${s.role === 'scanner' ? 'selected' : ''}>鎖定感應站點</option>
+                <option value="writer" ${s.role === 'writer' ? 'selected' : ''}>僅共用晶片寫入</option>
+                <option value="both" ${s.role === 'both' ? 'selected' : ''}>寫入＋鎖定站點</option>
+              </select>
+            </div>
+            <div class="sm:col-span-2">
+              <label class="block text-[11px] text-slate-400 mb-1">限定活動／歸屬</label>
+              <div class="grid grid-cols-1 gap-1">
+                <select data-acct-field="eventId" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-[11px] font-bold text-amber-300">
+                  <option value="ALL" ${(!s.eventId || s.eventId === 'ALL') ? 'selected' : ''}>所有活動</option>
+                  ${openEvents.map((e) => `<option value="${esc(e.eventId)}" ${s.eventId === e.eventId ? 'selected' : ''}>${esc(e.name)}</option>`).join('')}
+                </select>
+                <select data-acct-field="ownerAdmin" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-[11px] text-slate-300">
+                  <option value="" ${!s.ownerAdmin ? 'selected' : ''}>全平台共用</option>
+                  ${allAdmins.map((a) => `<option value="${esc(a.username)}" ${s.ownerAdmin === a.username ? 'selected' : ''}>歸屬：${esc(a.username)}</option>`).join('')}
+                </select>
+              </div>
+            </div>
+            <div class="sm:col-span-1">
+              <label class="block text-[11px] text-slate-400 mb-1">站點</label>
+              <input list="acct-cp-datalist" type="text" value="${esc(s.checkpointId || '')}" data-acct-field="checkpointId" placeholder="CP1" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs font-mono-num text-sky-300" />
+            </div>
+            <div class="sm:col-span-1 flex items-center justify-between gap-1 pb-1">
+              <input type="checkbox" data-acct-field="enabled" ${s.enabled !== false ? 'checked' : ''} class="accent-emerald-500 w-4 h-4" title="啟用" />
+              <button type="button" data-acct-del-staff="${esc(s.username)}" class="px-2 py-1 rounded text-xs font-bold bg-rose-600/20 hover:bg-rose-600/40 text-rose-300">刪</button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+    initNoCachePasswordInputs(container);
   }
 
   function renderAdminHistoryTab() {
@@ -4044,7 +4197,7 @@
       await autoSyncCloud({ reason: 'manual', showNotice: true });
     });
     $('btn-logout').addEventListener('click', handleLogout);
-    $('header-brand-home').addEventListener('click', () => switchView('portal'));
+    $('header-brand-home').addEventListener('click', () => { if (!state.session) switchView('portal'); });
     document.querySelectorAll('[data-goto]').forEach((b) => b.addEventListener('click', () => switchView(b.dataset.goto)));
     $('btn-quick-sync').addEventListener('click', () => handleUploadPendingSync(false));
 
@@ -4104,20 +4257,6 @@
       state.adminLoginSelectedUser = '';
       clearLoginInputs();
       renderAdminLoginView();
-    });
-    $('admin-login-account-grid').addEventListener('click', (e) => {
-      const btn = e.target.closest('[data-pick-admin-user]');
-      if (!btn) return;
-      const username = btn.dataset.pickAdminUser;
-      state.adminLoginSelectedUser = username;
-      const userEl = $('admin-login-user');
-      const passEl = $('admin-login-pass');
-      userEl.removeAttribute('readonly');
-      userEl.value = username;
-      passEl.removeAttribute('readonly');
-      passEl.value = '';
-      renderAdminLoginView();
-      passEl.focus();
     });
     $('form-admin-login').addEventListener('submit', (e) => {
       e.preventDefault();
@@ -5085,7 +5224,7 @@
       showToast('本活動站點設定已儲存！', 'success');
     });
 
-    // 分頁 5：作業員帳號與鎖定活動/站點管制（僅管理本人名下作業員，不影響其他管理者帳號）
+    // 分頁 5：作業員帳號與鎖定活動/站點管制（新增密碼預設空白，既有密碼留空不覆寫）
     $('btn-add-staff').addEventListener('click', async () => {
       const adminUser = getCurrentAdminUsername();
       const allStaff = [...(state.platform.staffAccounts || [])];
@@ -5096,7 +5235,7 @@
       const evt = getActiveEvent();
       allStaff.push({
         username: `${prefix}${n}`,
-        password: '1111',
+        password: '',
         displayName: `作業員 ${n}`,
         role: 'scanner',
         eventId: evt ? evt.eventId : 'ALL',
@@ -5107,6 +5246,7 @@
       });
       await DB.savePlatform({ ...state.platform, staffAccounts: allStaff });
       await reloadState();
+      showToast(`已新增作業員「${prefix}${n}」，請手動設定密碼後按儲存`, 'info');
     });
 
     $('staff-accounts-list').addEventListener('click', async (e) => {
@@ -5119,7 +5259,7 @@
       const idx = allStaff.findIndex((s) => s.username === targetUser);
       if (idx < 0) return;
       const sOwner = String(allStaff[idx].ownerAdmin || '').trim();
-      const canManage = isSuper ? (!sOwner || sOwner === adminUser) : sOwner === adminUser;
+      const canManage = isSuper ? true : sOwner === adminUser;
       if (!canManage) return showToast('無權限刪除此作業員帳號', 'error');
       if (!confirm(`確定刪除作業員帳號「${targetUser}」？`)) return;
       allStaff.splice(idx, 1);
@@ -5131,6 +5271,7 @@
     $('btn-save-staff-accounts').addEventListener('click', async () => {
       const adminUser = getCurrentAdminUsername();
       const isSuper = isCurrentSuperAdmin();
+      const existingStaffMap = new Map((state.platform.staffAccounts || []).map((s) => [s.username, s]));
       const otherStaff = (state.platform.staffAccounts || []).filter((s) => {
         const sOwner = String(s.ownerAdmin || '').trim();
         return isSuper ? (sOwner && sOwner !== adminUser) : sOwner !== adminUser;
@@ -5141,18 +5282,23 @@
       const seen = new Set();
       const ownStaff = [];
       for (const row of rows) {
+        const origUser = row.dataset.staffOrigUser || '';
         const username = row.querySelector('[data-staff-field="username"]').value.trim();
         if (!username) continue;
         if (seen.has(username)) return showToast(`帳號「${username}」重複`, 'error');
         if (otherUserSet.has(username)) return showToast(`帳號「${username}」已被其他管理者使用，請更換其他名稱`, 'error');
         seen.add(username);
+        const typedPass = row.querySelector('[data-staff-field="password"]').value;
+        const existingAcc = existingStaffMap.get(origUser);
+        const password = typedPass !== '' ? typedPass : String(existingAcc?.password || '');
+        if (!password) return showToast(`作業員「${username}」尚未設定密碼，請手動輸入密碼`, 'error');
         const role = row.querySelector('[data-staff-field="role"]').value;
         const cpId = row.querySelector('[data-staff-field="checkpointId"]').value.trim();
         if (role !== 'writer' && !cpId) return showToast(`帳號「${username}」屬於感應角色，必須填寫鎖定站點代碼`, 'error');
         const origOwner = String(row.dataset.staffOwner || '').trim();
         ownStaff.push({
           username,
-          password: row.querySelector('[data-staff-field="password"]').value || '1111',
+          password,
           displayName: row.querySelector('[data-staff-field="displayName"]').value.trim() || username,
           role,
           eventId: row.querySelector('[data-staff-field="eventId"]').value || 'ALL',
@@ -5168,7 +5314,254 @@
         try { await Sync.pushPlatform(updated, state.session.auth); } catch (err) { showToast(`本機已儲存，雲端同步失敗：${err.message}`, 'warn'); }
       }
       await reloadState();
-      showToast(`已儲存 ${ownStaff.length} 組作業員帳號設定！`, 'success');
+      showToast('作業員帳號與權限已儲存！', 'success');
+    });
+
+    // =========================================================================
+    // 最高管理員專用：👥 帳號管理專區（統一管理 最高管理員／活動承辦人／作業人員）
+    // =========================================================================
+    $('acct-role-tabs').addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-acct-role]');
+      if (!btn || !isCurrentSuperAdmin()) return;
+      state.acctRole = btn.dataset.acctRole;
+      $('form-acct-create').reset();
+      renderAdminAccountsTab();
+    });
+
+    $('form-acct-create').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!isCurrentSuperAdmin()) return showToast('僅最高管理員可建立帳號', 'error');
+
+      const role = state.acctRole || 'super';
+      const username = $('acct-new-username').value.trim();
+      const displayName = $('acct-new-displayname').value.trim() || username;
+      const password = $('acct-new-password').value;
+
+      if (!username) return showToast('請輸入登入帳號', 'warn');
+      if (!password) return showToast('請手動設定登入密碼（不可空白）', 'warn');
+
+      if (role === 'super' || role === 'coordinator') {
+        const list = [...(state.platform.adminAccounts || [])];
+        if (list.some((a) => a.username === username)) {
+          return showToast(`管理者帳號「${username}」已存在，請更換其他帳號`, 'error');
+        }
+        list.push({
+          username,
+          password,
+          displayName,
+          isSuperAdmin: role === 'super',
+          enabled: true,
+          updatedAt: Date.now()
+        });
+        const updated = await DB.savePlatform({ ...state.platform, adminAccounts: list });
+        if (Sync.isOnlineEnabled() && navigator.onLine) {
+          try { await Sync.pushPlatform(updated, state.session.auth); } catch (err) { showToast(`本機已建立，雲端同步失敗：${err.message}`, 'warn'); }
+        }
+        $('form-acct-create').reset();
+        await reloadState();
+        showToast(`✅ 已建立${role === 'super' ? '最高管理員' : '活動承辦人'}「${displayName} (${username})」`, 'success');
+      } else {
+        const list = [...(state.platform.staffAccounts || [])];
+        if (list.some((s) => s.username === username)) {
+          return showToast(`作業人員帳號「${username}」已存在，請更換其他帳號`, 'error');
+        }
+        const staffRole = $('acct-new-staff-role').value || 'scanner';
+        const cpId = $('acct-new-staff-cp').value.trim();
+        if (staffRole !== 'writer' && !cpId) {
+          return showToast('感應角色必須填寫鎖定站點代碼（如 CHECKIN / LAP / CP1 / FINISH）', 'warn');
+        }
+        list.push({
+          username,
+          password,
+          displayName,
+          role: staffRole,
+          eventId: $('acct-new-staff-event').value || 'ALL',
+          checkpointId: staffRole === 'writer' ? '' : cpId,
+          ownerAdmin: $('acct-new-staff-owner').value || '',
+          enabled: true,
+          updatedAt: Date.now()
+        });
+        const updated = await DB.savePlatform({ ...state.platform, staffAccounts: list });
+        if (Sync.isOnlineEnabled() && navigator.onLine) {
+          try { await Sync.pushPlatform(updated, state.session.auth); } catch (err) { showToast(`本機已建立，雲端同步失敗：${err.message}`, 'warn'); }
+        }
+        $('form-acct-create').reset();
+        await reloadState();
+        showToast(`✅ 已建立作業人員「${displayName} (${username})」`, 'success');
+      }
+    });
+
+    $('acct-manage-list').addEventListener('click', async (e) => {
+      if (!isCurrentSuperAdmin()) return;
+
+      const delAdminBtn = e.target.closest('[data-acct-del-admin]');
+      if (delAdminBtn) {
+        const targetUser = delAdminBtn.dataset.acctDelAdmin;
+        if (targetUser === getCurrentAdminUsername()) {
+          return showToast('不可刪除目前登入中的最高管理員帳號', 'error');
+        }
+        const list = [...(state.platform.adminAccounts || [])];
+        const idx = list.findIndex((a) => a.username === targetUser);
+        if (idx < 0) return;
+        const target = list[idx];
+        if (!confirm(`確定刪除帳號「${target.username} (${target.displayName})」嗎？\n（原活動資料仍會保留）`)) return;
+        list.splice(idx, 1);
+        if (!list.some((a) => a.isSuperAdmin && a.enabled !== false)) {
+          return showToast('系統至少需保留一位啟用中的最高管理員', 'error');
+        }
+        const updated = await DB.savePlatform({ ...state.platform, adminAccounts: list });
+        if (Sync.isOnlineEnabled() && navigator.onLine) {
+          try { await Sync.pushPlatform(updated, state.session.auth); } catch (err) { showToast(`雲端同步失敗：${err.message}`, 'warn'); }
+        }
+        await reloadState();
+        showToast(`已刪除帳號「${targetUser}」`, 'info');
+        return;
+      }
+
+      const delStaffBtn = e.target.closest('[data-acct-del-staff]');
+      if (delStaffBtn) {
+        const targetUser = delStaffBtn.dataset.acctDelStaff;
+        const list = [...(state.platform.staffAccounts || [])];
+        const idx = list.findIndex((s) => s.username === targetUser);
+        if (idx < 0) return;
+        if (!confirm(`確定刪除作業人員帳號「${targetUser}」嗎？`)) return;
+        list.splice(idx, 1);
+        const updated = await DB.savePlatform({ ...state.platform, staffAccounts: list });
+        if (Sync.isOnlineEnabled() && navigator.onLine) {
+          try { await Sync.pushPlatform(updated, state.session.auth); } catch (err) { showToast(`雲端同步失敗：${err.message}`, 'warn'); }
+        }
+        await reloadState();
+        showToast(`已刪除作業人員「${targetUser}」`, 'info');
+      }
+    });
+
+    $('btn-acct-save-all').addEventListener('click', async () => {
+      if (!isCurrentSuperAdmin()) return;
+      const role = state.acctRole || 'super';
+      const rows = Array.from(document.querySelectorAll('#acct-manage-list [data-acct-row]'));
+
+      if (role === 'super' || role === 'coordinator') {
+        const isEditingSuper = role === 'super';
+        const allExisting = state.platform.adminAccounts || [];
+        const existingByOrig = new Map(allExisting.map((a) => [a.username, a]));
+        const untouchedAdmins = allExisting.filter((a) => (isEditingSuper ? !a.isSuperAdmin : a.isSuperAdmin));
+        const seen = new Set(untouchedAdmins.map((a) => a.username));
+
+        const editedList = [];
+        const renamedAdmins = {};
+        const oldSelf = getCurrentAdminUsername();
+        let newSelf = oldSelf;
+        let newSelfPass = state.session.auth.password;
+        let newSelfDisplay = state.session.account.displayName;
+
+        for (const row of rows) {
+          const origUser = row.dataset.acctOrigUser || '';
+          const username = row.querySelector('[data-acct-field="username"]').value.trim();
+          const typedPass = row.querySelector('[data-acct-field="password"]').value;
+          const existingAcc = existingByOrig.get(origUser);
+          const password = typedPass !== '' ? typedPass : String(existingAcc?.password || '');
+          const displayName = row.querySelector('[data-acct-field="displayName"]').value.trim() || username;
+          const isSuperAdmin = row.querySelector('[data-acct-field="isSuperAdmin"]').value === '1';
+          const enabled = row.querySelector('[data-acct-field="enabled"]').checked;
+
+          if (!username) continue;
+          if (!password) return showToast(`帳號「${username}」尚未設定密碼，請手動輸入密碼`, 'error');
+          if (seen.has(username)) return showToast(`帳號「${username}」重複`, 'error');
+          seen.add(username);
+
+          if (origUser && origUser !== username) renamedAdmins[origUser] = username;
+          if (origUser === oldSelf) {
+            newSelf = username;
+            newSelfPass = password;
+            newSelfDisplay = displayName;
+          }
+          editedList.push({
+            username,
+            password,
+            displayName,
+            isSuperAdmin: origUser === oldSelf ? true : isSuperAdmin,
+            enabled: origUser === oldSelf ? true : enabled,
+            updatedAt: Date.now()
+          });
+        }
+
+        const nextAdmins = isEditingSuper
+          ? [...editedList, ...untouchedAdmins]
+          : [...untouchedAdmins, ...editedList];
+
+        if (!nextAdmins.some((a) => a.isSuperAdmin && a.enabled !== false)) {
+          return showToast('系統至少需保留一位啟用中的最高管理員', 'error');
+        }
+
+        const oldAuth = { ...state.session.auth };
+        const mapOwner = (o) => (renamedAdmins[o] ? renamedAdmins[o] : o);
+        const nextEvents = Object.keys(renamedAdmins).length
+          ? (state.platform.events || []).map((ev) => ({ ...ev, ownerAdmin: mapOwner(getEventOwner(ev)) }))
+          : (state.platform.events || []);
+        const nextStaff = Object.keys(renamedAdmins).length
+          ? (state.platform.staffAccounts || []).map((s) => (s.ownerAdmin ? { ...s, ownerAdmin: mapOwner(s.ownerAdmin) } : s))
+          : (state.platform.staffAccounts || []);
+
+        const updated = await DB.savePlatform({
+          ...state.platform,
+          adminAccounts: nextAdmins,
+          events: nextEvents,
+          staffAccounts: nextStaff
+        });
+
+        if (Sync.isOnlineEnabled() && navigator.onLine) {
+          try {
+            await Sync.pushPlatform(updated, oldAuth, { targetOwner: newSelf, renamedAdmins });
+          } catch (err) {
+            showToast(`本機已儲存，雲端同步失敗：${err.message}`, 'warn');
+          }
+        }
+
+        state.session.auth = { username: newSelf, password: newSelfPass };
+        state.session.account.username = newSelf;
+        state.session.account.password = newSelfPass;
+        state.session.account.displayName = newSelfDisplay;
+        await reloadState();
+        showToast(`✅ 已儲存 ${editedList.length} 組${isEditingSuper ? '最高管理員' : '活動承辦人'}帳號變更！`, 'success');
+      } else {
+        const existingStaffMap = new Map((state.platform.staffAccounts || []).map((s) => [s.username, s]));
+        const seen = new Set();
+        const nextStaff = [];
+        for (const row of rows) {
+          const origUser = row.dataset.acctOrigUser || '';
+          const username = row.querySelector('[data-acct-field="username"]').value.trim();
+          if (!username) continue;
+          if (seen.has(username)) return showToast(`作業人員帳號「${username}」重複`, 'error');
+          seen.add(username);
+          const typedPass = row.querySelector('[data-acct-field="password"]').value;
+          const existingAcc = existingStaffMap.get(origUser);
+          const password = typedPass !== '' ? typedPass : String(existingAcc?.password || '');
+          if (!password) return showToast(`作業人員「${username}」尚未設定密碼，請手動輸入密碼`, 'error');
+          const staffRole = row.querySelector('[data-acct-field="role"]').value;
+          const cpId = row.querySelector('[data-acct-field="checkpointId"]').value.trim();
+          if (staffRole !== 'writer' && !cpId) {
+            return showToast(`作業人員「${username}」屬於感應角色，必須填寫鎖定站點代碼`, 'error');
+          }
+          nextStaff.push({
+            username,
+            password,
+            displayName: row.querySelector('[data-acct-field="displayName"]').value.trim() || username,
+            role: staffRole,
+            eventId: row.querySelector('[data-acct-field="eventId"]').value || 'ALL',
+            checkpointId: staffRole === 'writer' ? '' : cpId,
+            ownerAdmin: row.querySelector('[data-acct-field="ownerAdmin"]').value || '',
+            enabled: row.querySelector('[data-acct-field="enabled"]').checked,
+            updatedAt: Date.now()
+          });
+        }
+
+        const updated = await DB.savePlatform({ ...state.platform, staffAccounts: nextStaff });
+        if (Sync.isOnlineEnabled() && navigator.onLine) {
+          try { await Sync.pushPlatform(updated, state.session.auth); } catch (err) { showToast(`本機已儲存，雲端同步失敗：${err.message}`, 'warn'); }
+        }
+        await reloadState();
+        showToast(`✅ 已儲存全平台 ${nextStaff.length} 組作業人員帳號變更！`, 'success');
+      }
     });
 
     // 分頁 6：歷年活動及成績匯入管理

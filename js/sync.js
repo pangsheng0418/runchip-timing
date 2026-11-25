@@ -87,10 +87,9 @@
       const scopedEvents = (platform.events || []).filter(
         (e) => (String(e.ownerAdmin || '').trim() || defaultOwner) === owner
       );
-      const scopedStaff = (platform.staffAccounts || []).filter((s) => {
-        const sOwner = String(s.ownerAdmin || '').trim();
-        return isSuper ? (!sOwner || sOwner === owner) : sOwner === owner;
-      });
+      const scopedStaff = isSuper
+        ? (platform.staffAccounts || [])
+        : (platform.staffAccounts || []).filter((s) => String(s.ownerAdmin || '').trim() === owner);
       const scopedAdmins = isSuper
         ? adminList
         : adminList.filter((a) => a.username === owner);
@@ -100,6 +99,7 @@
 
       return {
         scopedAdminSync: true,
+        manageAllStaff: isSuper,
         globalConfig: {
           adminUsername: platform.adminUsername,
           adminPassword: platform.adminPassword,

@@ -21,7 +21,7 @@
       }
     })();
   </script>
-  <link rel="stylesheet" href="./css/style.css?v=3.13.1" />
+  <link rel="stylesheet" href="./css/style.css?v=3.13.2" />
 </head>
 <body class="min-h-screen tur-stage-bg text-slate-100 pb-8">
 
@@ -276,21 +276,16 @@
           </div>
         </div>
 
-        <!-- 帳號密碼登入表單（全面禁止自動填入，最高管理權責與活動承辦人密碼均預設空白） -->
+        <!-- 帳號密碼登入表單（全面禁止自動填入，最高管理員與活動承辦人密碼均預設空白且不保存登入紀錄） -->
         <form id="form-admin-login" autocomplete="off" class="space-y-3.5">
           <div>
-            <div class="flex items-center justify-between gap-2 mb-1">
-              <label for="admin-login-user" class="text-xs font-bold text-slate-300">管理員帳號</label>
-              <span id="admin-login-accounts-count" class="text-[11px] font-mono-num text-slate-500"></span>
-            </div>
-            <input id="admin-login-user" name="tur_adm_u_nocache" required readonly autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other" type="text" value="" placeholder="請輸入帳號"
+            <label for="admin-login-user" class="block text-xs font-bold text-slate-300 mb-1">管理員帳號</label>
+            <input id="admin-login-user" name="tur_adm_u_nocache" required readonly autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other" type="text" value="" placeholder="請手動輸入帳號"
               class="tur-no-autofill w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-base font-mono-num font-bold text-white focus:border-amber-400 focus:outline-none" />
-            <!-- 精簡快速選取帳號膠囊（僅當本機有對應身分帳號時顯示） -->
-            <div id="admin-login-account-grid" class="flex flex-wrap gap-1.5 mt-2"></div>
           </div>
 
           <div>
-            <label for="admin-login-pass" class="block text-xs font-bold text-slate-300 mb-1">登入密碼（預設空白，請手動輸入）</label>
+            <label for="admin-login-pass" class="block text-xs font-bold text-slate-300 mb-1">登入密碼（預設空白，不記錄）</label>
             <input id="admin-login-pass" name="tur_adm_p_nocache" required readonly autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other" type="text" inputmode="text" value="" placeholder="請手動輸入密碼（不可自動填入）"
               class="tur-secret-input w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-base font-bold text-white focus:border-amber-400 focus:outline-none" />
           </div>
@@ -302,7 +297,7 @@
         </form>
 
         <div class="rounded-xl bg-slate-950/80 border border-slate-800 px-3.5 py-2 text-[11px] text-slate-400 leading-relaxed">
-          ✅ <strong class="text-slate-200">自動維持登入：</strong>登入後下次點「後台管理」將直接進入；如需切換其他人員，請點右上角「<strong class="text-rose-300">登出 / 換人</strong>」。
+          🔒 <strong class="text-slate-200">安全防護：</strong>管理員登入不保存任何登入紀錄與密碼，每次重新開啟皆須手動輸入帳密；離開時請點右上角「<strong class="text-rose-300">登出 / 換人</strong>」。
         </div>
       </div>
     </section>
@@ -577,9 +572,9 @@
     <!-- ================================================================== -->
     <section id="view-admin-workspace" class="app-view hidden space-y-4">
 
-      <!-- 頂部橫式專區選單（最高管理權責 4 欄／活動承辦人自動隱藏歷年匯入為 3 欄） -->
+      <!-- 頂部橫式專區選單（最高管理員 5 欄含帳號管理與歷年匯入／活動承辦人自動隱藏為 3 欄） -->
       <div id="admin-zone-nav" class="bg-slate-900/90 border border-slate-800 rounded-2xl p-2 shadow-xl">
-        <div id="admin-zone-nav-grid" class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <div id="admin-zone-nav-grid" class="grid grid-cols-2 sm:grid-cols-5 gap-2">
           <button type="button" data-admin-zone="ops"
             class="admin-zone-nav-btn text-left rounded-xl px-3 py-2.5 border border-amber-500/30 bg-slate-950/80 hover:bg-amber-950/35 hover:border-amber-400/70 transition flex flex-col justify-between gap-1.5 min-w-0">
             <div class="flex items-center justify-between gap-1 w-full">
@@ -600,6 +595,18 @@
             </div>
             <div class="flex items-center justify-between gap-1">
               <span id="zone-closed-badge" class="px-2 py-0.5 rounded-full text-[10px] font-mono-num font-bold bg-emerald-500/15 border border-emerald-500/30 text-emerald-200 truncate">0 場已結案</span>
+              <span class="admin-zone-state-label text-[10px] font-bold text-slate-500 shrink-0">點選開啟</span>
+            </div>
+          </button>
+
+          <button id="admin-zone-nav-accounts" type="button" data-admin-zone="accounts"
+            class="admin-zone-nav-btn text-left rounded-xl px-3 py-2.5 border border-indigo-500/30 bg-slate-950/80 hover:bg-indigo-950/35 hover:border-indigo-400/70 transition flex flex-col justify-between gap-1.5 min-w-0">
+            <div class="flex items-center justify-between gap-1 w-full">
+              <span class="text-xs sm:text-[13px] font-black text-indigo-300 truncate">👥 帳號管理專區</span>
+              <span class="admin-zone-chevron text-[11px] font-bold text-slate-400 shrink-0">▼</span>
+            </div>
+            <div class="flex items-center justify-between gap-1">
+              <span id="zone-accounts-badge" class="px-2 py-0.5 rounded-full text-[10px] font-mono-num font-bold bg-indigo-500/15 border border-indigo-500/30 text-indigo-200 truncate">0 帳號</span>
               <span class="admin-zone-state-label text-[10px] font-bold text-slate-500 shrink-0">點選開啟</span>
             </div>
           </button>
@@ -1559,6 +1566,132 @@
       </div>
 
       <!-- ================================================================ -->
+      <!-- 專區 3：👥 帳號管理專區（僅最高管理員：統一建立與修改 最高管理員／活動承辦人／作業人員 帳密） -->
+      <!-- ================================================================ -->
+      <div id="admin-zone-accounts" class="admin-zone-card hidden rounded-3xl bg-indigo-950/20 border-2 border-indigo-400/70 p-3.5 sm:p-4 space-y-3.5 shadow-xl transition">
+        <div class="flex flex-wrap items-center justify-between gap-2.5 pb-2.5 border-b border-indigo-500/25">
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="px-2.5 py-1 rounded-lg text-xs font-black bg-indigo-500/20 border border-indigo-500/40 text-indigo-300">最高管理專用</span>
+            <h2 class="text-sm sm:text-base font-black text-indigo-300 tracking-wide">👥 帳號管理專區</h2>
+            <span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-slate-900 border border-indigo-500/30 text-indigo-200">最高管理員・活動承辦人・作業人員 帳密建立與修改</span>
+          </div>
+          <button type="button" data-admin-zone-collapse="true"
+            class="px-2.5 py-1.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 transition">
+            收合 ▲
+          </button>
+        </div>
+
+        <div id="admin-zone-accounts-body" class="space-y-4">
+          <div id="admin-tab-accounts" class="admin-panel hidden space-y-4">
+            <!-- 3 大角色切換頁籤 -->
+            <div id="acct-role-tabs" class="grid grid-cols-3 gap-2 bg-slate-950/90 border border-slate-800 rounded-2xl p-1.5">
+              <button type="button" data-acct-role="super"
+                class="acct-role-tab-btn py-2.5 px-3 rounded-xl text-xs sm:text-sm font-black bg-amber-500 text-slate-950 shadow transition flex items-center justify-center gap-1.5">
+                <span>🛡️ 最高管理員</span>
+                <span id="acct-count-super" class="px-1.5 py-0.5 rounded-full text-[10px] font-mono-num bg-slate-950/30">0</span>
+              </button>
+              <button type="button" data-acct-role="coordinator"
+                class="acct-role-tab-btn py-2.5 px-3 rounded-xl text-xs sm:text-sm font-bold text-slate-300 hover:bg-slate-800 transition flex items-center justify-center gap-1.5">
+                <span>👤 活動承辦人</span>
+                <span id="acct-count-coordinator" class="px-1.5 py-0.5 rounded-full text-[10px] font-mono-num bg-slate-800">0</span>
+              </button>
+              <button type="button" data-acct-role="staff"
+                class="acct-role-tab-btn py-2.5 px-3 rounded-xl text-xs sm:text-sm font-bold text-slate-300 hover:bg-slate-800 transition flex items-center justify-center gap-1.5">
+                <span>👷 作業人員</span>
+                <span id="acct-count-staff" class="px-1.5 py-0.5 rounded-full text-[10px] font-mono-num bg-slate-800">0</span>
+              </button>
+            </div>
+
+            <!-- A. 建立新帳號表單（密碼一律預設空白手動設定） -->
+            <div class="bg-slate-900 border border-indigo-500/35 rounded-2xl p-4 sm:p-5 space-y-3">
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <h3 id="acct-create-title" class="text-sm sm:text-base font-extrabold text-white">＋ 建立最高管理員帳號</h3>
+                <span class="text-[11px] font-bold text-slate-400">🔒 所有密碼皆手動設定、預設空白不自動填入</span>
+              </div>
+              <form id="form-acct-create" autocomplete="off" class="space-y-3">
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <div>
+                    <label for="acct-new-username" class="block text-xs font-bold text-slate-400 mb-1">登入帳號 *</label>
+                    <input id="acct-new-username" required readonly autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" type="text" value="" placeholder="例：admin2 / host02 / cp4"
+                      class="tur-no-autofill w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm font-mono-num font-bold text-white focus:border-indigo-400 focus:outline-none" />
+                  </div>
+                  <div>
+                    <label for="acct-new-displayname" class="block text-xs font-bold text-slate-400 mb-1">顯示名稱 *</label>
+                    <input id="acct-new-displayname" required autocomplete="off" type="text" value="" placeholder="例：賽事承辦人 王小明"
+                      class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm font-bold text-white focus:border-indigo-400 focus:outline-none" />
+                  </div>
+                  <div>
+                    <label for="acct-new-password" class="block text-xs font-bold text-slate-400 mb-1">設定登入密碼 *</label>
+                    <input id="acct-new-password" required readonly autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" type="text" value="" placeholder="請手動輸入密碼（預設空白）"
+                      class="tur-secret-input w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm font-mono-num text-white focus:border-indigo-400 focus:outline-none" />
+                  </div>
+                </div>
+
+                <!-- 作業人員專用欄位（切換到作業人員分頁時顯示） -->
+                <div id="acct-new-staff-fields" class="hidden grid grid-cols-1 sm:grid-cols-4 gap-2.5 pt-1">
+                  <div>
+                    <label for="acct-new-staff-role" class="block text-xs font-bold text-slate-400 mb-1">作業權限</label>
+                    <select id="acct-new-staff-role" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-white">
+                      <option value="scanner">鎖定感應站點</option>
+                      <option value="writer">僅共用晶片寫入</option>
+                      <option value="both">寫入＋鎖定站點</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label for="acct-new-staff-event" class="block text-xs font-bold text-slate-400 mb-1">限定活動</label>
+                    <select id="acct-new-staff-event" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-amber-300">
+                      <option value="ALL">所有開放活動</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label for="acct-new-staff-cp" class="block text-xs font-bold text-slate-400 mb-1">鎖定站點代碼</label>
+                    <input id="acct-new-staff-cp" list="acct-cp-datalist" type="text" value="CHECKIN" placeholder="CHECKIN / LAP / CP1 / FINISH"
+                      class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono-num text-sky-300" />
+                  </div>
+                  <div>
+                    <label for="acct-new-staff-owner" class="block text-xs font-bold text-slate-400 mb-1">歸屬管理者</label>
+                    <select id="acct-new-staff-owner" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-slate-200">
+                      <option value="">全平台共用（不限管理者）</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="flex justify-end">
+                  <button id="btn-acct-create-submit" type="submit"
+                    class="px-5 py-2.5 rounded-xl text-xs sm:text-sm font-black bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow transition">
+                    ＋ 建立帳號並同步
+                  </button>
+                </div>
+              </form>
+            </div>
+
+            <!-- B. 帳號清冊與修改／重設密碼管理 -->
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 space-y-3">
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h3 id="acct-list-title" class="text-sm sm:text-base font-extrabold text-white">🛡️ 最高管理員清冊</h3>
+                  <p class="text-[11px] text-slate-400 mt-0.5">密碼欄預設空白不顯示明文；「留空」按儲存＝維持原密碼，輸入新密碼即立即修改。</p>
+                </div>
+                <button id="btn-acct-save-all" type="button"
+                  class="px-5 py-2.5 rounded-xl text-xs sm:text-sm font-black bg-indigo-500 hover:bg-indigo-400 text-white shadow transition">
+                  💾 儲存變更並同步雲端
+                </button>
+              </div>
+              <div id="acct-manage-list" class="space-y-2.5"></div>
+              <datalist id="acct-cp-datalist">
+                <option value="CHECKIN">選手報到感應區 (CHECKIN)</option>
+                <option value="LAP">繞圈計次感應區 (LAP)</option>
+                <option value="CP1">補給站 1 (CP1)</option>
+                <option value="CP2">補給站 2 / 折返點 (CP2)</option>
+                <option value="CP3">補給站 3 (CP3)</option>
+                <option value="FINISH">終點衝線門 (FINISH)</option>
+              </datalist>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ================================================================ -->
       <!-- 專區 4：🗄️ 資料庫專區（備份與還原僅最高管理權責顯示 ＋ 雲端同步 ＋ 測試資料重置） -->
       <!-- ================================================================ -->
       <div id="admin-zone-db" class="admin-zone-card hidden rounded-3xl bg-sky-950/20 border-2 border-sky-400/70 p-3.5 sm:p-4 space-y-3.5 shadow-xl transition">
@@ -2030,13 +2163,13 @@
     </div>
   </div>
 
-  <script src="./js/config.js?v=3.13.1"></script>
-  <script src="./js/timing-engine.js?v=3.13.1"></script>
-  <script src="./js/db.js?v=3.13.1"></script>
-  <script src="./js/nfc.js?v=3.13.1"></script>
-  <script src="./js/sync.js?v=3.13.1"></script>
-  <script src="./js/excel.js?v=3.13.1"></script>
-  <script src="./js/certificate.js?v=3.13.1"></script>
-  <script src="./js/app.js?v=3.13.1"></script>
+  <script src="./js/config.js?v=3.13.2"></script>
+  <script src="./js/timing-engine.js?v=3.13.2"></script>
+  <script src="./js/db.js?v=3.13.2"></script>
+  <script src="./js/nfc.js?v=3.13.2"></script>
+  <script src="./js/sync.js?v=3.13.2"></script>
+  <script src="./js/excel.js?v=3.13.2"></script>
+  <script src="./js/certificate.js?v=3.13.2"></script>
+  <script src="./js/app.js?v=3.13.2"></script>
 </body>
 </html>

@@ -698,10 +698,9 @@ function readAllData_(maskSensitive, callerAdmin, gCfgOpt) {
 
   if (callerAdmin) {
     const allStaff = readStaffList_();
-    result.staffAccounts = allStaff.filter(function (s) {
-      if (callerAdmin.isSuperAdmin) return !s.ownerAdmin || s.ownerAdmin === callerAdmin.username;
-      return s.ownerAdmin === callerAdmin.username;
-    });
+    result.staffAccounts = callerAdmin.isSuperAdmin
+      ? allStaff
+      : allStaff.filter(function (s) { return s.ownerAdmin === callerAdmin.username; });
     const allAdmins = readAdminAccountsList_(gCfg);
     result.adminAccounts = callerAdmin.isSuperAdmin
       ? allAdmins
@@ -1136,34 +1135,57 @@ function handleSavePlatform_(payload, callerAdmin, gCfg) {
 
     let finalStaff = existingStaff;
     if (Array.isArray(payload.staffAccounts)) {
-      const otherStaff = existingStaff.filter(function (s) {
-        if (isSuper) return s.ownerAdmin && s.ownerAdmin !== effectiveCaller;
-        return s.ownerAdmin !== effectiveCaller;
-      });
-      const otherUserSet = {};
-      otherStaff.forEach(function (s) { otherUserSet[s.username] = true; });
-
-      const callerStaff = [];
-      payload.staffAccounts.forEach(function (s) {
-        const u = String(s.username || '').trim();
-        if (!u) return;
-        if (otherUserSet[u]) {
-          throw new Error('作業員帳號「' + u + '」已被其他管理員使用，請更換其他帳號名稱');
-        }
-        const rawOwner = String(s.ownerAdmin || '').trim();
-        callerStaff.push({
-          username: u,
-          password: String(s.password || ''),
-          displayName: String(s.displayName || '').trim(),
-          role: String(s.role || 'scanner').trim(),
-          eventId: String(s.eventId || 'ALL').trim() || 'ALL',
-          checkpointId: String(s.checkpointId || '').trim(),
-          enabled: s.enabled !== false,
-          updatedAt: Number(s.updatedAt || Date.now()),
-          ownerAdmin: isSuper ? (rawOwner === '' ? '' : effectiveCaller) : effectiveCaller
+      if (isSuper && payload.manageAllStaff) {
+        // 最高管理員於「帳號管理」專區可直接維護全平台所有作業人員帳號
+        const seenStaff = {};
+        finalStaff = [];
+        payload.staffAccounts.forEach(function (s) {
+          const u = String(s.username || '').trim();
+          if (!u || seenStaff[u]) return;
+          seenStaff[u] = true;
+          const rawOwner = String(s.ownerAdmin || '').trim();
+          finalStaff.push({
+            username: u,
+            password: String(s.password || ''),
+            displayName: String(s.displayName || '').trim(),
+            role: String(s.role || 'scanner').trim(),
+            eventId: String(s.eventId || 'ALL').trim() || 'ALL',
+            checkpointId: String(s.checkpointId || '').trim(),
+            enabled: s.enabled !== false,
+            updatedAt: Number(s.updatedAt || Date.now()),
+            ownerAdmin: rawOwner ? renameOwner_(rawOwner) : ''
+          });
         });
-      });
-      finalStaff = otherStaff.concat(callerStaff);
+      } else {
+        const otherStaff = existingStaff.filter(function (s) {
+          if (isSuper) return s.ownerAdmin && s.ownerAdmin !== effectiveCaller;
+          return s.ownerAdmin !== effectiveCaller;
+        });
+        const otherUserSet = {};
+        otherStaff.forEach(function (s) { otherUserSet[s.username] = true; });
+
+        const callerStaff = [];
+        payload.staffAccounts.forEach(function (s) {
+          const u = String(s.username || '').trim();
+          if (!u) return;
+          if (otherUserSet[u]) {
+            throw new Error('作業員帳號「' + u + '」已被其他管理員使用，請更換其他帳號名稱');
+          }
+          const rawOwner = String(s.ownerAdmin || '').trim();
+          callerStaff.push({
+            username: u,
+            password: String(s.password || ''),
+            displayName: String(s.displayName || '').trim(),
+            role: String(s.role || 'scanner').trim(),
+            eventId: String(s.eventId || 'ALL').trim() || 'ALL',
+            checkpointId: String(s.checkpointId || '').trim(),
+            enabled: s.enabled !== false,
+            updatedAt: Number(s.updatedAt || Date.now()),
+            ownerAdmin: isSuper ? (rawOwner === '' ? '' : effectiveCaller) : effectiveCaller
+          });
+        });
+        finalStaff = otherStaff.concat(callerStaff);
+      }
     }
 
     if (staffSheet.getLastRow() > 1) {
@@ -1183,6 +1205,7 @@ function handleSavePlatform_(payload, callerAdmin, gCfg) {
           s.ownerAdmin
         ];
       });
+      staffSheet.getRange(2, 1, rows.length, 2).setNumberFormat('@');
       staffSheet.getRange(2, 1, rows.length, 9).setValues(rows);
     }
   }
